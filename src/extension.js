@@ -2,6 +2,7 @@
 const vscode = require('vscode');
 const crypto = require('node:crypto');
 const { GerritApi, normalizeUrl } = require('./api');
+const { inboxQuery } = require('./inbox');
 const { git, pushRef } = require('./git');
 const { comparisonPlan, comparisonFiles } = require('./comparison');
 const { Logger } = require('./log');
@@ -12,6 +13,8 @@ function activate(context) {
   const app = new Workbench(context);
   context.subscriptions.push(app,
     vscode.window.registerWebviewViewProvider('gerrit.dashboard', app),
+    vscode.window.registerWebviewViewProvider('gerrit.changedFiles', { resolveWebviewView: view => app.resolveFilesView(view) }),
+    vscode.commands.registerCommand('gerrit.showFiles', () => app.showFiles()),
     vscode.workspace.registerTextDocumentContentProvider('gerrit', app),
     vscode.commands.registerCommand('gerrit.connect', () => app.run(() => app.connect())),
     vscode.commands.registerCommand('gerrit.refresh', () => app.run(() => app.refresh())),
@@ -24,7 +27,7 @@ function activate(context) {
     vscode.commands.registerCommand('gerrit.nextComment', () => app.run(() => app.navigateComment(1))),
     vscode.commands.registerCommand('gerrit.previousComment', () => app.run(() => app.navigateComment(-1))),
     vscode.commands.registerCommand('gerrit.fileComments', () => app.run(() => app.navigateComment(0))),
-    vscode.commands.registerCommand('gerrit._viewStatus', () => ({ resolved: !!app.view, ready: !!app.sidebarReady, error: app.sidebarError || null })),
+    vscode.commands.registerCommand('gerrit._viewStatus', () => ({ resolved: !!app.view, ready: !!app.sidebarReady, error: app.sidebarError || null, filesReady: !!app.filesReady, filesError: app.filesError || null })),
     vscode.window.onDidChangeVisibleTextEditors(() => app.updateDecorations()),
     vscode.languages.registerHoverProvider({ scheme: 'gerrit' }, { provideHover: (document, position) => app.commentHover(document, position) }),
     vscode.workspace.onDidChangeConfiguration(event => { if (event.affectsConfiguration('gerrit')) app.run(async () => {
@@ -82,7 +85,7 @@ class Workbench {
     try { await fn(); } catch (error) { this.logger.write('error', error.logMessage || error.message); this.send({ type: 'error', message: error.message }); vscode.window.showErrorMessage(`Gerrit: ${error.message}`); }
     finally { this.busy = false; this.send({ type: 'busy', value: false }); }
   }
-  send(message) { this.view?.webview.postMessage(message); this.discussion?.webview.postMessage(message); }
+  send(message) { this.view?.webview.postMessage(message); this.discussion?.webview.postMessage(message); this.filesView?.webview.postMessage(message); }
   render() {
     this.model.commitInfoExpanded = this.setting('commitInfo.defaultExpanded', false);
     this.model.downloads = [...(this.downloadJobs?.values() || [])].map(({ promise, ...item }) => item);
@@ -91,11 +94,27 @@ class Workbench {
     this.updateDecorations();
     this.view?.webview.postMessage({ type: 'state', model: { ...this.model, surface: 'sidebar' } });
     this.discussion?.webview.postMessage({ type: 'state', model: { ...this.model, surface: 'discussion' } });
+    this.filesView?.webview.postMessage({ type: 'state', model: { ...this.model, surface: 'files' } });
   }
   async resolveWebviewView(view) {
     this.view = view;
     this.sidebarReady = false; this.sidebarError = undefined;
     this.setupWebview(view.webview);
+  }
+  async resolveFilesView(view) {
+    this.filesView = view; this.filesReady = false; this.filesError = undefined;
+    this.setupWebview(view.webview);
+    view.onDidDispose?.(() => { if (this.filesView === view) { this.filesView = undefined; this.filesReady = false; } }, undefined, this.context.subscriptions);
+  }
+  async showFiles() {
+    if (this.filesView) this.filesView.show(true);
+    else await vscode.commands.executeCommand('gerrit.changedFiles.focus');
+  }
+  async loadRelated() {
+    const s = this.selected;
+    const related = await this.api.related(s.id, s.rev);
+    if (!Array.isArray(related?.changes)) throw new Error('服务器未返回有效的 Relation chain');
+    this.model.detail.related = { rev: s.rev, changes: related.changes }; this.render();
   }
   receiveMessage(webview, message) {
     if (message?.type === 'init') {
@@ -106,11 +125,13 @@ class Workbench {
     }
     if (message?.type === 'rendered') {
       if (webview === this.view?.webview) { this.sidebarReady = true; this.sidebarError = undefined; }
+      if (webview === this.filesView?.webview) { this.filesReady = true; this.filesError = undefined; }
       return;
     }
     if (message?.type === 'clientError') {
       const text = String(message.message || '工作台页面加载失败').slice(0, 500);
       if (webview === this.view?.webview) this.sidebarError = text;
+      if (webview === this.filesView?.webview) this.filesError = text;
       this.logger.write('error', `Webview: ${text}`);
       vscode.window.showErrorMessage(`Gerrit 工作台页面加载失败：${text}`); return;
     }
@@ -201,13 +222,15 @@ class Workbench {
   needConnection() { if (!this.api) throw new Error('请先点击“连接服务器”'); }
   async refresh() {
     this.needConnection();
-    this.model.changes = (await this.api.list(this.model.query, this.model.start)).sort((a, b) => String(b.updated || '').localeCompare(String(a.updated || '')));
+    this.model.changes = (await this.api.list(inboxQuery(this.model.query, { branch: this.model.branch, unreviewed: this.model.unreviewed }), this.model.start)).sort((a, b) => String(b.updated || '').localeCompare(String(a.updated || '')));
     this.model.more = Boolean(this.model.changes.at(-1)?._more_changes);
+    this.model.branchOptions = [...new Set([...(this.model.branchOptions || []), ...this.model.changes.map(c => c.branch).filter(Boolean)])].sort();
     if (this.selected) await this.load(this.selected.id, false);
     this.render();
   }
   async load(id, render = true) {
     const change = await this.api.detail(id); const rev = change.current_revision;
+    const opening = this.selected?.id !== change.id;
     let plan = comparisonPlan(change.revisions, 'base', rev);
     if (this.selected?.id === change.id && this.selected.comparison) {
       try { plan = comparisonPlan(change.revisions, this.selected.comparison.left, this.selected.comparison.right); } catch { /* A removed patch set resets comparison. */ }
@@ -216,17 +239,19 @@ class Workbench {
     const files = comparisonFiles(rawFiles, plan.reverse);
     const patchView = this.selected?.id === change.id ? this.model.detail?.patchView : undefined;
     this.clearThreads(); this.selected = { id: change.id, rev, change, files, comments, comparison: plan };
-    this.model.detail = { ...change, files, comments, comparison: plan, patchView, mine: change.owner?._account_id === this.user._account_id };
+    const related = this.model.detail?.id === change.id && this.model.detail.related?.rev === rev ? this.model.detail.related : undefined;
+    this.model.changes = this.model.changes.map(item => item.id === change.id ? { ...item, reviewed: !!change.reviewed, status: change.status, updated: change.updated } : item);
+    this.model.detail = { ...change, files, comments, comparison: plan, patchView, related, mine: change.owner?._account_id === this.user._account_id };
     if (this.discussion) this.discussion.title = `#${change._number} · 评审讨论`;
     // Reattach comments in any already-open snapshot for this exact patch set.
     for (const [uri, info] of this.documents) if (this.validInfo(info)) await this.attach(vscode.Uri.parse(uri), info);
-    if (render) this.render();
+    if (render) { this.render(); if (opening) await this.showFiles(); }
   }
   async compare(left, right) {
     const s = this.selected; const plan = comparisonPlan(s.change.revisions, left, right);
     const files = comparisonFiles(await this.api.files(s.id, plan.revision, plan.base), plan.reverse);
     s.files = files; s.comparison = plan;
-    this.model.detail.files = files; this.model.detail.comparison = plan; delete this.model.detail.patchView; this.render();
+    this.model.detail.files = files; this.model.detail.comparison = plan; delete this.model.detail.patchView; this.render(); await this.showFiles();
   }
   async selectPatch(rev, query = '') {
     const s = this.selected;
@@ -326,15 +351,28 @@ class Workbench {
     }
     if (m.type === 'push') return this.push();
     this.needConnection();
-    if (m.type === 'search') { this.model.query = String(m.query || 'is:open'); this.model.start = 0; return this.refresh(); }
+    if (m.type === 'filters' || m.type === 'search') {
+      const branch = m.branch === undefined ? this.model.branch : String(m.branch).trim();
+      const unreviewed = m.unreviewed === undefined ? this.model.unreviewed : !!m.unreviewed;
+      const query = m.type === 'search' ? String(m.query || 'is:open') : this.model.query;
+      inboxQuery(query, { branch, unreviewed });
+      Object.assign(this.model, { query, branch, unreviewed, start: 0 }); return this.refresh();
+    }
     if (m.type === 'page') { this.model.start = Math.max(0, this.model.start + (m.next ? this.model.pageSize : -this.model.pageSize)); return this.refresh(); }
     if (m.type === 'refresh') return this.refresh();
     if (m.type === 'open') return this.load(String(m.id));
-    if (m.type === 'back') { this.selected = null; delete this.model.detail; this.clearThreads(); this.render(); return; }
+    if (m.type === 'back') { this.selected = null; delete this.model.detail; this.clearThreads(); this.render(); return this.refresh(); }
     const s = this.selected; if (!s || m.id !== s.id || m.rev !== s.rev) throw new Error('页面已更新，请重新选择变更后操作');
     if (m.type === 'file') {
       if (m.compareLeft && (m.compareLeft !== s.comparison?.left || m.compareRight !== s.comparison?.right)) throw new Error('比较版本已更新，请重新点击文件');
       return this.openDiff(String(m.path));
+    }
+    if (m.type === 'showFiles') return this.showFiles();
+    if (m.type === 'related') return this.loadRelated();
+    if (m.type === 'relatedOpen') {
+      const node = this.model.detail.related?.changes.find(item => String(item._change_number) === String(m.number));
+      if (!node || !Number.isSafeInteger(node._change_number) || node._change_number <= 0) throw new Error('关系链节点已更新，请重新加载');
+      return this.load(String(node._change_number));
     }
     if (m.type === 'locate') return this.locateComment(m.path, m.comment);
     if (m.type === 'patch') return this.selectPatch(String(m.patchRev || s.rev));

@@ -52,8 +52,35 @@ function downloadStatus() {
   const jobs = (model.downloads || []).filter(job => job.changeId === model.detail?.id);
   return jobs.map(job => `<div class="download-task ${e(job.status)}" role="status"><div class="row">${icon('download')}<strong>${e(job.stage)}</strong><span class="badge">PS ${e(job.patch)}</span></div><div class="muted mono">${e(job.directory)} → ${e(job.branch)}</div><p class="muted">${job.status === 'running' ? '后台执行中，可继续浏览和评审。' : job.status === 'completed' ? '已在当前代码仓库切换到此分支。' : '本地任务已结束，请处理以上问题后重试。'}</p></div>`).join('');
 }
+
+const statusText = value => ({ NEW: '评审中', MERGED: '已合入', ABANDONED: '已废弃' }[value] || value || '—');
+function relationChain(d) {
+  if (!d.related) return `<div class="row">${button('关系链 · Relation chain', 'related')}</div>`;
+  const nodes = d.related.changes;
+  return `<details class="relation-chain" open><summary>关系链 · Relation chain <span class="muted">${nodes.length} 个节点</span></summary><p class="muted">最新 PS 的相关提交，上新下旧；点击变更打开其最新 PS。</p><div class="chain">${nodes.map(node => {
+    const current = node.commit?.commit === d.current_revision;
+    const old = node._revision_number && node._current_revision_number && node._revision_number !== node._current_revision_number;
+    const label = node._change_number ? `#${node._change_number} · ${node.commit?.subject || ''}` : node.commit?.subject || node.commit?.commit || '提交';
+    return `<div class="chain-node ${current ? 'current' : ''}">${node._change_number ? button(label, 'relatedOpen', 'secondary file', `data-number="${e(node._change_number)}"`) : `<div class="chain-commit">${e(label)}</div>`}<div class="muted"><span class="mono">${e(node.commit?.commit?.slice(0, 10))}</span> ${node._revision_number ? `· PS ${e(node._revision_number)}` : ''} ${e(statusText(node.status))} ${current ? '<span class="badge">当前 PS</span>' : ''}${old ? `<span class="badge">旧 PS · 最新为 ${e(node._current_revision_number)}</span>` : ''}</div>${node.commit?.parents?.length ? `<div class="chain-parents muted mono">父提交 ← ${e(node.commit.parents.map(p => p.commit?.slice(0, 10)).join(', '))}</div>` : ''}</div>`;
+  }).join('') || '<p class="empty">此 PS 没有关联变更</p>'}</div>${button('刷新关系链', 'related')}</details>`;
+}
 function fileComparison(d) {
-  return `${comparison(d)}<h2>比较结果 · 文件</h2><p class="muted">选中代码 → 右键“评论所选代码行”；点击行号旁的评论图标查看已有讨论。</p>${Object.entries(d.files || {}).map(([path, f]) => button(`${f.status || 'M'}  ${path}  +${f.lines_inserted || 0} −${f.lines_deleted || 0}`, 'file', 'secondary file', `data-path="${e(path)}"`)).join('') || '<p class="empty">两个版本之间没有文件改动</p>'}`;
+  const count = Object.keys(d.files || {}).filter(path => !path.startsWith('/')).length;
+  return `${comparison(d)}${button(`查看修改文件（${count}） ↓`, 'showFiles', 'wide')}<p class="muted">文件列表位于底部“Gerrit 文件”面板，可筛选路径并点击打开 diff。</p>`;
+}
+const fileFilterKey = () => `${model.detail?.id}:${model.detail?.comparison?.left}:${model.detail?.comparison?.right}`;
+function fileResults(d, query = '') {
+  const files = Object.entries(d.files || {}).filter(([path]) => !path.startsWith('/')).sort(([a], [b]) => a.localeCompare(b));
+  const matched = files.filter(([path]) => path.toLowerCase().includes(query.toLowerCase()));
+  return `<div class="muted file-count">显示 ${matched.length} / ${files.length} 个修改文件</div><div class="file-table"><div class="file-columns muted"><span>类型</span><span>文件路径</span><span>新增 / 删除</span><span>全部评论</span></div>${matched.map(([path, f]) => `<button type="button" class="file-row" data-action="file" data-path="${e(path)}"><span class="file-status">${e(f.status || 'M')}</span><span class="file-path">${e(path)}${f.old_path ? `<small class="muted">原路径：${e(f.old_path)}</small>` : ''}</span><span class="file-stats"><span class="positive">+${e(f.lines_inserted || 0)}</span> <span class="negative">−${e(f.lines_deleted || 0)}</span></span><span class="muted" title="此文件所有 Patch set 的评论数">${e((d.comments?.[path] || []).length)}</span></button>`).join('') || '<div class="empty">没有匹配的修改文件</div>'}</div>`;
+}
+function filesPanel() {
+  const d = model.detail;
+  if (!model.connected || !d) return '<div class="file-panel"><p class="empty">在左侧 Gerrit 工作台选择一笔变更，即可在这里查看修改文件。</p></div>';
+  const plan = d.comparison || { left: 'base', right: d.current_revision };
+  const label = rev => rev === 'base' ? 'Base' : `PS ${d.revisions?.[rev]?._number || '?'}`;
+  const filter = state.fileFilter?.key === fileFilterKey() ? state.fileFilter.query : '';
+  return `<div class="file-panel"><div class="file-toolbar"><div><b>#${e(d._number)} · ${e(d.subject)}</b><span class="badge">${e(label(plan.left))} → ${e(label(plan.right))}</span></div><input id="file-filter" type="search" aria-label="筛选修改文件路径" placeholder="筛选文件路径…" value="${e(filter)}"></div><div id="file-results">${fileResults(d, filter)}</div></div>`;
 }
 function patchBrowser(d) {
   const view = d.patchView; const rev = view?.rev || d.current_revision;
@@ -82,16 +109,18 @@ function discussion(d) {
     const replyKey = `${key()}::${last.id}`;
     return `<article class="card thread"><div class="comment-head"><b>${e(path)}${root.line ? `:${e(root.line)}` : ' · 文件评论'}</b><span class="badge">${last.unresolved ? '未解决' : '已解决'}</span></div><p class="muted">PS ${e(root.patch_set || '?')} · ${root.side === 'PARENT' ? 'Base' : 'Patch'} ${root.range ? `· 行 ${root.range.start_line}–${root.range.end_line}` : ''}</p>${list.map(c => `<div class="thread-message"><div class="message-byline"><span class="avatar">${e(who(c.author).slice(0, 1))}</span><b>${e(who(c.author))}</b><time>${e(time(c.updated))}</time></div><p class="message">${e(c.message)}</p></div>`).join('')}<div class="row">${button('定位到代码', 'locate', 'secondary', `data-path="${e(path)}" data-comment="${e(root.id)}"`)}</div><form data-form="reply" data-path="${e(path)}" data-comment="${e(last.id)}"><textarea data-reply-key="${e(replyKey)}" aria-label="回复 ${e(path)} 的讨论" placeholder="回复这条讨论…">${e(state.replies?.[replyKey] || '')}</textarea><div class="row"><button type="submit">发布回复</button></div></form></article>`;
   }).join('') || '<div class="empty">暂无符合筛选的代码讨论</div>'}<h2>活动记录</h2>${(d.messages || []).slice().reverse().map(m => `<details class="card activity"><summary><b>${e(who(m.author))}</b><span class="badge">PS ${e(m._revision_number)}</span><time>${e(time(m.date))}</time></summary><div class="message">${e(m.message)}</div></details>`).join('') || '<p class="muted">暂无活动</p>'}`;
-  return `<div class="review-shell"><div class="hero"><div class="hero-top"><span class="eyebrow">CHANGE #${e(d._number)}</span><span class="badge status">${e(d.status)}</span><div class="hero-actions">${button('刷新', 'refresh')}${button('内置浏览器', 'browser')}</div></div><h1>${e(d.subject)}</h1><p class="muted">${e(d.project)} <span class="separator">/</span> ${e(d.branch)} <span class="separator">·</span> ${e(who(d.owner))} <span class="badge">最新 PS ${e(d.revisions?.[d.current_revision]?._number)}</span></p>${timestamps(d)}</div>${commitInfo(d)}<div class="discussion-layout"><section><nav class="tabs" aria-label="评审视图">${button('讨论', 'tabDiscussion', codeTab ? 'tab' : 'tab active')}${button('代码与下载', 'tabCode', codeTab ? 'tab active' : 'tab')}</nav>${codeTab ? `<div class="card code-panel">${patchBrowser(d)}</div><div class="card">${fileComparison(d)}</div>` : discussionBody}</section><aside><div class="card composer">${reviewForm(d)}</div><h2>当前评分</h2>${votes(d.labels) || '<p class="muted">暂无评分标签</p>'}</aside></div></div>`;
+  return `<div class="review-shell"><div class="hero"><div class="hero-top"><span class="eyebrow">CHANGE #${e(d._number)}</span><span class="badge status">${e(statusText(d.status))}</span><div class="hero-actions">${button('刷新', 'refresh')}${button('内置浏览器', 'browser')}</div></div><h1>${e(d.subject)}</h1><p class="muted">${e(d.project)} <span class="separator">/</span> ${e(d.branch)} <span class="separator">·</span> ${e(who(d.owner))} <span class="badge">最新 PS ${e(d.revisions?.[d.current_revision]?._number)}</span></p>${timestamps(d)}</div>${commitInfo(d)}${relationChain(d)}<div class="discussion-layout"><section><nav class="tabs" aria-label="评审视图">${button('讨论', 'tabDiscussion', codeTab ? 'tab' : 'tab active')}${button('代码与下载', 'tabCode', codeTab ? 'tab active' : 'tab')}</nav>${codeTab ? `<div class="card code-panel">${patchBrowser(d)}</div>` : discussionBody}</section><aside><div class="ratings"><h2>当前评分</h2>${votes(d.labels) || '<p class="muted">暂无评分标签</p>'}</div><div class="card composer">${reviewForm(d)}</div></aside></div></div>`;
 }
 function sidebarDetail(d) {
   const rev = d.revisions?.[d.current_revision]; const actions = d.actions || {};
   const commentCount = Object.values(d.comments || {}).flat().length;
-  return `<div class="row">${button('← 返回列表', 'back')}${button('刷新', 'refresh')}${button('内置浏览器', 'browser')}</div><p><span class="badge">#${e(d._number)}</span><span class="badge status">${e(d.status)}</span>${d.work_in_progress ? '<span class="badge">WIP</span>' : ''}</p><h1>${e(d.subject)}</h1><p class="muted">${e(d.project)} → ${e(d.branch)}<br>${e(who(d.owner))} · 最新 PS ${e(rev?._number)}</p>${timestamps(d)}<div class="review-entry">${icon('discussion')}${button(`打开评审讨论（${commentCount} 条代码评论）`, 'discussion', 'wide')}<p class="muted">讨论与评分、Commit 信息、单个 Patch 代码和本地下载。</p></div><div class="row">${d.mine && actions.ready?.enabled ? button('发布为待评审', 'ready', '') : ''}${d.mine && actions.abandon?.enabled ? button('废弃', 'abandon', 'secondary danger') : ''}${actions.submit?.enabled ? button('合入分支', 'submit') : ''}</div>${commitInfo(d)}${fileComparison(d)}`;
+  return `<div class="row">${button('← 返回列表', 'back')}${button('刷新', 'refresh')}${button('内置浏览器', 'browser')}</div><p><span class="badge">#${e(d._number)}</span><span class="badge status">${e(statusText(d.status))}</span>${d.work_in_progress ? '<span class="badge">WIP</span>' : ''}</p><h1>${e(d.subject)}</h1><p class="muted">${e(d.project)} → ${e(d.branch)}<br>${e(who(d.owner))} · 最新 PS ${e(rev?._number)}</p>${timestamps(d)}${commitInfo(d)}<div class="review-entry">${icon('discussion')}${button(`打开评审讨论（${commentCount} 条代码评论）`, 'discussion', 'wide')}<p class="muted">讨论与评分、Commit 信息、单个 Patch 代码和本地下载。</p></div><div class="row">${d.mine && actions.ready?.enabled ? button('发布为待评审', 'ready', '') : ''}${d.mine && actions.abandon?.enabled ? button('废弃', 'abandon', 'secondary danger') : ''}${actions.submit?.enabled ? button('合入分支', 'submit') : ''}</div>${relationChain(d)}${fileComparison(d)}`;
 }
 function render() {
   document.getElementById('account').textContent = model.connected ? `${model.user} · ${model.server}` : '提交 · 评审 · 讨论';
-  if (!model.connected) {
+  if (model.surface === 'files') {
+    app.innerHTML = filesPanel();
+  } else if (!model.connected) {
     app.innerHTML = `<h1>代码评审，触手可及。</h1><p class="muted">连接 Gerrit 后，在这里处理提交和文件比较。讨论在当前编辑器组的评审页中展开。</p><div class="row">${button('连接服务器', 'connect', '')}</div><p class="muted">支持 HTTP Key 和 HTTP 反向代理网页登录密码。凭据存入 VS Code 安全存储。</p>${button('上传本地提交', 'push')}`;
   } else if (model.detail) {
     app.innerHTML = model.surface === 'discussion' ? discussion(model.detail) : sidebarDetail(model.detail);
@@ -100,7 +129,7 @@ function render() {
   } else {
     const pageSize = model.pageSize || 50;
     const presets = [['Open', 'is:open'], ['Merged', 'is:merged'], ['与我相关', 'is:open (owner:self OR reviewer:self)'], ['我的提交', 'owner:self'], ['待我评审', 'is:open reviewer:self -owner:self']];
-    app.innerHTML = `<div class="row">${button('上传本地提交', 'push', '')}${button('连接设置', 'connect')}${button('断开', 'disconnect')}</div><h1>评审收件箱</h1><div class="row">${presets.map(([name, query]) => button(name, 'preset', model.query === query ? '' : 'secondary', `data-query="${e(query)}"`)).join('')}</div><form id="search"><label for="query">Gerrit 查询</label><input id="query" value="${e(model.query)}" placeholder="is:open project:my/project"><div class="row"><button type="submit">搜索</button>${button('刷新', 'refresh')}<span class="muted">每页最多 ${pageSize} 条</span></div></form>${(model.changes || []).map(c => `<button type="button" class="change" data-action="open" data-id="${e(c.id)}"><span class="muted">#${e(c._number)} · ${e(c.status)}${c.work_in_progress ? ' · WIP' : ''}</span><span class="subject">${e(c.subject)}</span><span class="muted">${e(c.project)} → ${e(c.branch)}<br>${e(who(c.owner))}<br>最后更新：${e(time(c.updated))}</span><div class="row">${Object.entries(c.labels || {}).map(([name, l]) => `<span class="badge">${e(name)} ${e(l.approved ? '✓' : l.rejected ? '✕' : (l.all || []).map(v => v.value > 0 ? `+${v.value}` : v.value).join(' / ') || '—')}</span>`).join('')}</div></button>`).join('') || '<div class="card muted">没有匹配的变更。可切换 Open 或修改查询。</div>'}<div class="row">${model.start ? button('上一页', 'prev') : ''}${model.more ? button('下一页', 'next') : ''}<span class="muted">第 ${Math.floor((model.start || 0) / pageSize) + 1} 页</span></div>`;
+    app.innerHTML = `<div class="row">${button('上传本地提交', 'push', '')}${button('连接设置', 'connect')}${button('断开', 'disconnect')}</div><h1>评审收件箱</h1><div class="row">${presets.map(([name, query]) => button(name, 'preset', model.query === query ? '' : 'secondary', `data-query="${e(query)}"`)).join('')}</div><form id="search"><label for="query">Gerrit 查询</label><input id="query" value="${e(model.query)}" placeholder="is:open project:my/project"><div class="inbox-filters"><label><input id="unreviewed-only" type="checkbox" ${model.unreviewed ? 'checked' : ''}>仅我未评审</label><input id="branch-filter" aria-label="筛选分支" list="branch-options" placeholder="全部分支 · 可输入分支名" value="${e(model.branch || '')}"><datalist id="branch-options">${(model.branchOptions || []).map(branch => `<option value="${e(branch)}"></option>`).join('')}</datalist></div><div class="row"><button type="submit">搜索 / 应用</button>${button('刷新', 'refresh')}<span class="muted">每页最多 ${pageSize} 条</span></div></form>${(model.changes || []).map(c => `<button type="button" class="change" data-action="open" data-id="${e(c.id)}"><span class="muted">#${e(c._number)} · ${e(statusText(c.status))}${c.work_in_progress ? ' · WIP' : ''}</span>${c.status === 'NEW' ? `<span class="review-mark ${c.reviewed ? 'done' : 'pending'}" title="你在作者最近一次更新后发布过评论或评分，即显示已评审">${c.reviewed ? '✓ 我已评审' : '○ 我未评审'}</span>` : ''}<span class="subject">${e(c.subject)}</span><span class="muted">${e(c.project)} → ${e(c.branch)}<br>${e(who(c.owner))}<br>最后更新：${e(time(c.updated))}</span><div class="row">${Object.entries(c.labels || {}).map(([name, l]) => `<span class="badge">${e(name)} ${e(l.approved ? '✓' : l.rejected ? '✕' : (l.all || []).map(v => v.value > 0 ? `+${v.value}` : v.value).join(' / ') || '—')}</span>`).join('')}</div></button>`).join('') || '<div class="card muted">没有匹配的变更。可切换 Open 或修改查询。</div>'}<div class="row">${model.start ? button('上一页', 'prev') : ''}${model.more ? button('下一页', 'next') : ''}<span class="muted">第 ${Math.floor((model.start || 0) / pageSize) + 1} 页</span></div>`;
   }
   setBusy();
   post('rendered', { surface: model.surface || 'sidebar' });
@@ -117,7 +146,7 @@ app.addEventListener('click', event => {
     [left.value, right.value] = [right.value, left.value]; return;
   }
   if (action === 'compareMode') { post('compare', { ...payload(), left: 'base', right: model.detail.current_revision }); return; }
-  if (action === 'preset') post('search', { query: b.dataset.query });
+  if (action === 'preset') post('search', { query: b.dataset.query, unreviewed: b.dataset.query === 'is:merged' ? false : !!model.unreviewed });
   else if (action === 'next' || action === 'prev') post('page', { next: action === 'next' });
   else if (['ready', 'abandon', 'submit'].includes(action)) post('action', { ...payload(), action });
   else post(action, { ...payload(), ...b.dataset });
@@ -128,17 +157,22 @@ function saveReview() {
   state.drafts ||= {}; state.drafts[key()] = { message: message.value, labels }; save();
 }
 app.addEventListener('input', event => {
+  if (event.target.id === 'file-filter') {
+    state.fileFilter = { key: fileFilterKey(), query: event.target.value }; save();
+    document.getElementById('file-results').innerHTML = fileResults(model.detail, event.target.value); setBusy();
+  }
   if (event.target.id === 'review-message') saveReview();
   if (event.target.dataset?.replyKey) { state.replies ||= {}; state.replies[event.target.dataset.replyKey] = event.target.value; save(); }
 });
 app.addEventListener('change', event => {
+  if (event.target.id === 'unreviewed-only') post('filters', { unreviewed: event.target.checked, branch: document.getElementById('branch-filter').value });
   if (event.target.id === 'unresolved-only') { state.unresolvedOnly = event.target.checked; save(); render(); }
   if (event.target.id === 'participated-only') { state.participatedOnly = event.target.checked; save(); render(); }
   if (event.target.dataset?.label) saveReview();
 });
 app.addEventListener('submit', event => {
   event.preventDefault(); if (busy) return;
-  if (event.target.id === 'search') post('search', { query: document.getElementById('query').value });
+  if (event.target.id === 'search') post('search', { query: document.getElementById('query').value, branch: document.getElementById('branch-filter').value, unreviewed: document.getElementById('unreviewed-only').checked });
   if (event.target.id === 'compare') post('compare', { ...payload(), left: document.getElementById('compare-left').value, right: document.getElementById('compare-right').value });
   if (event.target.id === 'patch') post('patch', { ...payload(), patchRev: document.getElementById('patch-revision').value });
   if (event.target.id === 'patch-search') post('patchSearch', { ...payload(), patchRev: model.detail.patchView.rev, query: document.getElementById('patch-search-text').value });

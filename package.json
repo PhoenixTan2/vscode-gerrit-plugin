@@ -2,7 +2,7 @@
   "name": "gerrit-workbench",
   "displayName": "Gerrit Workbench",
   "description": "在侧边栏完成 Gerrit 提交、代码评审、评论、评分与变更管理",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "publisher": "local-tools",
   "license": "MIT",
   "engines": {
@@ -15,7 +15,8 @@
   "main": "./src/extension.js",
   "activationEvents": [
     "onView:gerrit.dashboard",
-    "onFileSystem:gerrit"
+    "onFileSystem:gerrit",
+    "onView:gerrit.changedFiles"
   ],
   "capabilities": {
     "untrustedWorkspaces": {
@@ -34,6 +35,13 @@
           "title": "Gerrit Workbench",
           "icon": "media/gerrit.svg"
         }
+      ],
+      "panel": [
+        {
+          "id": "gerritChanges",
+          "title": "Gerrit 文件",
+          "icon": "media/gerrit.svg"
+        }
       ]
     },
     "views": {
@@ -42,6 +50,13 @@
           "type": "webview",
           "id": "gerrit.dashboard",
           "name": "Gerrit 工作台"
+        }
+      ],
+      "gerritChanges": [
+        {
+          "type": "webview",
+          "id": "gerrit.changedFiles",
+          "name": "修改文件"
         }
       ]
     },
@@ -100,6 +115,11 @@
         "command": "gerrit.fileComments",
         "title": "Gerrit: 本文件评论位置",
         "icon": "$(list-selection)"
+      },
+      {
+        "command": "gerrit.showFiles",
+        "title": "Gerrit: 显示修改文件",
+        "icon": "$(files)"
       }
     ],
     "menus": {
@@ -122,6 +142,11 @@
         {
           "command": "gerrit.logs",
           "when": "view == gerrit.dashboard",
+          "group": "navigation"
+        },
+        {
+          "command": "gerrit.refresh",
+          "when": "view == gerrit.changedFiles",
           "group": "navigation"
         }
       ],

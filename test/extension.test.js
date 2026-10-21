@@ -237,3 +237,44 @@ test('local repository selection discovers Git roots and only matches the Gerrit
   assert.equal(await app.localRepository('team/project'), '/repo');
   await assert.rejects(app.localRepository('missing'), /请先在 VS Code/);
 });
+
+test('branch and personal review filters apply to every page and reset pagination', async () => {
+  const { app } = fixture(); app.selected = null; const requests = [];
+  app.api.list = async (query, start) => { requests.push({ query, start }); return [{ id: 'one', branch: 'release/1', updated: '2026-01-01', _more_changes: true }]; };
+  app.model.query = 'owner:self OR reviewer:self'; app.model.start = 100;
+  await app.handle({ type: 'filters', branch: 'release/1', unreviewed: true });
+  assert.equal(requests[0].query, '(owner:self OR reviewer:self) branch:"release/1" is:open -reviewedby:self');
+  assert.equal(requests[0].start, 0);
+  await app.handle({ type: 'page', next: true });
+  assert.equal(requests[1].query, requests[0].query); assert.equal(requests[1].start, 50);
+  assert.equal(app.model.branchOptions[0], 'release/1');
+  await app.handle({ type: 'search', query: 'is:open' });
+  assert.ok(requests.at(-1).query.includes('branch:"release/1"'));
+  const count = requests.length;
+  await assert.rejects(app.handle({ type: 'filters', branch: 'bad\nbranch' }), /分支/);
+  assert.equal(requests.length, count);
+});
+test('relation chain is loaded for a pinned revision and only known numbered nodes can be opened', async () => {
+  const { app } = fixture(); const calls = []; app.model.detail = {};
+  app.api.related = async (...args) => { calls.push(args); return { changes: [{ _change_number: 7, commit: { commit: 'dependency' } }, { commit: { commit: 'base' } }] }; };
+  await app.handle({ type: 'related', id: app.selected.id, rev: app.selected.rev });
+  assert.equal(calls[0][0], 'p~main~I1'); assert.equal(calls[0][1], 'abc');
+  app.load = async id => calls.push(id);
+  await app.handle({ type: 'relatedOpen', id: app.selected.id, rev: 'abc', number: '7' });
+  assert.equal(calls.at(-1), '7');
+  await assert.rejects(app.handle({ type: 'relatedOpen', id: app.selected.id, rev: 'abc', number: '8' }), /节点/);
+  await assert.rejects(app.handle({ type: 'relatedOpen', id: app.selected.id, rev: 'old', number: '7' }), /页面已更新/);
+});
+test('file view resolves independently and stale comparison rows cannot open a new comparison', async () => {
+  const { app, executed } = fixture(); const fileMessages = []; const sidebar = { webview: { postMessage() {} } };
+  app.view = sidebar; app.setupWebview = () => {};
+  const files = { webview: { postMessage: message => fileMessages.push(message) }, show: preserve => { files.preserve = preserve; } };
+  await app.resolveFilesView(files);
+  app.render(); assert.equal(app.view, sidebar); assert.equal(fileMessages.at(-1).model.surface, 'files');
+  await app.showFiles(); assert.equal(files.preserve, true);
+  app.receiveMessage(files.webview, { type: 'rendered' }); assert.equal(app.filesReady, true); assert.equal(app.sidebarReady, undefined);
+  app.selected.comparison = { left: 'old', right: 'abc' }; app.openDiff = async path => executed.push(path);
+  await assert.rejects(app.handle({ type: 'file', id: app.selected.id, rev: 'abc', compareLeft: 'base', compareRight: 'abc', path: 'a.c' }), /比较版本/);
+  await app.handle({ type: 'file', id: app.selected.id, rev: 'abc', compareLeft: 'old', compareRight: 'abc', path: 'a.c' });
+  assert.equal(executed.at(-1), 'a.c');
+});

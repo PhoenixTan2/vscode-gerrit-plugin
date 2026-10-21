@@ -36,6 +36,7 @@ test('sidebar exposes presets and page size without duplicate settings/log butto
   for (const text of ['data-action="settings"', 'data-action="logs"']) assert.ok(!f.app.innerHTML.includes(text));
   f.events.click({ target: { closest: () => ({ dataset: { action: 'preset', query: 'is:merged' } }) } });
   assert.equal(f.messages.at(-1).query, 'is:merged');
+  assert.equal(f.messages.at(-1).unreviewed, false);
 });
 test('discussion lives in its own surface, groups replies and escapes untrusted comment text', () => {
   const f = surfaceFixture();
@@ -109,4 +110,57 @@ test('participated filter keeps complete threads where the current account wrote
   f.events.change({ target: { id: 'participated-only', checked: true } });
   assert.ok(!f.app.innerHTML.includes('unrelated thread'));
   assert.ok(f.app.innerHTML.includes('someone started this')); assert.ok(f.app.innerHTML.includes('I participated here'));
+});
+
+test('sidebar places Commit immediately after timestamps and owns comparison controls exclusively', () => {
+  const f = surfaceFixture(); const detail = { id: 'c', current_revision: 'r', revisions: { r: { _number: 1 } }, files: { 'file.c': {} } };
+  f.update({ connected: true, detail });
+  assert.ok(f.app.innerHTML.indexOf('class="timestamps"') < f.app.innerHTML.indexOf('class="commit-info"'));
+  assert.ok(f.app.innerHTML.indexOf('class="commit-info"') < f.app.innerHTML.indexOf('class="review-entry"'));
+  assert.ok(f.app.innerHTML.includes('id="compare"')); assert.ok(f.app.innerHTML.includes('data-action="showFiles"'));
+  assert.ok(!f.app.innerHTML.includes('data-action="file"'));
+  f.update({ connected: true, surface: 'discussion', detail });
+  assert.ok(f.app.innerHTML.indexOf('class="ratings"') < f.app.innerHTML.indexOf('class="card composer"'));
+  f.events.click({ target: { closest: () => ({ dataset: { action: 'tabCode' } }) } });
+  assert.ok(!f.app.innerHTML.includes('id="compare"'));
+});
+test('file panel lists every changed file, filters literal paths and retains exact diff identity', () => {
+  const f = surfaceFixture();
+  const files = Object.fromEntries(Array.from({ length: 350 }, (_, i) => [`src/file-${i}.c`, { lines_inserted: 2 }]));
+  files['<unsafe>.c'] = { status: 'R', old_path: '<old>.c' }; files['/COMMIT_MSG'] = {};
+  const detail = { id: 'change', _number: 5, current_revision: 'new', revisions: { new: { _number: 2 }, old: { _number: 1 } }, comparison: { left: 'old', right: 'new' }, files };
+  f.update({ connected: true, surface: 'files', detail });
+  assert.equal((f.app.innerHTML.match(/data-action="file"/g) || []).length, 351);
+  assert.ok(!f.app.innerHTML.includes('/COMMIT_MSG')); assert.ok(f.app.innerHTML.includes('&lt;unsafe&gt;.c'));
+  assert.ok(f.app.innerHTML.includes('PS 1 → PS 2'));
+  f.elements['file-results'] = { innerHTML: '' };
+  f.events.input({ target: { id: 'file-filter', value: 'FILE-349' } });
+  assert.equal((f.elements['file-results'].innerHTML.match(/data-action="file"/g) || []).length, 1);
+  f.events.click({ target: { closest: () => ({ dataset: { action: 'file', path: 'src/file-349.c' } }) } });
+  assert.equal(f.messages.at(-1).compareLeft, 'old'); assert.equal(f.messages.at(-1).compareRight, 'new');
+  f.update({ connected: true, surface: 'files', detail: { ...detail, id: 'other' } });
+  assert.equal((f.app.innerHTML.match(/data-action="file"/g) || []).length, 351);
+});
+test('relation nodes distinguish historical PS and escape subjects without linking anonymous commits', () => {
+  const f = surfaceFixture();
+  f.update({ connected: true, detail: { id: 'c', current_revision: 'current', related: { changes: [
+    { _change_number: 5, _revision_number: 1, _current_revision_number: 2, status: 'NEW', commit: { commit: 'oldsha', subject: '<dependency>', parents: [{ commit: 'base' }] } },
+    { commit: { commit: 'base', subject: 'plain commit' } }
+  ] } } });
+  assert.ok(f.app.innerHTML.includes('旧 PS · 最新为 2')); assert.ok(f.app.innerHTML.includes('&lt;dependency&gt;'));
+  assert.equal((f.app.innerHTML.match(/data-action="relatedOpen"/g) || []).length, 1);
+  assert.ok(f.app.innerHTML.includes('父提交 ← base'));
+});
+test('Open cards translate NEW and distinguish personal review state, with filters sent to host', () => {
+  const f = surfaceFixture();
+  f.update({ connected: true, branch: 'main', unreviewed: true, branchOptions: ['main'], changes: [
+    { id: 'one', status: 'NEW', subject: 'one', reviewed: true }, { id: 'two', status: 'NEW', subject: 'two' }
+  ] });
+  for (const text of ['评审中', '我已评审', '我未评审', '仅我未评审', 'id="branch-filter"']) assert.ok(f.app.innerHTML.includes(text));
+  assert.ok(!f.app.innerHTML.includes('· NEW'));
+  f.elements['branch-filter'] = { value: 'release/1' }; f.elements.query = { value: 'is:open' }; f.elements['unreviewed-only'] = { checked: true };
+  f.events.change({ target: { id: 'unreviewed-only', checked: true } });
+  assert.equal(f.messages.at(-1).type, 'filters'); assert.equal(f.messages.at(-1).branch, 'release/1');
+  f.events.submit({ preventDefault() {}, target: { id: 'search' } });
+  assert.equal(f.messages.at(-1).unreviewed, true); assert.equal(f.messages.at(-1).query, 'is:open');
 });

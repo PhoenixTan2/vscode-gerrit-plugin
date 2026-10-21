@@ -105,11 +105,15 @@ test('patch comparison and paging settings produce the expected REST queries', a
   const api = new GerritApi(url, 'u', 'p', { pageSize: 25 });
   await api.list('is:merged', 25);
   let parsed = new URL(received.at(-1).url, url);
+  assert.ok(parsed.searchParams.getAll('o').includes('REVIEWED'));
   assert.equal(parsed.searchParams.get('n'), '25'); assert.equal(parsed.searchParams.get('S'), '25');
   await api.detail('change');
   parsed = new URL(received.at(-1).url, url);
   assert.ok(parsed.searchParams.getAll('o').includes('ALL_REVISIONS'));
   assert.ok(parsed.searchParams.getAll('o').includes('ALL_COMMITS'));
+  assert.ok(parsed.searchParams.getAll('o').includes('REVIEWED'));
+  await api.related('team/project~main~Id', 'old/revision');
+  assert.equal(received.at(-1).url, '/gerrit/a/changes/team%2Fproject~main~Id/revisions/old%2Frevision/related');
   await api.files('change', 'right-revision', 'left-revision');
   assert.equal(received.at(-1).url, '/gerrit/a/changes/change/revisions/right-revision/files/?base=left-revision');
   await api.files('change', 'right-revision');

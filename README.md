@@ -4,7 +4,7 @@
 
 ## 安装与连接
 
-在扩展面板 `…` → **从 VSIX 安装**，选择 `gerrit-workbench-0.3.2.vsix`。点击左侧 Gerrit Workbench 图标连接服务器。该入口与其他 Gerrit 插件相互独立；若活动栏未显示，可右键活动栏勾选 Gerrit Workbench，或点击状态栏 Gerrit 打开。支持服务器根地址、`/gerrit` 部署前缀及直接粘贴 `/dashboard/self` 地址。
+在扩展面板 `…` → **从 VSIX 安装**，选择 `gerrit-workbench-0.5.0.vsix`。点击左侧 Gerrit Workbench 图标连接服务器。该入口与其他 Gerrit 插件相互独立；若活动栏未显示，可右键活动栏勾选 Gerrit Workbench，或点击状态栏 Gerrit 打开。支持服务器根地址、`/gerrit` 部署前缀及直接粘贴 `/dashboard/self` 地址。
 
 认证方式：
 
@@ -18,21 +18,27 @@
 | 功能 | 使用方法 |
 | --- | --- |
 | 筛选变更 | Open、Merged、与我相关、我的提交、待我评审，以及 Gerrit 查询框；默认 Open，按最后更新时间从新到旧显示 |
-| 时间与 Commit 信息 | 提交卡片显示最后更新；详情和讨论页依次显示创建时间、最后更新时间，统一为本地时区的 `YYYY-MM-DD HH:mm:ss`。Commit 信息显示完整消息、SHA、Change-Id、作者和父提交 |
+| 分支与未评审筛选 | 查询框下方提供分支输入框和“仅我未评审”开关；筛选在服务器执行，覆盖全部分页；分支建议来自已加载列表，也可直接输入其他分支 |
+| 状态与评审标记 | `NEW` 显示为“评审中”，表示尚未关闭或合入；Open 卡片分别标出“我已评审”“我未评审”，与是否已合入是两个维度 |
+| 时间与 Commit 信息 | 提交卡片显示最后更新；详情和讨论页依次显示创建时间、最后更新时间，统一为本地时区的 `YYYY-MM-DD HH:mm:ss`。Commit 信息紧跟最后更新时间，显示完整消息、SHA、Change-Id、作者和父提交 |
 | 独立评审讨论 | 详情“打开评审讨论”，在当前编辑器组打开标签页，包含所有 Patch set 的讨论、评分和活动记录 |
-| 任意版本比较 | 在版本比较中选择左右 PS / Base，支持交换左右；Base 表示另一侧 PS 的第一父提交 |
+| 任意版本比较 | 仅在左侧工作台选择左右 PS / Base，支持交换左右；Base 表示另一侧 PS 的第一父提交。改动文件统一在下方面板查看 |
+| 修改文件面板 | 打开变更或执行比较后，下方“Gerrit 文件”面板列出全部修改文件；支持路径筛选、增删行数和各 PS 评论总数，点击文件在编辑器中打开对应 diff。也可点击工作台“查看修改文件”重新展开面板 |
+| Relation chain | 工作台和评审页点击“关系链”按需加载最新 PS 的依赖 / 后继提交，显示状态、SHA、PS 及父提交；提示旧 PS，点击有变更编号的节点打开该变更最新 PS。无变更编号的 Git 提交仅展示 |
 | 单个 Patch 单文件代码 | 在“单个 Patch”中选择 PS，点击“浏览此 Patch”，先展示此 PS 的改动文件，打开普通代码编辑器完整查看，不使用左右对比；服务器端路径搜索可查找其他文件，服务器可能限制每次结果数量，可缩小关键词 |
 | SSH 下载 | 评审页“代码与下载”选择 PS → “下载到本地”，在已打开的对应项目仓库中后台 fetch / checkout，不选择目录、不 clone |
 | 新建代码评论 | 打开代码或 diff，选中行 / 多行 → 右键“评论所选代码行”，展开行内输入框；也可点行号旁的 `+` 或编辑器评论按钮 |
 | 查找文件评论 | 橙色行号图标、行末评论数、滚动条标记；编辑器右上角提供“上一处评论”“下一处评论”“本文件评论位置” |
 | 评论悬停 / 定位 | 悬停代码预览评论；讨论页“定位到代码”直接打开对应 PS 的完整文件并定位行号 |
 | 评论筛选 | 讨论页支持“仅显示未解决”和“有我参与”，后者保留自己曾回复过的完整线程，可组合筛选 |
-| 发布评审与打分 | 在讨论页填写整体意见，选择实际有权限的标签分数，点击“发布评审”；未选的评分不修改 |
+| 发布评审与打分 | 在讨论页填写整体意见，选择实际有权限的标签分数，点击“发布评审”；未选的评分不修改；当前评分位于发布表单上方，随页面正常滚动 |
 | 回复 | 在代码线程中发布回复，或在讨论页线程下的多行文本框回复 |
 | 发布 / 废弃 / 合入 | 自己的 WIP 可发布为待评审；可废弃自己的提交；有 submit 权限且服务器允许时可合入目标分支 |
 | 设置 / 调试输出 | 仅保留 Gerrit 侧边栏右上角的齿轮和输出小按钮，不在页面正文重复显示 |
 
 行评论与回复绑定实际所在的 PS / Base。整体评审与评分针对页面注明的最新 PS。评论、回复、评分立即发布；整体评审和线程回复保留本地输入草稿，不自动发布服务器已有的其他草稿。暂不支持编辑评论解决状态。
+
+“我已评审”使用 Gerrit 的 `REVIEWED` / `reviewedby:self` 语义：自己在作者最近一次更新之后发布过评论或评分。仅打开代码不会自动标记；作者再次更新后会重新归入未评审。这与他人是否已经评分、文件级“已读”是不同概念。分支筛选可与预设或自定义查询组合；切换 Merged 会清除仅 Open 有效的未评审开关。
 
 ## SSH 下载与上传
 
@@ -86,6 +92,8 @@ python scripts/package.py
 
 打包脚本先生成并校验新包，再清理本项目旧版本 VSIX，工作区仅保留一版安装包。每批完成的修改创建一笔本地 Git commit，不自动推送；详见 AGENTS.md。
 
-测试覆盖认证会话、CSRF、浏览器桥接和跨站防护、版本比较、历史评论位置、完整 Patch 读取、SSH 下载引用与 SHA 校验、本地修改和已有分支保护、后台任务完成与重试、Windows 长路径、评论导航、时间排序、输入草稿和日志脱敏。内网已验证网页与脚本资源返回 200、Patch 改动文件及任意路径搜索，以及 SSH 分支读取与指定 PS 克隆 / fetch / checkout。真实 Extension Host 检查侧栏脚本渲染，以及评审页讨论 / 代码页签、文件与下载入口和草稿保留；服务器写入操作仍需实际账号验收。
+测试覆盖认证会话、CSRF、浏览器桥接和跨站防护、版本比较、历史评论位置、完整 Patch 读取、SSH 下载引用与 SHA 校验、本地修改和已有分支保护、后台任务完成与重试、Windows 长路径、评论导航、时间排序、输入草稿和日志脱敏。内网已验证网页与脚本资源返回 200、Patch 改动文件及任意路径搜索，以及 SSH 分支读取与指定 PS 克隆 / fetch / checkout。真实 Extension Host 检查侧栏脚本渲染，以及评审页讨论 / 代码页签、文件与下载入口、底部修改文件视图、评分区滚动不重叠和草稿保留；服务器写入操作仍需实际账号验收。
+
+评审标记与关系链依据：[Gerrit 3.8.5 REVIEWED](https://gerrit-documentation.storage.googleapis.com/Documentation/3.8.5/rest-api-changes.html#reviewed)、[Related Changes](https://gerrit-documentation.storage.googleapis.com/Documentation/3.8.5/rest-api-changes.html#get-related-changes)。
 
 API 依据：[Gerrit Changes REST API](https://gerrit-review.googlesource.com/Documentation/rest-api-changes.html)、[上传评审](https://gerrit-review.googlesource.com/Documentation/user-upload.html)、[VS Code API](https://code.visualstudio.com/api/references/vscode-api)。
