@@ -33,7 +33,7 @@ function fixture() {
   module.exports.activate(context);
   const app = context.subscriptions[0];
   const sent = [];
-  app.api = { review: async (...args) => sent.push(args) };
+  app.api = { bytes: async (...args) => Buffer.from(await app.api.content(...args)), review: async (...args) => sent.push(args) };
   app.selected = { id: 'p~main~I1', rev: 'abc', change: { permitted_labels: { 'Code-Review': ['-1', ' 0', '+1'] } }, comments: {} };
   return { app, sent, controller, commands, Range, executed, created, panels, settings, vscode: api };
 }
@@ -277,4 +277,40 @@ test('file view resolves independently and stale comparison rows cannot open a n
   await assert.rejects(app.handle({ type: 'file', id: app.selected.id, rev: 'abc', compareLeft: 'base', compareRight: 'abc', path: 'a.c' }), /比较版本/);
   await app.handle({ type: 'file', id: app.selected.id, rev: 'abc', compareLeft: 'old', compareRight: 'abc', path: 'a.c' });
   assert.equal(executed.at(-1), 'a.c');
+});
+
+test('files marked binary by Gerrit still receive a native diff when original bytes are UTF16 text', async () => {
+  const { app, executed } = fixture();
+  app.api.url = 'https://review.example'; app.api.bytes = async () => Buffer.concat([Buffer.from([255,254]), Buffer.from('text\nnext','utf16le')]);
+  app.selected.change._number = 1; app.selected.change.revisions = { old:{_number:1}, abc:{_number:2} };
+  app.selected.comparison = { left:'old',right:'abc',revision:'abc',base:'old' };
+  app.selected.files = { 'utf16.txt': { binary:true } }; app.attach=async()=>{};
+  await app.openDiff('utf16.txt');
+  assert.equal(executed[0][0], 'vscode.diff');
+  assert.ok([...app.documents.values()].every(doc=>doc.content==='text\nnext'));
+});
+test('binary PDF comparisons preserve rename paths and represent a missing side without fetching it', async () => {
+  const { app, executed } = fixture(); const pdfFixture = () => Buffer.from('%PDF-1.4 original bytes'); const calls=[]; let snapshots;
+  app.selected.change.revisions={old:{_number:1},abc:{_number:2}};
+  app.selected.comparison={left:'old',right:'abc',revision:'abc',base:'old'};
+  app.selected.files={'new.pdf':{binary:true,status:'R',old_path:'old.pdf'}};
+  app.api.bytes=async(...args)=>{calls.push(args);return pdfFixture();};
+  app.nativeFiles.openPair=async value=>{snapshots=value;};
+  await app.openDiff('new.pdf');
+  assert.equal(calls[0][2],'old.pdf');assert.equal(calls[1][2],'new.pdf');
+  assert.equal(snapshots[0].rev,'old'); assert.equal(snapshots[1].rev,'abc');
+  assert.equal(executed.length,0);
+  calls.length=0; app.selected.files['new.pdf']={binary:true,status:'A'};
+  await app.openDiff('new.pdf');
+  assert.equal(calls.length,1); assert.equal(snapshots[0].empty,true); assert.equal(snapshots[0].bytes.length,0);
+});
+test('message searches release global busy state and old searches cannot replace newer results', async () => {
+  const { app }=fixture(); app.selected=null; let release;
+  const gate=new Promise(resolve=>{release=resolve;});
+  app.api.list=async(query,start,options)=>{if(options?.search)await gate;return options?.search?[{id:'one',subject:'test2'}]:[];};
+  await app.run(()=>app.handle({type:'search',query:'is:open',message:'test',repo:'p',branch:'main',owner:'self'}));
+  assert.equal(app.busy,false); const first=app.searchJob;
+  assert.equal(first.status,'running');
+  await app.handle({type:'search',query:'is:open',message:''}); release(); await first.promise;
+  assert.equal(first.cancelled,true); assert.equal(app.model.message,''); assert.equal(app.searchResults,undefined);
 });

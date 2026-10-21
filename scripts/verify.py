@@ -21,7 +21,7 @@ def run(args):
         print(result.stderr, file=sys.stderr, end='')
         sys.exit(result.returncode)
 
-for file in [*sorted((root / 'src').glob('*.js')), root / 'media/main.js']:
+for file in [*sorted((root / 'src').glob('*.js')), *sorted((root / 'media').glob('*.js')), *sorted((root / 'media').glob('*.mjs'))]:
     run(['--check', str(file)])
 run(['--test', *map(str, sorted((root / 'test').glob('*.test.js')))])
 print('All checks passed.')

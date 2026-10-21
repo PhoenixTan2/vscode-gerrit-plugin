@@ -69,3 +69,13 @@ test('gateway refuses writes without XSRF instead of bypassing Gerrit protection
   const response = await request(gateway.origin + '/gerrit/write', { method: 'POST', headers: { Cookie: cookie, Origin: gateway.origin }, body: '{}' });
   assert.equal(response.status, 403); assert.equal(received.length, 0);
 });
+
+test('malformed loopback request targets return 400 without crashing the browser gateway', async t => {
+  const { gateway, cookie } = await setup(t);
+  const status = await new Promise((resolve,reject) => {
+    const req = http.request(gateway.origin, { path:'http://[' }, response => { response.resume(); response.on('end',()=>resolve(response.statusCode)); });
+    req.on('error',reject); req.end();
+  });
+  assert.equal(status,400);
+  assert.equal((await request(gateway.origin+'/gerrit/c/42',{headers:{Cookie:cookie}})).status,200);
+});

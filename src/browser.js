@@ -24,7 +24,8 @@ class BrowserGateway {
   handle(req, res) {
     const deny = (status, text) => { if (res.destroyed) return; res.writeHead(status, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(text); };
     if (req.headers.host !== new URL(this.origin).host) return deny(403, 'Invalid gateway host');
-    const local = new URL(req.url, this.origin);
+    let local;
+    try { local = new URL(req.url, this.origin); } catch { return deny(400, 'Invalid request target'); }
     const ticket = local.pathname.startsWith('/_gerrit_login/') ? local.pathname.slice('/_gerrit_login/'.length) : '';
     if (this.tickets.has(ticket) && req.method === 'GET') {
       const path = this.tickets.get(ticket); this.tickets.delete(ticket);

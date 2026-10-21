@@ -61,7 +61,14 @@ if not report.get('ok'):
     sys.exit(f"Extension Host failed: {report.get('message')}\nIsolated logs: {temporary}")
 if process.returncode != 0:
     sys.exit(f'Extension Host exit code {process.returncode}. Isolated logs: {temporary}')
-print(f"Real Extension Host OK: VS Code {report['vscode']}, Gerrit Workbench {report['extension']}")
 if temporary.parent != Path(tempfile.gettempdir()).resolve() or not temporary.name.startswith('gerrit-host-smoke-'):
     sys.exit('Refusing cleanup outside the generated test directory')
-shutil.rmtree(temporary)
+for attempt in range(10):
+    try:
+        shutil.rmtree(temporary)
+        break
+    except PermissionError:
+        if attempt == 9:
+            raise
+        time.sleep(0.2)
+print(f"Real Extension Host OK: VS Code {report['vscode']}, Gerrit Workbench {report['extension']}")

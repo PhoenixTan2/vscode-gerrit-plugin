@@ -2,7 +2,9 @@
 const vscode = require('vscode');
 const crypto = require('node:crypto');
 const { GerritApi, normalizeUrl } = require('./api');
-const { inboxQuery } = require('./inbox');
+const { inboxQuery, searchPlan, scanChanges } = require('./inbox');
+const { classifyFile } = require('./files');
+const { NativeFiles } = require('./native-files');
 const { git, pushRef } = require('./git');
 const { comparisonPlan, comparisonFiles } = require('./comparison');
 const { Logger } = require('./log');
@@ -48,7 +50,7 @@ class Workbench {
     this.output = vscode.window.createOutputChannel('Gerrit Workbench');
     this.logger = new Logger(this.output);
     this.model = { connected: false, changes: [], query: this.setting('defaultQuery', 'is:open'), start: 0 };
-    this.downloadJobs = new Map();
+    this.downloadJobs = new Map(); this.nativeFiles = new NativeFiles(vscode);
     this.configure();
     this.documents = new Map(); this.threads = new Map(); this.selected = null; this.busy = false;
     this.commentDecoration = vscode.window.createTextEditorDecorationType({
@@ -77,7 +79,7 @@ class Workbench {
   }
   openSettings() { return vscode.commands.executeCommand('workbench.action.openSettings', '@ext:local-tools.gerrit-workbench'); }
   validInfo(info) { return !!(info && this.selected && info.id === this.selected.id && (this.selected.change.revisions ? this.selected.change.revisions[info.rev] : info.rev === this.selected.rev)); }
-  dispose() { this.disposed = true; this.gateway?.dispose(); this.discussion?.dispose(); this.clearThreads(); this.controller.dispose(); this.commentDecoration.dispose(); this.status.dispose(); this.output.dispose(); }
+  dispose() { this.disposed = true; this.cancelSearch(); this.nativeFiles.dispose().catch(() => {}); this.gateway?.dispose(); this.discussion?.dispose(); this.clearThreads(); this.controller.dispose(); this.commentDecoration.dispose(); this.status.dispose(); this.output.dispose(); }
   clearThreads() { for (const thread of this.threads.keys()) thread.dispose(); this.threads.clear(); }
   async run(fn) {
     if (this.busy) return;
@@ -209,6 +211,7 @@ class Workbench {
     const password = mode.authMode === 'webPassword' ? keyInput : keyInput?.trim();
     if (!password) return;
     const api = this.createApi(url, username.trim(), password, mode.authMode); const user = await api.self();
+    this.cancelSearch(); this.searchResults = undefined;
     await this.context.secrets.store(`gerrit:${url}:${username.trim()}`, password);
     await this.context.globalState.update('connection', { url, username: username.trim(), authMode: mode.authMode });
     if (old.url && (old.url !== url || old.username !== username.trim())) await this.context.secrets.delete(`gerrit:${old.url}:${old.username}`);
@@ -220,9 +223,51 @@ class Workbench {
     vscode.window.showInformationMessage(`Gerrit 已连接：${user.name || user.username} · ${url}`);
   }
   needConnection() { if (!this.api) throw new Error('请先点击“连接服务器”'); }
+  cancelSearch() {
+    if (this.searchJob?.status === 'running') {
+      this.searchJob.cancelled = true; this.searchJob.status = 'cancelled';
+      this.model.searchStatus = { status: 'cancelled', scanned: this.searchJob.scanned || 0, matches: this.searchJob.matches || 0 };
+    }
+  }
+  searchProgress(job) {
+    if (this.searchJob !== job) return;
+    this.model.searchStatus = { status: job.status, scanned: job.scanned || 0, matches: job.matches || 0, error: job.error };
+    this.send({ type: 'searchProgress', searchStatus: this.model.searchStatus });
+  }
+  showSearchPage() {
+    const rows = this.searchResults.rows;
+    const start = Math.min(this.model.start || 0, Math.max(0, Math.floor((rows.length - 1) / this.model.pageSize) * this.model.pageSize));
+    this.model.start = start;
+    this.model.changes = rows.slice(start, start + this.model.pageSize);
+    this.model.more = start + this.model.pageSize < rows.length; this.render();
+  }
+  startTextSearch(plan) {
+    this.cancelSearch();
+    const api = this.api, job = { status: 'running', scanned: 0, matches: 0 };
+    this.searchJob = job; this.searchResults = undefined;
+    this.model.changes = []; this.model.more = false;
+    this.searchProgress(job); this.render();
+    job.promise = scanChanges(api, plan, {
+      cancelled: () => job.cancelled || this.searchJob !== job || this.api !== api || this.disposed,
+      progress: update => { Object.assign(job, update); this.searchProgress(job); }
+    }).then(rows => {
+      if (!rows || job.cancelled || this.searchJob !== job || this.api !== api || this.disposed) return;
+      job.status = 'completed'; this.searchResults = { key: JSON.stringify(plan), rows };
+      this.model.branchOptions = [...new Set([...(this.model.branchOptions || []), ...rows.map(c => c.branch).filter(Boolean)])].sort();
+      this.searchProgress(job); this.showSearchPage();
+    }).catch(error => {
+      if (job.cancelled || this.searchJob !== job || this.disposed) return;
+      job.status = 'failed'; job.error = '搜索未完成：' + error.message; this.searchProgress(job);
+      this.logger.write('error', error.logMessage || '评论搜索请求失败'); this.render();
+    });
+  }
   async refresh() {
     this.needConnection();
-    this.model.changes = (await this.api.list(inboxQuery(this.model.query, { branch: this.model.branch, unreviewed: this.model.unreviewed }), this.model.start)).sort((a, b) => String(b.updated || '').localeCompare(String(a.updated || '')));
+    const plan = searchPlan(this.model.query, this.model);
+    this.model.searchPlan = plan;
+    if (plan.message) { if (this.selected) await this.load(this.selected.id, false); this.startTextSearch(plan); return; }
+    this.cancelSearch(); this.searchResults = undefined; delete this.model.searchStatus;
+    this.model.changes = (await this.api.list(plan.scope, this.model.start)).sort((a, b) => String(b.updated || '').localeCompare(String(a.updated || '')));
     this.model.more = Boolean(this.model.changes.at(-1)?._more_changes);
     this.model.branchOptions = [...new Set([...(this.model.branchOptions || []), ...this.model.changes.map(c => c.branch).filter(Boolean)])].sort();
     if (this.selected) await this.load(this.selected.id, false);
@@ -265,7 +310,10 @@ class Workbench {
     if (!s.change.revisions[rev]) throw new Error('Patch set 不存在');
     let contentPath = path;
     if (side === 'PARENT') contentPath = (await this.api.files(s.id, rev))[path]?.old_path || path;
-    const content = await this.api.content(s.id, rev, contentPath, side === 'PARENT');
+    const bytes = await this.api.bytes(s.id, rev, contentPath, side === 'PARENT');
+    const decoded = classifyFile(bytes, path);
+    if (decoded.kind !== 'text') { await this.nativeFiles.open(bytes, { path, label: `PS ${s.change.revisions[rev]._number}${side === 'PARENT' ? ' Base' : ''}` }); return; }
+    const content = decoded.text;
     const uri = vscode.Uri.from({ scheme: 'gerrit', authority: crypto.createHash('sha256').update(this.api.url).digest('hex').slice(0, 12), path: `/${s.change._number}/${rev}/${side}/${path}` });
     this.documents.set(uri.toString(), { id: s.id, rev, path, content, side, label: `PS ${s.change.revisions[rev]._number}${side === 'PARENT' ? ' Base' : ''}` });
     const document = await vscode.workspace.openTextDocument(uri);
@@ -343,7 +391,9 @@ class Workbench {
     if (m.type === 'connect') return this.connect();
     if (m.type === 'settings') return this.openSettings();
     if (m.type === 'logs') return this.output.show(true);
+    if (m.type === 'cancelSearch') { this.cancelSearch(); this.render(); return; }
     if (m.type === 'disconnect') {
+      this.cancelSearch(); this.searchResults = undefined;
       const saved = this.context.globalState.get('connection');
       if (saved) await this.context.secrets.delete(`gerrit:${saved.url}:${saved.username}`);
       await this.context.globalState.update('connection', undefined); this.gateway?.dispose(); this.gateway = undefined; this.api = null; this.selected = null; this.clearThreads(); this.documents.clear();
@@ -352,13 +402,18 @@ class Workbench {
     if (m.type === 'push') return this.push();
     this.needConnection();
     if (m.type === 'filters' || m.type === 'search') {
-      const branch = m.branch === undefined ? this.model.branch : String(m.branch).trim();
-      const unreviewed = m.unreviewed === undefined ? this.model.unreviewed : !!m.unreviewed;
-      const query = m.type === 'search' ? String(m.query || 'is:open') : this.model.query;
-      inboxQuery(query, { branch, unreviewed });
-      Object.assign(this.model, { query, branch, unreviewed, start: 0 }); return this.refresh();
+      const values = {};
+      for (const name of ['message', 'repo', 'branch', 'owner']) values[name] = m[name] === undefined ? this.model[name] : String(m[name]).trim();
+      values.unreviewed = m.unreviewed === undefined ? this.model.unreviewed : !!m.unreviewed;
+      values.query = m.type === 'search' ? String(m.query || 'is:open') : this.model.query;
+      searchPlan(values.query, values);
+      Object.assign(this.model, values, { start: 0 }); return this.refresh();
     }
-    if (m.type === 'page') { this.model.start = Math.max(0, this.model.start + (m.next ? this.model.pageSize : -this.model.pageSize)); return this.refresh(); }
+    if (m.type === 'page') {
+      this.model.start = Math.max(0, this.model.start + (m.next ? this.model.pageSize : -this.model.pageSize));
+      if (this.model.message && this.searchResults?.key === JSON.stringify(searchPlan(this.model.query, this.model))) return this.showSearchPage();
+      return this.refresh();
+    }
     if (m.type === 'refresh') return this.refresh();
     if (m.type === 'open') return this.load(String(m.id));
     if (m.type === 'back') { this.selected = null; delete this.model.detail; this.clearThreads(); this.render(); return this.refresh(); }
@@ -417,7 +472,6 @@ class Workbench {
   provideTextDocumentContent(uri) { const doc = this.documents.get(uri.toString()); if (!doc) throw new Error('此 Gerrit 快照已失效，请从工作台重新打开文件'); return doc.content; }
   async openDiff(path) {
     const s = this.selected; const file = s.files[path]; if (!file) throw new Error('文件不存在');
-    if (file.binary) throw new Error('二进制文件请点击“内置浏览器”查看');
     const plan = s.comparison || comparisonPlan(s.change.revisions, 'base', s.rev);
     const sides = [plan.left, plan.right].map((value, index) => {
       const rev = value === 'base' ? plan.revision : value;
@@ -428,7 +482,12 @@ class Workbench {
         label: value === 'base' ? `Base (PS ${s.change.revisions[rev]._number} 的第一父提交)` : `PS ${s.change.revisions[rev]._number}`,
         empty: index === 0 ? file.status === 'A' : file.status === 'D' };
     });
-    const contents = await Promise.all(sides.map(info => info.empty ? '' : this.api.content(s.id, info.rev, info.contentPath, info.side === 'PARENT')));
+    const bytes = await Promise.all(sides.map(info => info.empty ? Buffer.alloc(0) : this.api.bytes(s.id, info.rev, info.contentPath, info.side === 'PARENT')));
+    const decoded = bytes.map((value, index) => sides[index].empty ? { kind: 'text', text: '' } : classifyFile(value, path));
+    if (decoded.some(value => value.kind !== 'text')) {
+      await this.nativeFiles.openPair(sides.map((info, index) => ({ ...info, bytes: bytes[index] }))); return;
+    }
+    const contents = decoded.map(value => value.text);
     const uris = sides.map((info, index) => {
       const uri = vscode.Uri.from({ scheme: 'gerrit', authority: crypto.createHash('sha256').update(this.api.url).digest('hex').slice(0, 12), path: `/${s.change._number}/${info.rev}/${info.side}/${info.empty ? 'empty/' : ''}${info.path}` });
       this.documents.set(uri.toString(), { ...info, content: contents[index] }); return uri;
@@ -455,6 +514,7 @@ class Workbench {
     if (!comment) throw new Error('评论已不存在，请刷新');
     const rev = Object.keys(s.change.revisions).find(key => s.change.revisions[key]._number === comment.patch_set) || s.rev;
     const editor = await this.openSingle(path, rev, comment.side || 'REVISION');
+    if (!editor) throw new Error('已打开原文件预览，此文件无法按代码行定位评论');
     const document = editor.document;
     const line = Math.max(0, Math.min(document.lineCount - 1, (comment.range?.start_line || comment.line || 1) - 1));
     editor.selection = new vscode.Selection(line, 0, line, 0);

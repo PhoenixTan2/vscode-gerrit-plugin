@@ -153,3 +153,11 @@ test('returns helpful errors, handles empty responses, refuses redirects', async
   assert.equal(await api.request('/empty'), undefined);
   assert.throws(() => api.action('id', 'delete'), /未知/);
 });
+
+test('original byte reads preserve binary data and reject malformed content instead of caching garbage', async () => {
+  const api=new GerritApi(url,'u','p'); const bytes=Buffer.from([0,255,80,75,3,4,128]);
+  api.request=async()=>bytes.toString('base64')+'\n';
+  assert.deepEqual(await api.bytes('id','rev','file.xlsx'),bytes);
+  await assert.rejects(api.content('id','rev','file.xlsx'),/原文件预览/);
+  for(const invalid of ['<html>Login</html>','abc!!','a']) { api.request=async()=>invalid;await assert.rejects(api.bytes('id','rev','file.bin'),/编码|Base64/); }
+});

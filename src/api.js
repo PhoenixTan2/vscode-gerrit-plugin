@@ -91,7 +91,7 @@ class GerritApi {
     });
   }
   self() { return this.request('/accounts/self'); }
-  list(query, start = 0) { return this.request(`/changes/?q=${enc(query)}&n=${this.pageSize}&S=${start}&o=DETAILED_LABELS&o=DETAILED_ACCOUNTS&o=REVIEWED`); }
+  list(query, start = 0, { search = false } = {}) { return this.request(`/changes/?q=${enc(query)}&n=${this.pageSize}&S=${start}&o=DETAILED_LABELS&o=DETAILED_ACCOUNTS&o=REVIEWED${search ? '&o=ALL_REVISIONS&o=ALL_COMMITS&o=MESSAGES' : ''}`); }
   detail(id) { return this.request(`/changes/${enc(id)}/detail?o=ALL_REVISIONS&o=ALL_COMMITS&o=DETAILED_LABELS&o=DETAILED_ACCOUNTS&o=MESSAGES&o=CURRENT_ACTIONS&o=REVIEWED`); }
   revision(id, rev, path = '') { return `/changes/${enc(id)}/revisions/${enc(rev)}${path}`; }
   files(id, rev, base) { return this.request(this.revision(id, rev, `/files/?${base ? `base=${enc(base)}` : 'parent=1'}`)); }
@@ -104,11 +104,18 @@ class GerritApi {
   }
   comments(id, rev) { return this.request(this.revision(id, rev, '/comments')); }
   review(id, rev, input) { return this.request(this.revision(id, rev, '/review'), 'POST', { drafts: 'KEEP', ...input }); }
-  async content(id, rev, path, base = false) {
+  async bytes(id, rev, path, base = false) {
     const raw = await this.request(this.revision(id, rev, `/files/${enc(path)}/content${base ? '?parent=1' : ''}`), 'GET', undefined, true);
-    const b = Buffer.from(raw, 'base64');
-    if (b.includes(0)) throw new Error('此文件为二进制，请使用 Gerrit 网页查看');
-    return b.toString('utf8');
+    const encoded = raw.replace(/\s/g, '');
+    if (!/^[A-Za-z0-9+/]*={0,2}$/.test(encoded) || encoded.replace(/=+$/, '').length % 4 === 1) throw new Error('服务器未返回有效的 Base64 文件内容');
+    const bytes = Buffer.from(encoded, 'base64');
+    if (bytes.toString('base64').replace(/=+$/, '') !== encoded.replace(/=+$/, '')) throw new Error('服务器返回的文件内容编码无效');
+    return bytes;
+  }
+  async content(id, rev, path, base = false) {
+    const result = require('./files').textContent(await this.bytes(id, rev, path, base));
+    if (!result) throw new Error('此文件需要原文件预览');
+    return result.text;
   }
   action(id, action, input = {}) {
     if (!['ready', 'abandon', 'submit'].includes(action)) throw new Error('未知变更操作');

@@ -116,6 +116,35 @@ function sidebarDetail(d) {
   const commentCount = Object.values(d.comments || {}).flat().length;
   return `<div class="row">${button('← 返回列表', 'back')}${button('刷新', 'refresh')}${button('内置浏览器', 'browser')}</div><p><span class="badge">#${e(d._number)}</span><span class="badge status">${e(statusText(d.status))}</span>${d.work_in_progress ? '<span class="badge">WIP</span>' : ''}</p><h1>${e(d.subject)}</h1><p class="muted">${e(d.project)} → ${e(d.branch)}<br>${e(who(d.owner))} · 最新 PS ${e(rev?._number)}</p>${timestamps(d)}${commitInfo(d)}<div class="review-entry">${icon('discussion')}${button(`打开评审讨论（${commentCount} 条代码评论）`, 'discussion', 'wide')}<p class="muted">讨论与评分、Commit 信息、单个 Patch 代码和本地下载。</p></div><div class="row">${d.mine && actions.ready?.enabled ? button('发布为待评审', 'ready', '') : ''}${d.mine && actions.abandon?.enabled ? button('废弃', 'abandon', 'secondary danger') : ''}${actions.submit?.enabled ? button('合入分支', 'submit') : ''}</div>${relationChain(d)}${fileComparison(d)}`;
 }
+
+const searchIdentity = () => `${model.server || ''}::${model.accountId ?? model.username ?? ''}`;
+function searchValues() {
+  const values = { query: document.getElementById('query')?.value ?? model.query ?? 'is:open', unreviewed: document.getElementById('unreviewed-only')?.checked ?? !!model.unreviewed };
+  for (const name of ['message', 'repo', 'branch', 'owner']) values[name] = document.getElementById(name + '-filter')?.value ?? model[name] ?? '';
+  return values;
+}
+function submitSearch(overrides = {}) {
+  const values = { ...searchValues(), ...overrides };
+  state.searchDraft = { identity: searchIdentity(), base: values.query, values }; save();
+  post('search', values);
+}
+function searchStatus() {
+  const status = model.searchStatus;
+  if (!status) return '';
+  if (status.status === 'running') return `<div class="search-progress">搜索中 · 已检查 ${e(status.scanned)} 笔，匹配 ${e(status.matches)} 笔 ${button('停止', 'cancelSearch')}</div>`;
+  if (status.status === 'failed') return `<p class="negative">${e(status.error)}。可缩小 repo / branch 范围后重试。</p>`;
+  if (status.status === 'cancelled') return '<p class="muted">搜索已停止，未将部分结果当成完整结果。</p>';
+  return `<p class="muted">已检查 ${e(status.scanned)} 笔，找到 ${e(status.matches)} 笔匹配变更</p>`;
+}
+function searchControls() {
+  const saved = state.searchDraft?.identity === searchIdentity() ? state.searchDraft : undefined;
+  const value = name => saved?.values[name] ?? model[name] ?? '';
+  const repos = [...new Set((model.changes || []).map(c => c.project).filter(Boolean))];
+  const owners = [...new Set(['self', ...(model.changes || []).map(c => c.owner?.username || c.owner?.email).filter(Boolean)])];
+  const input = (name, label, placeholder, list = '') => `<label for="${name}-filter">${label}</label><input id="${name}-filter" ${list ? `list="${list}"` : ''} value="${e(value(name))}" placeholder="${placeholder}">`;
+  const options = (id, values) => `<datalist id="${id}">${values.map(value => `<option value="${e(value)}"></option>`).join('')}</datalist>`;
+  return `<form id="search" class="search-form">${input('message', 'Message', '标题 / Commit / 评论，包含匹配，忽略大小写')}<div class="search-fields">${input('repo', 'Repo', '全部仓库', 'repo-options')}${input('branch', 'Branch', '全部分支', 'branch-options')}${input('owner', 'Owner', '用户名 / 邮箱 / self', 'owner-options')}</div>${options('repo-options', repos)}${options('branch-options', model.branchOptions || [])}${options('owner-options', owners)}<label class="row"><input id="unreviewed-only" type="checkbox" ${model.unreviewed ? 'checked' : ''}>仅我未评审</label><div class="row"><button type="submit">搜索</button>${button('重置', 'resetSearch')}${button('刷新', 'refresh')}</div><details class="advanced-search"><summary>高级条件与生成的 Gerrit 查询</summary><label for="query">基础 Gerrit 条件</label><input id="query" value="${e(saved && saved.base === model.query ? saved.values.query : model.query)}"><p class="muted">范围查询</p><code>${e(model.searchPlan?.scope || model.query)}</code>${model.searchPlan?.message ? `<p class="muted">提交说明正则查询</p><code>${e(model.searchPlan.commitQuery)}</code><p class="muted">标题、历史 Commit、整体及行内评论、Change-Id / SHA 的包含匹配由插件跨分页补充。</p>` : ''}</details><div id="search-status" role="status">${searchStatus()}</div></form>`;
+}
 function render() {
   document.getElementById('account').textContent = model.connected ? `${model.user} · ${model.server}` : '提交 · 评审 · 讨论';
   if (model.surface === 'files') {
@@ -129,7 +158,7 @@ function render() {
   } else {
     const pageSize = model.pageSize || 50;
     const presets = [['Open', 'is:open'], ['Merged', 'is:merged'], ['与我相关', 'is:open (owner:self OR reviewer:self)'], ['我的提交', 'owner:self'], ['待我评审', 'is:open reviewer:self -owner:self']];
-    app.innerHTML = `<div class="row">${button('上传本地提交', 'push', '')}${button('连接设置', 'connect')}${button('断开', 'disconnect')}</div><h1>评审收件箱</h1><div class="row">${presets.map(([name, query]) => button(name, 'preset', model.query === query ? '' : 'secondary', `data-query="${e(query)}"`)).join('')}</div><form id="search"><label for="query">Gerrit 查询</label><input id="query" value="${e(model.query)}" placeholder="is:open project:my/project"><div class="inbox-filters"><label><input id="unreviewed-only" type="checkbox" ${model.unreviewed ? 'checked' : ''}>仅我未评审</label><input id="branch-filter" aria-label="筛选分支" list="branch-options" placeholder="全部分支 · 可输入分支名" value="${e(model.branch || '')}"><datalist id="branch-options">${(model.branchOptions || []).map(branch => `<option value="${e(branch)}"></option>`).join('')}</datalist></div><div class="row"><button type="submit">搜索 / 应用</button>${button('刷新', 'refresh')}<span class="muted">每页最多 ${pageSize} 条</span></div></form>${(model.changes || []).map(c => `<button type="button" class="change" data-action="open" data-id="${e(c.id)}"><span class="muted">#${e(c._number)} · ${e(statusText(c.status))}${c.work_in_progress ? ' · WIP' : ''}</span>${c.status === 'NEW' ? `<span class="review-mark ${c.reviewed ? 'done' : 'pending'}" title="你在作者最近一次更新后发布过评论或评分，即显示已评审">${c.reviewed ? '✓ 我已评审' : '○ 我未评审'}</span>` : ''}<span class="subject">${e(c.subject)}</span><span class="muted">${e(c.project)} → ${e(c.branch)}<br>${e(who(c.owner))}<br>最后更新：${e(time(c.updated))}</span><div class="row">${Object.entries(c.labels || {}).map(([name, l]) => `<span class="badge">${e(name)} ${e(l.approved ? '✓' : l.rejected ? '✕' : (l.all || []).map(v => v.value > 0 ? `+${v.value}` : v.value).join(' / ') || '—')}</span>`).join('')}</div></button>`).join('') || '<div class="card muted">没有匹配的变更。可切换 Open 或修改查询。</div>'}<div class="row">${model.start ? button('上一页', 'prev') : ''}${model.more ? button('下一页', 'next') : ''}<span class="muted">第 ${Math.floor((model.start || 0) / pageSize) + 1} 页</span></div>`;
+    app.innerHTML = `<div class="row">${button('上传本地提交', 'push', '')}${button('连接设置', 'connect')}${button('断开', 'disconnect')}</div><h1>评审收件箱</h1><div class="row">${presets.map(([name, query]) => button(name, 'preset', model.query === query ? '' : 'secondary', `data-query="${e(query)}"`)).join('')}</div>${searchControls()}<p class="muted">每页最多 ${pageSize} 条</p>${(model.changes || []).map(c => `<button type="button" class="change" data-action="open" data-id="${e(c.id)}"><span class="muted">#${e(c._number)} · ${e(statusText(c.status))}${c.work_in_progress ? ' · WIP' : ''}</span>${c.status === 'NEW' ? `<span class="review-mark ${c.reviewed ? 'done' : 'pending'}" title="你在作者最近一次更新后发布过评论或评分，即显示已评审">${c.reviewed ? '✓ 我已评审' : '○ 我未评审'}</span>` : ''}<span class="subject">${e(c.subject)}</span><span class="muted">${e(c.project)} → ${e(c.branch)}<br>${e(who(c.owner))}<br>最后更新：${e(time(c.updated))}</span><div class="row">${Object.entries(c.labels || {}).map(([name, l]) => `<span class="badge">${e(name)} ${e(l.approved ? '✓' : l.rejected ? '✕' : (l.all || []).map(v => v.value > 0 ? `+${v.value}` : v.value).join(' / ') || '—')}</span>`).join('')}</div></button>`).join('') || '<div class="card muted">没有匹配的变更。可切换 Open 或修改查询。</div>'}<div class="row">${model.start ? button('上一页', 'prev') : ''}${model.more ? button('下一页', 'next') : ''}<span class="muted">第 ${Math.floor((model.start || 0) / pageSize) + 1} 页</span></div>`;
   }
   setBusy();
   post('rendered', { surface: model.surface || 'sidebar' });
@@ -146,7 +175,9 @@ app.addEventListener('click', event => {
     [left.value, right.value] = [right.value, left.value]; return;
   }
   if (action === 'compareMode') { post('compare', { ...payload(), left: 'base', right: model.detail.current_revision }); return; }
-  if (action === 'preset') post('search', { query: b.dataset.query, unreviewed: b.dataset.query === 'is:merged' ? false : !!model.unreviewed });
+  if (action === 'resetSearch') { submitSearch({ message: '', repo: '', branch: '', owner: '', query: 'is:open', unreviewed: false }); return; }
+  if (action === 'cancelSearch') { post('cancelSearch'); return; }
+  if (action === 'preset') submitSearch({ query: b.dataset.query, unreviewed: b.dataset.query === 'is:merged' ? false : !!model.unreviewed });
   else if (action === 'next' || action === 'prev') post('page', { next: action === 'next' });
   else if (['ready', 'abandon', 'submit'].includes(action)) post('action', { ...payload(), action });
   else post(action, { ...payload(), ...b.dataset });
@@ -157,6 +188,7 @@ function saveReview() {
   state.drafts ||= {}; state.drafts[key()] = { message: message.value, labels }; save();
 }
 app.addEventListener('input', event => {
+  if (['message-filter', 'repo-filter', 'branch-filter', 'owner-filter', 'query'].includes(event.target.id)) { state.searchDraft = { identity: searchIdentity(), base: model.query, values: searchValues() }; save(); }
   if (event.target.id === 'file-filter') {
     state.fileFilter = { key: fileFilterKey(), query: event.target.value }; save();
     document.getElementById('file-results').innerHTML = fileResults(model.detail, event.target.value); setBusy();
@@ -165,14 +197,14 @@ app.addEventListener('input', event => {
   if (event.target.dataset?.replyKey) { state.replies ||= {}; state.replies[event.target.dataset.replyKey] = event.target.value; save(); }
 });
 app.addEventListener('change', event => {
-  if (event.target.id === 'unreviewed-only') post('filters', { unreviewed: event.target.checked, branch: document.getElementById('branch-filter').value });
+  if (event.target.id === 'unreviewed-only') submitSearch({ unreviewed: event.target.checked });
   if (event.target.id === 'unresolved-only') { state.unresolvedOnly = event.target.checked; save(); render(); }
   if (event.target.id === 'participated-only') { state.participatedOnly = event.target.checked; save(); render(); }
   if (event.target.dataset?.label) saveReview();
 });
 app.addEventListener('submit', event => {
   event.preventDefault(); if (busy) return;
-  if (event.target.id === 'search') post('search', { query: document.getElementById('query').value, branch: document.getElementById('branch-filter').value, unreviewed: document.getElementById('unreviewed-only').checked });
+  if (event.target.id === 'search') submitSearch();
   if (event.target.id === 'compare') post('compare', { ...payload(), left: document.getElementById('compare-left').value, right: document.getElementById('compare-right').value });
   if (event.target.id === 'patch') post('patch', { ...payload(), patchRev: document.getElementById('patch-revision').value });
   if (event.target.id === 'patch-search') post('patchSearch', { ...payload(), patchRev: model.detail.patchView.rev, query: document.getElementById('patch-search-text').value });
@@ -182,6 +214,7 @@ app.addEventListener('submit', event => {
 window.addEventListener('message', ({ data }) => {
   if (data.type === 'state') { model = data.model; render(); }
   if (data.type === 'downloadState') { model.downloads = data.downloads; const region = document.getElementById('download-status'); if (region) region.innerHTML = downloadStatus(); setBusy(); }
+  if (data.type === 'searchProgress') { model.searchStatus = data.searchStatus; const region = document.getElementById('search-status'); if (region) region.innerHTML = searchStatus(); setBusy(); }
   if (data.type === 'busy') { busy = data.value; if (busy) notice.textContent = '处理中…'; else if (notice.textContent === '处理中…') notice.textContent = ''; setBusy(); }
   if (data.type === 'error') notice.textContent = data.message;
   if (data.type === 'reviewSent') { if (state.drafts) delete state.drafts[key()]; save(); }

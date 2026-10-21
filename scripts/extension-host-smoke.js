@@ -6,6 +6,8 @@ async function run() {
   try {
     const extension = vscode.extensions.getExtension('local-tools.gerrit-workbench');
     assert.ok(extension, 'Development extension must be discovered');
+    const icon = fs.readFileSync(require('node:path').join(extension.extensionPath, extension.packageJSON.icon));
+    assert.equal(icon.subarray(1,4).toString(), 'PNG'); assert.equal(icon.readUInt32BE(16),256); assert.equal(icon.readUInt32BE(20),256);
     await extension.activate();
     assert.equal(extension.isActive, true, 'Extension must activate with the real VS Code API');
     assert.ok(extension.packageJSON.contributes.views.gerritWorkbench, 'Workbench must use its own view container');
@@ -54,11 +56,12 @@ async function run() {
     const panel = vscode.window.createWebviewPanel('gerrit.smoke.review', 'Review UI smoke', vscode.ViewColumn.Active, { enableScripts: true, localResourceRoots: [extension.extensionUri] });
     const nonce = require('node:crypto').randomBytes(16).toString('hex');
     const media = name => panel.webview.asWebviewUri(vscode.Uri.joinPath(extension.extensionUri, 'media', name));
-    let fileAction;
+    let fileAction, searchAction;
     const reviewResult = new Promise((resolve, reject) => {
       const timeout = setTimeout(() => reject(new Error('Review Webview fixture did not render')), 15000);
       panel.webview.onDidReceiveMessage(message => {
         if (message.type === 'file') fileAction = message;
+        if (message.type === 'search') searchAction = message;
         if (message.type === 'smokeResult') { clearTimeout(timeout); message.ok ? resolve() : reject(new Error(message.error)); }
         if (message.type === 'clientError') { clearTimeout(timeout); reject(new Error(message.message)); }
       });
@@ -92,6 +95,13 @@ async function run() {
         if (document.querySelectorAll('.file-row').length!==1) throw new Error('File path filtering');
         document.querySelector('.file-row').click();
 
+
+        window.dispatchEvent(new MessageEvent('message',{data:{type:'state',model:{...model,detail:undefined,surface:'sidebar',query:'is:open'}}}));
+        for (const [name, value] of Object.entries({message:'test',repo:'team/firmware',branch:'main',owner:'self'})) {
+          const input=document.getElementById(name+'-filter'); if(!input) throw new Error('Missing search field '+name); input.value=value; input.dispatchEvent(new Event('input',{bubbles:true}));
+        }
+        document.getElementById('search').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));
+
         post('smokeResult',{ok:true});
       } catch(error) { post('smokeResult',{ok:false,error:error.stack}); }
     `;
@@ -99,7 +109,25 @@ async function run() {
     await reviewResult;
     assert.equal(fileAction?.id, 'fixture'); assert.equal(fileAction?.rev, 'a'.repeat(40));
     assert.equal(fileAction?.compareLeft, 'base'); assert.equal(fileAction?.compareRight, 'a'.repeat(40));
-    assert.equal(fileAction?.path, 'Boot/Device.c'); panel.dispose();
+    assert.equal(fileAction?.path, 'Boot/Device.c');
+    assert.equal(searchAction?.message, 'test'); assert.equal(searchAction?.repo, 'team/firmware');
+    assert.equal(searchAction?.branch, 'main'); assert.equal(searchAction?.owner, 'self'); panel.dispose();
+
+
+    const { NativeFiles } = require(require('node:path').join(extension.extensionPath, 'src', 'native-files.js'));
+    const originals = new NativeFiles(vscode);
+    const oldBytes = Buffer.from([0,255,80,75,3,4,1]), newBytes = Buffer.from([0,255,80,75,3,4,2]);
+    await originals.openPair([
+      {bytes:oldBytes,path:'workbook.xlsx',label:'PS 1'},
+      {bytes:newBytes,path:'workbook.xlsx',label:'PS 2'}
+    ]);
+    const uris = [...originals.files.values()];
+    assert.equal(uris.length,2); assert.deepEqual(Buffer.from(await vscode.workspace.fs.readFile(uris[0])),oldBytes);
+    assert.deepEqual(Buffer.from(await vscode.workspace.fs.readFile(uris[1])),newBytes);
+    const tabs = vscode.window.tabGroups.all.flatMap(group=>group.tabs.filter(tab=>uris.some(uri=>tab.input?.uri?.toString()===uri.toString())).map(tab=>({tab,column:group.viewColumn})));
+    assert.equal(tabs.length,2); assert.notEqual(tabs[0].column,tabs[1].column,'Originals must open in two native groups');
+    await vscode.window.tabGroups.close(tabs.map(item=>item.tab));
+    await originals.dispose();
 
     await vscode.commands.executeCommand('gerrit.logs');
     fs.writeFileSync(process.env.GERRIT_HOST_SMOKE_RESULT, JSON.stringify({ ok: true, vscode: vscode.version, extension: extension.packageJSON.version }));

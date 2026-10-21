@@ -160,7 +160,19 @@ test('Open cards translate NEW and distinguish personal review state, with filte
   assert.ok(!f.app.innerHTML.includes('· NEW'));
   f.elements['branch-filter'] = { value: 'release/1' }; f.elements.query = { value: 'is:open' }; f.elements['unreviewed-only'] = { checked: true };
   f.events.change({ target: { id: 'unreviewed-only', checked: true } });
-  assert.equal(f.messages.at(-1).type, 'filters'); assert.equal(f.messages.at(-1).branch, 'release/1');
+  assert.equal(f.messages.at(-1).type, 'search'); assert.equal(f.messages.at(-1).branch, 'release/1');
   f.events.submit({ preventDefault() {}, target: { id: 'search' } });
   assert.equal(f.messages.at(-1).unreviewed, true); assert.equal(f.messages.at(-1).query, 'is:open');
+});
+
+test('friendly search submits four fields and background progress does not replace unsent input', () => {
+  const f=surfaceFixture(); f.update({connected:true,query:'is:open',changes:[]});
+  for(const id of ['message-filter','repo-filter','branch-filter','owner-filter']) assert.ok(f.app.innerHTML.includes('id="'+id+'"'));
+  Object.assign(f.elements,{'message-filter':{value:'test'},'repo-filter':{value:'team/repo'},'branch-filter':{value:'main'},'owner-filter':{value:'self'},query:{value:'is:open'},'unreviewed-only':{checked:false},'search-status':{innerHTML:''}});
+  f.events.submit({preventDefault(){},target:{id:'search'}});
+  const sent=f.messages.at(-1); assert.equal(sent.message,'test');assert.equal(sent.repo,'team/repo');assert.equal(sent.branch,'main');assert.equal(sent.owner,'self');
+  const before=f.app.innerHTML; f.message({type:'searchProgress',searchStatus:{status:'running',scanned:100,matches:12}});
+  assert.equal(f.app.innerHTML,before); assert.ok(f.elements['search-status'].innerHTML.includes('已检查 100'));
+  f.events.click({target:{closest:()=>({dataset:{action:'resetSearch'}})}});
+  const reset=f.messages.at(-1); assert.equal(reset.message,'');assert.equal(reset.repo,'');assert.equal(reset.branch,'');assert.equal(reset.owner,'');
 });
