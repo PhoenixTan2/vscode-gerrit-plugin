@@ -45,7 +45,8 @@ async function run() {
       detail: { id: 'fixture', _number: 142, subject: 'Improve boot device initialization', status: 'NEW', project: 'team/firmware', branch: 'main',
         owner: { name: 'Alex' }, current_revision: 'a'.repeat(40), change_id: 'Ifixture',
         created: '2026-10-20 01:02:03', updated: '2026-10-21 07:08:09',
-        revisions: { ['a'.repeat(40)]: { _number: 3, commit: { message: 'Improve boot device initialization\n\nKeep initialization deterministic.', author: { name: 'Alex', email: 'alex@example.invalid' }, committer: { name: 'Alex' } } } },
+        revisions: { ['a'.repeat(40)]: { _number: 3, commit: { message: 'Improve boot device initialization\n\nKeep initialization deterministic.', author: { name: 'Alex', email: 'alex@example.invalid' }, committer: { name: 'Alex' }, parents: [{ commit: 'b'.repeat(40) }] } } },
+        parentTargets: { ['b'.repeat(40)]: { status: 'found', changes: [{ id: 'parent-fixture', number: 141, patch: 1 }] } },
         labels: { 'Code-Review': { all: [{ name: 'Sam', value: 1 }] } }, permitted_labels: { 'Code-Review': ['-1', ' 0', '+1'] },
         comparison: { left: 'base', right: 'a'.repeat(40) },
         related: { rev: 'a'.repeat(40), changes: [{ _change_number: 141, _revision_number: 1, _current_revision_number: 2, status: 'NEW', commit: { commit: 'b'.repeat(40), subject: 'Dependency', parents: [] } }] },
@@ -56,7 +57,7 @@ async function run() {
     const panel = vscode.window.createWebviewPanel('gerrit.smoke.review', 'Review UI smoke', vscode.ViewColumn.Active, { enableScripts: true, localResourceRoots: [extension.extensionUri] });
     const nonce = require('node:crypto').randomBytes(16).toString('hex');
     const media = name => panel.webview.asWebviewUri(vscode.Uri.joinPath(extension.extensionUri, 'media', name));
-    let fileAction, searchAction, patchAction, cancelAction, compareAction, navigationAction, metadataAction, relatedAction;
+    let fileAction, searchAction, patchAction, cancelAction, compareAction, navigationAction, metadataAction, relatedAction, parentAction, childAction;
     const reviewResult = new Promise((resolve, reject) => {
       const timeout = setTimeout(() => reject(new Error('Review Webview fixture did not render')), 15000);
       panel.webview.onDidReceiveMessage(message => {
@@ -67,6 +68,8 @@ async function run() {
         if (message.type === 'navigate') navigationAction = message;
         if (message.type === 'metadata') metadataAction = message;
         if (message.type === 'related') relatedAction = message;
+        if (message.type === 'parentOpen') parentAction = message;
+        if (message.type === 'returnChild') childAction = message;
         if (message.type === 'cancelSearch') cancelAction = message;
         if (message.type === 'smokeResult') { clearTimeout(timeout); message.ok ? resolve() : reject(new Error(message.error)); }
         if (message.type === 'clientError') { clearTimeout(timeout); reject(new Error(message.message)); }
@@ -117,6 +120,9 @@ async function run() {
         const input = document.getElementById('review-message'); input.value='Unsent draft'; input.dispatchEvent(new Event('input',{bubbles:true}));
         window.dispatchEvent(new MessageEvent('message',{data:{type:'downloadState',downloads:[]}}));
         if (document.getElementById('review-message').value!=='Unsent draft') throw new Error('Draft replaced by download update');
+        window.dispatchEvent(new MessageEvent('message',{data:{type:'parentState',id:'fixture',rev:'a'.repeat(40),parentTargets:model.detail.parentTargets}}));
+        if (document.getElementById('review-message')!==input) throw new Error('Parent resolution replaced active draft');
+        document.querySelector('[data-action="parentOpen"]').click();
 
         window.dispatchEvent(new MessageEvent('message',{data:{type:'state',model:{...model,surface:'sidebar'}}}));
         if (!document.querySelector('.timestamps').nextElementSibling.matches('.commit-info')) throw new Error('Commit ordering');
@@ -162,13 +168,21 @@ async function run() {
         stop.click();
         window.dispatchEvent(new MessageEvent('message',{data:{type:'busy',value:false}}));
 
+        window.dispatchEvent(new MessageEvent('message',{data:{type:'state',model:{...model, connected:true, surface:'discussion', parentNavigation:{number:142}, detail:{id:'parent-fixture',subject:'Latest parent',current_revision:'a'.repeat(40),viewRevision:'b'.repeat(40),revisions:{['a'.repeat(40)]:{_number:2,commit:{message:'Latest parent'}},['b'.repeat(40)]:{_number:1,commit:{message:'Exact parent',parents:[{commit:'f'.repeat(40)}]}}},parentTargets:{['f'.repeat(40)]:{status:'missing',changes:[]}}}}}}));
+        if (document.querySelector('[data-action="navigate"]') || !document.querySelector('[data-action="returnChild"]')) throw new Error('Parent mode navigation incorrect');
+        if (document.querySelector('#review') || !document.querySelector('[data-action="openLatest"]')) throw new Error('Historical review is not guarded');
+        if (document.querySelector('[data-action="parentOpen"]')) throw new Error('Unrelated Git parent should not be clickable');
+        if (document.querySelector('h1').textContent!=='Exact parent') throw new Error('Historical parent title incorrect');
+        document.querySelector('[data-action="returnChild"]').click();
         post('smokeResult',{ok:true});
       } catch(error) { post('smokeResult',{ok:false,error:error.stack}); } })();
     `;
     panel.webview.html = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${panel.webview.cspSource}; script-src 'nonce-${nonce}'"><link rel="stylesheet" href="${media('style.css')}"></head><body><header><div id="account"></div></header><div id="notice"></div><main id="app"></main><script nonce="${nonce}" src="${media('vendor/markdown-it.min.js')}"></script><script nonce="${nonce}" src="${media('main.js')}"></script><script nonce="${nonce}">${fixtureScript}</script></body></html>`;
     await reviewResult;
     assert.equal(navigationAction?.direction, '-1'); assert.equal(navigationAction?.id, 'fixture');
-    assert.equal(metadataAction?.kind, 'author'); assert.equal(relatedAction?.id, 'fixture');
+    assert.equal(metadataAction?.kind, 'author'); assert.equal(relatedAction, undefined, 'Expansion must never issue a loading request');
+    assert.equal(parentAction?.sha, 'b'.repeat(40)); assert.equal(parentAction?.id, 'fixture');
+    assert.equal(childAction?.id, 'parent-fixture');
     assert.equal(fileAction?.id, 'fixture'); assert.equal(fileAction?.rev, 'a'.repeat(40));
     assert.equal(fileAction?.compareLeft, 'base'); assert.equal(fileAction?.compareRight, 'a'.repeat(40));
     assert.equal(fileAction?.path, 'Boot/Device.c');

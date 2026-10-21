@@ -50,7 +50,7 @@ class Workbench {
     this.output = vscode.window.createOutputChannel('Gerrit Workbench');
     this.logger = new Logger(this.output);
     this.model = { connected: false, changes: [], query: this.setting('defaultQuery', 'is:open'), start: 0 };
-    this.inboxPages = new Map(); this.patchPathCache = new Map(); this.downloadJobs = new Map(); this.nativeFiles = new NativeFiles(vscode);
+    this.parentTrail = []; this.inboxPages = new Map(); this.patchPathCache = new Map(); this.downloadJobs = new Map(); this.nativeFiles = new NativeFiles(vscode);
     this.configure();
     this.documents = new Map(); this.threads = new Map(); this.selected = null; this.busy = false;
     this.commentDecoration = vscode.window.createTextEditorDecorationType({
@@ -80,7 +80,7 @@ class Workbench {
   }
   openSettings() { return vscode.commands.executeCommand('workbench.action.openSettings', '@ext:local-tools.gerrit-workbench'); }
   validInfo(info) { return !!(info && this.selected && info.id === this.selected.id && (this.selected.change.revisions ? this.selected.change.revisions[info.rev] : info.rev === this.selected.rev)); }
-  dispose() { this.disposed = true; this.cancelSearch(); this.nativeFiles.dispose().catch(() => {}); this.gateway?.dispose(); this.discussion?.dispose(); this.clearThreads(); this.controller.dispose(); this.commentDecoration.dispose(); this.status.dispose(); this.output.dispose(); }
+  dispose() { this.disposed = true; this.contextController?.abort(); this.cancelSearch(); this.nativeFiles.dispose().catch(() => {}); this.gateway?.dispose(); this.discussion?.dispose(); this.clearThreads(); this.controller.dispose(); this.commentDecoration.dispose(); this.status.dispose(); this.output.dispose(); }
   clearThreads() { for (const thread of this.threads.keys()) thread.dispose(); this.threads.clear(); }
   async run(fn) {
     if (this.busy) return;
@@ -95,6 +95,7 @@ class Workbench {
     this.model.downloads = [...(this.downloadJobs?.values() || [])].map(({ promise, ...item }) => item);
     this.model.accountId = this.user?._account_id;
     this.model.username = this.user?.username;
+    this.model.parentNavigation = this.parentTrail?.length ? { number: this.parentTrail.at(-1).number } : undefined;
     this.model.resultNavigation = this.selected ? this.resultNavigation() : undefined;
     this.updateDecorations();
     this.view?.webview.postMessage({ type: 'state', model: { ...this.model, surface: 'sidebar' } });
@@ -117,7 +118,7 @@ class Workbench {
   }
 
   async searchMetadata(kind, value) {
-    const change = this.selected.change, commit = change.revisions?.[this.selected.rev]?.commit || {};
+    const change = this.selected.change, commit = change.revisions?.[this.model.detail?.viewRevision || this.selected.rev]?.commit || {};
     const filters = { query: 'is:visible', message: '', repo: '', branch: '', owner: '', unreviewed: false };
     if (kind === 'repo') filters.repo = change.project;
     else if (kind === 'branch') { filters.repo = change.project; filters.branch = change.branch; }
@@ -126,13 +127,10 @@ class Workbench {
       const identity = commit[kind]?.email || commit[kind]?.name;
       if (!identity) throw new Error('此提交没有可检索的身份信息');
       filters.query = kind + ':' + JSON.stringify(identity);
-    } else if (kind === 'parent') {
-      const parent = (commit.parents || []).find(item => item.commit === value);
-      if (!parent || !/^[a-f0-9]{40,64}$/.test(parent.commit)) throw new Error('父提交已更新，请重新打开变更');
-      filters.query = 'commit:' + parent.commit;
     } else throw new Error('不支持的检索字段');
     searchPlan(filters.query, filters);
     this.cancelSearch(); this.searchResults = undefined;
+    this.parentTrail = []; this.contextController?.abort();
     this.selected = null; this.clearThreads(); delete this.model.detail; delete this.model.searchStatus;
     Object.assign(this.model, filters, { changes: [], start: 0, more: false });
     this.send({ type: 'searchNavigation' }); this.render();
@@ -140,13 +138,83 @@ class Workbench {
     return this.refresh();
   }
 
+
   async loadRelated() {
-    const s = this.selected;
-    const related = await this.api.related(s.id, s.rev);
+    const s = this.selected, detail = this.model.detail, api = this.api;
+    const focus = detail?.viewRevision || s.rev;
+    const related = await api.related(s.id, focus, { signal: this.contextController?.signal });
     if (!Array.isArray(related?.changes)) throw new Error('服务器未返回有效的 Relation chain');
-    if (this.selected?.id !== s.id || this.selected?.rev !== s.rev || this.disposed) return;
-    this.model.detail.related = { rev: s.rev, changes: related.changes };
-    this.send({ type: 'relatedState', id: s.id, rev: s.rev, related: this.model.detail.related });
+    if (this.model.detail !== detail || this.api !== api || this.disposed) return;
+    detail.related = { rev: focus, status: 'completed', changes: related.changes };
+    this.send({ type: 'relatedState', id: s.id, rev: s.rev, focusRevision: focus, related: detail.related });
+  }
+  preloadContext() {
+    this.contextController?.abort();
+    const controller = new AbortController(); this.contextController = controller;
+    const s = this.selected, detail = this.model.detail, api = this.api;
+    const focus = detail.viewRevision || s.rev;
+    const active = () => this.model.detail === detail && this.api === api && !controller.signal.aborted && !this.disposed;
+    const work = [];
+    if (typeof api.related === 'function') {
+      detail.related = { rev: focus, status: 'loading', changes: [] };
+      work.push(this.loadRelated().catch(error => {
+        if (!active()) return;
+        detail.related = { rev: focus, status: 'failed', changes: [], error: this.logger.redact(error.message) };
+        this.logger.write('error', error.logMessage || '关系链预加载失败');
+        this.send({ type: 'relatedState', id: s.id, rev: s.rev, focusRevision: focus, related: detail.related });
+      }));
+    }
+    const parents = detail.revisions?.[focus]?.commit?.parents || [];
+    detail.parentTargets = {};
+    if (typeof api.list === 'function') for (const parent of parents) {
+      const sha = parent.commit;
+      if (!/^[a-f0-9]{40,64}$/.test(sha || '')) continue;
+      detail.parentTargets[sha] = { status: 'loading', changes: [] };
+      work.push((async () => {
+        const changes = new Map();
+        for (let start = 0; active();) {
+          const rows = await api.list('project:' + JSON.stringify(s.change.project) + ' commit:' + sha, start, { search: true, signal: controller.signal });
+          if (!active()) return;
+          for (const row of rows) if (row.revisions?.[sha]) changes.set(row.id, { id: row.id, number: row._number, branch: row.branch, subject: row.subject, patch: row.revisions[sha]._number });
+          if (!rows.length || !rows.at(-1)._more_changes) break;
+          start += rows.length;
+        }
+        if (!active()) return;
+        const all = [...changes.values()], sameBranch = all.filter(item => item.branch === s.change.branch);
+        detail.parentTargets[sha] = { status: all.length ? 'found' : 'missing', changes: sameBranch.length ? sameBranch : all };
+      })().catch(error => {
+        if (!active()) return;
+        detail.parentTargets[sha] = { status: 'failed', changes: [] };
+        this.logger.write('error', error.logMessage || '父提交关联查询失败');
+      }).then(() => {
+        if (active()) this.send({ type: 'parentState', id: s.id, rev: s.rev, focusRevision: focus, parentTargets: detail.parentTargets });
+      }));
+    }
+    this.contextJob = Promise.allSettled(work);
+  }
+  async openParent(sha) {
+    const s = this.selected, detail = this.model.detail;
+    const focus = detail.viewRevision || s.rev;
+    if (!(s.change.revisions?.[focus]?.commit?.parents || []).some(item => item.commit === sha)) throw new Error('父提交已更新，请重新打开变更');
+    const target = detail.parentTargets?.[sha];
+    if (target?.status !== 'found' || !target.changes.length) throw new Error('此父提交没有已确认的可见 Gerrit 变更');
+    let change = target.changes[0];
+    if (target.changes.length > 1) {
+      change = await vscode.window.showQuickPick(target.changes.map(item => ({ ...item, label: '#' + item.number + ' · ' + item.subject, description: item.branch })), { title: '选择父提交对应的 Gerrit 变更', ignoreFocusOut: true });
+      if (!change) return;
+    }
+    const snapshot = { id: s.id, number: s.change._number, revision: focus, comparison: s.comparison, patchView: detail.patchView, pinned: detail.viewPinned, start: this.model.start };
+    this.parentTrail.push(snapshot);
+    try { await this.load(change.id, true, { revision: sha }); }
+    catch (error) { this.parentTrail.pop(); this.render(); throw error; }
+  }
+  async returnChild() {
+    const snapshot = this.parentTrail.pop();
+    if (!snapshot) throw new Error('没有可返回的子提交');
+    try {
+      await this.load(snapshot.id, true, { revision: snapshot.revision, comparison: snapshot.comparison, patchView: snapshot.patchView, pinned: snapshot.pinned });
+      this.model.start = snapshot.start; this.render();
+    } catch (error) { this.parentTrail.push(snapshot); this.render(); throw error; }
   }
   receiveMessage(webview, message) {
     if (message?.type === 'init') {
@@ -326,6 +394,7 @@ class Workbench {
     return page;
   }
   async navigateResult(direction) {
+    if (this.parentTrail.length) throw new Error('请先返回子提交，再按检索结果切换');
     if (direction !== 1 && direction !== -1) throw new Error('无效的导航方向');
     const cache = this.searchResults?.key === JSON.stringify(searchPlan(this.model.query, this.model)) ? this.searchResults : undefined;
     const rows = cache?.rows || this.model.changes, index = rows.findIndex(item => item.id === this.selected.id);
@@ -359,28 +428,37 @@ class Workbench {
     if (this.selected) await this.load(this.selected.id, false);
     this.render();
   }
-  async load(id, render = true) {
+  async load(id, render = true, context = {}) {
     const change = await this.api.detail(id); const rev = change.current_revision;
     const opening = this.selected?.id !== change.id;
-    let plan = comparisonPlan(change.revisions, 'base', rev);
-    if (this.selected?.id === change.id && this.selected.comparison) {
-      try { plan = comparisonPlan(change.revisions, this.selected.comparison.left, this.selected.comparison.right); } catch { /* A removed patch set resets comparison. */ }
+    const sameChange = this.selected?.id === change.id;
+    const oldFocus = sameChange ? this.model.detail?.viewRevision || this.selected.rev : undefined;
+    const pinned = context.pinned ?? (context.revision ? true : sameChange && !!this.model.detail?.viewPinned);
+    const focus = context.revision || (pinned ? oldFocus : undefined) || rev;
+    if (!change.revisions[focus]) throw new Error('所需 Patch set 已不存在，请刷新后重试');
+    let plan = comparisonPlan(change.revisions, 'base', focus);
+    let savedComparison = context.comparison || (!context.revision && this.selected?.id === change.id ? this.selected.comparison : undefined);
+    if (!context.comparison && savedComparison?.left === 'base' && savedComparison.right === oldFocus && focus !== oldFocus) savedComparison = undefined;
+    if (savedComparison) {
+      try { plan = comparisonPlan(change.revisions, savedComparison.left, savedComparison.right); } catch { /* A removed patch set resets comparison. */ }
     }
     const [rawFiles, comments] = await Promise.all([this.api.files(id, plan.revision, plan.base), this.api.allComments(id)]);
     const files = comparisonFiles(rawFiles, plan.reverse);
-    let patchView = this.selected?.id === change.id ? this.model.detail?.patchView : undefined;
+    let patchView = context.patchView || (!context.revision && this.selected?.id === change.id ? this.model.detail?.patchView : undefined);
+    if (!context.patchView && patchView && patchView.rev === oldFocus && !patchView.query && focus !== oldFocus) patchView = undefined;
     if (patchView?.loading && this.selected?.rev !== rev) patchView = undefined;
     if (!patchView || !change.revisions[patchView.rev]) {
-      const patchFiles = plan.left === 'base' && plan.right === rev ? rawFiles : await this.api.files(id, rev);
-      patchView = { rev, query: '', files: Object.entries(patchFiles).filter(([, file]) => file.status !== 'D').map(([path]) => path).sort() };
+      const patchFiles = plan.left === 'base' && plan.right === focus ? rawFiles : await this.api.files(id, focus);
+      patchView = { rev: focus, query: '', files: Object.entries(patchFiles).filter(([, file]) => file.status !== 'D').map(([path]) => path).sort() };
     }
     this.clearThreads(); this.selected = { id: change.id, rev, change, files, comments, comparison: plan };
-    const related = this.model.detail?.id === change.id && this.model.detail.related?.rev === rev ? this.model.detail.related : undefined;
+    const related = this.model.detail?.id === change.id && this.model.detail.related?.rev === focus ? this.model.detail.related : undefined;
     const update = item => item.id === change.id ? { ...item, reviewed: !!change.reviewed, status: change.status, updated: change.updated } : item;
     this.model.changes = this.model.changes.map(update);
     for (const page of this.inboxPages.values()) page.rows = page.rows.map(update);
     if (this.searchResults) this.searchResults.rows = this.searchResults.rows.map(update);
-    this.model.detail = { ...change, files, comments, comparison: plan, patchView, related, mine: change.owner?._account_id === this.user._account_id };
+    this.model.detail = { ...change, viewRevision: focus, viewPinned: pinned, files, comments, comparison: plan, patchView, related, mine: change.owner?._account_id === this.user._account_id };
+    this.preloadContext();
     if (this.discussion) this.discussion.title = `#${change._number} · 评审讨论`;
     // Reattach comments in any already-open snapshot for this exact patch set.
     for (const [uri, info] of this.documents) if (this.validInfo(info)) await this.attach(vscode.Uri.parse(uri), info);
@@ -520,7 +598,7 @@ class Workbench {
     if (m.type === 'logs') return this.output.show(true);
     if (m.type === 'cancelSearch') { this.cancelSearch(); this.render(); return; }
     if (m.type === 'disconnect') {
-      this.cancelSearch(); this.searchResults = undefined; this.patchPathCache.clear();
+      this.cancelSearch(); this.contextController?.abort(); this.parentTrail = []; this.searchResults = undefined; this.patchPathCache.clear();
       const saved = this.context.globalState.get('connection');
       if (saved) await this.context.secrets.delete(`gerrit:${saved.url}:${saved.username}`);
       await this.context.globalState.update('connection', undefined); this.gateway?.dispose(); this.gateway = undefined; this.api = null; this.selected = null; this.clearThreads(); this.documents.clear();
@@ -542,9 +620,12 @@ class Workbench {
       return this.refresh(true);
     }
     if (m.type === 'refresh') return this.refresh();
-    if (m.type === 'open') return this.load(String(m.id));
-    if (m.type === 'back') { this.selected = null; delete this.model.detail; this.clearThreads(); this.render(); return; }
+    if (m.type === 'open') { this.parentTrail = []; return this.load(String(m.id)); }
+    if (m.type === 'back') { this.parentTrail = []; this.contextController?.abort(); this.selected = null; delete this.model.detail; this.clearThreads(); this.render(); return; }
     const s = this.selected; if (!s || m.id !== s.id || m.rev !== s.rev) throw new Error('页面已更新，请重新选择变更后操作');
+    if (m.type === 'parentOpen') return this.openParent(String(m.sha || ''));
+    if (m.type === 'openLatest') return this.load(s.id, true, { revision: s.rev, pinned: false });
+    if (m.type === 'returnChild') return this.returnChild();
     if (m.type === 'navigate') return this.navigateResult(Number(m.direction));
     if (m.type === 'metadata') return this.searchMetadata(String(m.kind), String(m.value || ''));
     if (m.type === 'file') {
@@ -569,6 +650,7 @@ class Workbench {
     if (m.type === 'compare') return this.compare(String(m.left), String(m.right));
     if (m.type === 'discussion') return this.openDiscussion();
     if (m.type === 'browser') return this.openBrowser();
+    if ((m.type === 'review' || m.type === 'action') && this.model.detail?.viewRevision && this.model.detail.viewRevision !== s.rev) throw new Error('当前查看历史 PS，请先切换到最新 PS 后执行变更操作');
     if (m.type === 'review') {
       const labels = {};
       for (const [name, value] of Object.entries(m.labels || {})) {

@@ -256,7 +256,7 @@ test('collapsed thread state survives a page redraw and publishing does not shif
   assert.equal(touched, false);
 });
 
-test('relation is always a collapsible panel and lazy loading respects busy and collapsed state', () => {
+test('relation expansion never triggers loading and background updates retain collapse state', () => {
   const f = surfaceFixture();
   const panel = { open: true, dataset: {} }; f.elements['relation-chain'] = panel;
   f.message({ type: 'busy', value: true });
@@ -266,7 +266,7 @@ test('relation is always a collapsible panel and lazy loading respects busy and 
   assert.ok(!f.app.innerHTML.includes('relation-unloaded'));
   assert.equal(f.messages.filter(message => message.type === 'related').length, 0);
   f.message({ type: 'busy', value: false });
-  assert.equal(f.messages.filter(message => message.type === 'related').length, 1);
+  assert.equal(f.messages.filter(message => message.type === 'related').length, 0);
   panel.dataset.relationKey = f.app.innerHTML.match(/data-relation-key="([^"]+)"/)[1];
   panel.open = false; f.events.toggle({ target: panel });
   f.message({ type: 'relatedState', id: 'c', rev: 'r', related: { rev: 'r', changes: [] } });
@@ -276,7 +276,7 @@ test('relation is always a collapsible panel and lazy loading respects busy and 
 test('metadata controls and result navigation retain exact change identity', () => {
   const f = surfaceFixture();
   f.update({ connected: true, resultNavigation: { previous: false, next: true, index: 1, total: 3 }, detail: { id: 'c', current_revision: 'r', project: 'team/p', branch: 'main', owner: { name: 'Owner' }, revisions: { r: { commit: { author: { name: 'Author', email: 'author@example.invalid' }, committer: { name: 'Committer' }, parents: [{ commit: 'a'.repeat(40) }] } } } } });
-  for (const kind of ['repo', 'branch', 'owner', 'author', 'committer', 'parent']) assert.ok(f.app.innerHTML.includes('data-kind="' + kind + '"'));
+  for (const kind of ['repo', 'branch', 'owner', 'author', 'committer']) assert.ok(f.app.innerHTML.includes('data-kind="' + kind + '"'));
   f.events.click({ target: { closest: selector => selector === '.markdown-preview' ? null : ({ dataset: { action: 'metadata', kind: 'repo' } }) } });
   assert.equal(f.messages.at(-1).type, 'metadata'); assert.equal(f.messages.at(-1).id, 'c'); assert.equal(f.messages.at(-1).rev, 'r');
   f.events.click({ target: { closest: selector => selector === '.markdown-preview' ? null : ({ dataset: { action: 'navigate', direction: '1' } }) } });
@@ -293,4 +293,32 @@ test('new streamed results update navigation without replacing an active discuss
   const before = f.app.innerHTML;
   f.message({ type: 'inboxResults', changes: [], start: 0, more: false, navigation: { previous: true, next: true, index: 2, total: 4 } });
   assert.equal(f.app.innerHTML, before); assert.ok(f.elements['result-navigation'].innerHTML.includes('第 2 条 / 4'));
+});
+
+test('only resolved Gerrit parents are clickable and parent updates preserve Commit expansion', () => {
+  const f = surfaceFixture(), sha = 'a'.repeat(40);
+  const detail = { id: 'c', current_revision: 'r', revisions: { r: { _number: 1, commit: { parents: [{ commit: sha }] } } } };
+  f.update({ connected: true, detail });
+  assert.ok(!f.app.innerHTML.includes('data-action="parentOpen"'));
+  const panel = { open: true }; f.elements['commit-info'] = panel;
+  f.message({ type: 'parentState', id: 'c', rev: 'r', parentTargets: { [sha]: { status: 'found', changes: [{ id: 'p', number: 2, patch: 1 }] } } });
+  assert.ok(panel.outerHTML.includes('data-action="parentOpen"')); assert.ok(panel.outerHTML.includes('class="commit-info" open'));
+  f.message({ type: 'parentState', id: 'c', rev: 'r', parentTargets: { [sha]: { status: 'missing', changes: [] } } });
+  assert.ok(!panel.outerHTML.includes('data-action="parentOpen"'));
+});
+
+test('parent context replaces result navigation in both views and historical review requires explicit latest switch', () => {
+  const f = surfaceFixture();
+  const model = { connected: true, parentNavigation: { number: 3 }, resultNavigation: { previous: true, next: true }, detail: { id: 'parent', current_revision: 'new', viewRevision: 'old', subject: 'New parent', revisions: { old: { _number: 1, commit: { message: 'Exact parent' } }, new: { _number: 2, commit: { message: 'New parent' } } } } };
+  for (const surface of ['sidebar', 'discussion']) {
+    f.update({ ...model, surface });
+    assert.ok(f.app.innerHTML.includes('返回子提交 #3')); assert.ok(!f.app.innerHTML.includes('data-action="navigate"'));
+    assert.ok(f.app.innerHTML.includes('<h1>Exact parent</h1>'));
+  }
+  assert.ok(!f.app.innerHTML.includes('id="review"')); assert.ok(f.app.innerHTML.includes('data-action="openLatest"'));
+  f.elements['result-navigation'] = { innerHTML: '' };
+  f.message({ type: 'inboxResults', changes: [], navigation: { previous: true, next: true } });
+  assert.ok(!f.elements['result-navigation'].innerHTML.includes('data-action="navigate"'));
+  f.events.click({ target: { closest: selector => selector === '.markdown-preview' ? null : ({ dataset: { action: 'returnChild' } }) } });
+  assert.equal(f.messages.at(-1).type, 'returnChild'); assert.equal(f.messages.at(-1).rev, 'new');
 });

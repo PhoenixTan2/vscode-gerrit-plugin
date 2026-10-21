@@ -51,6 +51,7 @@ function comparison(d) {
   return `<h2>版本比较</h2><form id="compare"><label for="compare-left">左侧</label>${select('left')}<label for="compare-right">右侧</label>${select('right')}<div class="row">${button('交换左右', 'swap')}</div></form><p class="muted">可比较任意两个 PS，或 PS 与其 Base。代码评论绑定实际版本。</p>`;
 }
 function reviewForm(d) {
+  if (d.viewRevision && d.viewRevision !== d.current_revision) return `<h2>历史 PS 浏览</h2><p class="muted">整体评审与评分针对最新 PS。先切换到最新版本，再发布评审。</p>${button('切换到最新 PS 评审', 'openLatest')}`;
   const saved = draft();
   return `<h2>发布评审 · 最新 PS ${e(d.revisions?.[d.current_revision]?._number)}</h2><form id="review">${markdownEditor(saved.message || '', { id: 'review-message', label: '评审评论', placeholder: '写下整体评审意见…' })}${Object.entries(d.permitted_labels || {}).map(([name, values], i) => `<label for="label-${i}">${e(name)}</label><select id="label-${i}" data-label="${e(name)}"><option value="">不修改评分</option>${values.map(v => `<option value="${e(Number(v))}" ${String(saved.labels?.[name]) === String(Number(v)) ? 'selected' : ''}>${e(v.trim())} ${e(d.labels?.[name]?.values?.[v] || '')}</option>`).join('')}</select>`).join('')}<div class="row"><button type="submit">发布评审</button><span class="muted">整体评论与评分立即发布；下方代码回复发到原评论所在 PS。</span></div></form>`;
 }
@@ -78,16 +79,22 @@ function metadataLink(text, kind, value = '') {
   return text ? button(text, 'metadata', 'meta-link', `data-kind="${e(kind)}" data-value="${e(value)}" title="检索：${e(text)}"`) : '—';
 }
 const relationKey = () => `${key()}::relation`;
-let relationRequested;
-function requestRelation() {
-  const panel = document.getElementById('relation-chain');
-  if (busy || !panel?.open || !model.detail || model.detail.related || relationRequested === relationKey()) return;
-  relationRequested = relationKey(); post('related', payload());
-}
 
-function commitInfo(d) {
-  const commit = d.revisions?.[d.current_revision]?.commit || {};
-  return `<details class="commit-info" ${model.commitInfoExpanded ? 'open' : ''}><summary>${icon('commit')}Commit 信息<span class="muted">最新 PS · ${e(d.current_revision?.slice(0, 10))}</span></summary><pre>${e(commit.message || d.subject)}</pre><dl class="metadata"><dt>SHA</dt><dd class="mono">${e(d.current_revision)}</dd><dt>Change-Id</dt><dd class="mono">${e(d.change_id)}</dd><dt>作者</dt><dd>${metadataLink([commit.author?.name, commit.author?.email && `<${commit.author.email}>`].filter(Boolean).join(' '), 'author')}</dd><dt>提交者</dt><dd>${metadataLink([commit.committer?.name, commit.committer?.email && `<${commit.committer.email}>`].filter(Boolean).join(' '), 'committer')}</dd><dt>父提交</dt><dd class="mono">${(commit.parents || []).map(p => metadataLink(p.commit, 'parent', p.commit)).join(' · ')}</dd></dl></details>`;
+function parentLink(d, sha) {
+  const target = d.parentTargets?.[sha];
+  if (target?.status === 'found' && target.changes?.length) {
+    const first = target.changes[0];
+    return button(sha, 'parentOpen', 'meta-link', `data-sha="${e(sha)}" title="打开父提交 #${e(first.number)} · PS ${e(first.patch)}"`);
+  }
+  const title = target?.status === 'missing' ? '没有可见的 Gerrit 变更' : target?.status === 'failed' ? '未能确认 Gerrit 变更，可刷新后重试' : '正在确认是否关联 Gerrit 变更';
+  return `<span title="${e(title)}">${e(sha)}</span>`;
+}
+const displaySubject = d => d.viewRevision && d.viewRevision !== d.current_revision ? d.revisions?.[d.viewRevision]?.commit?.subject || (d.revisions?.[d.viewRevision]?.commit?.message ? firstLine(d.revisions[d.viewRevision].commit.message) : d.subject) : d.subject;
+
+function commitInfo(d, expanded = model.commitInfoExpanded) {
+  const focus = d.viewRevision || d.current_revision;
+  const commit = d.revisions?.[focus]?.commit || {};
+  return `<details id="commit-info" class="commit-info" ${expanded ? 'open' : ''}><summary>${icon('commit')}Commit 信息<span class="muted">PS ${e(d.revisions?.[focus]?._number)}${focus === d.current_revision ? ' · 最新' : ` · 历史版本（最新 PS ${e(d.revisions?.[d.current_revision]?._number)}）`} · ${e(focus?.slice(0, 10))}</span></summary><pre>${e(commit.message || d.subject)}</pre><dl class="metadata"><dt>SHA</dt><dd class="mono">${e(focus)}</dd><dt>Change-Id</dt><dd class="mono">${e(d.change_id)}</dd><dt>作者</dt><dd>${metadataLink([commit.author?.name, commit.author?.email && `<${commit.author.email}>`].filter(Boolean).join(' '), 'author')}</dd><dt>提交者</dt><dd>${metadataLink([commit.committer?.name, commit.committer?.email && `<${commit.committer.email}>`].filter(Boolean).join(' '), 'committer')}</dd><dt>父提交</dt><dd class="mono">${(commit.parents || []).map(p => parentLink(d, p.commit)).join(' · ')}</dd></dl></details>`;
 }
 function downloadStatus() {
   const jobs = (model.downloads || []).filter(job => job.changeId === model.detail?.id);
@@ -97,11 +104,12 @@ function downloadStatus() {
 const statusText = value => ({ NEW: '评审中', MERGED: '已合入', ABANDONED: '已废弃' }[value] || value || '—');
 function relationChain(d) {
   const expanded = state.relations?.[relationKey()] ?? !!model.relationChainExpanded;
-  const shell = `<details id="relation-chain" class="relation-chain" data-relation-key="${e(relationKey())}" ${expanded ? 'open' : ''}><summary>关系链 · Relation chain <span class="muted">${d.related ? `${d.related.changes.length} 个节点` : '展开加载'}</span></summary>`;
-  if (!d.related) return `${shell}<p class="muted">展开后加载最新 PS 的关联提交。</p>${button('重新加载', 'related')}</details>`;
+  const shell = `<details id="relation-chain" class="relation-chain" data-relation-key="${e(relationKey())}" ${expanded ? 'open' : ''}><summary>关系链 · Relation chain <span class="muted">${!d.related || d.related.status === 'loading' ? '后台加载中…' : d.related.status === 'failed' ? '加载失败' : `${d.related.changes.length} 个节点`}</span></summary>`;
+  if (!d.related || d.related.status === 'loading') return `${shell}<p class="muted">关联提交正在后台加载，无需展开触发。</p></details>`;
+  if (d.related.status === 'failed') return `${shell}<p class="negative">${e(d.related.error || '关系链加载失败')}</p>${button('重新加载', 'related')}</details>`;
   const nodes = d.related.changes;
-  return `${shell}<p class="muted">最新 PS 的相关提交，上新下旧；点击变更打开其最新 PS。</p><div class="chain">${nodes.map(node => {
-    const current = node.commit?.commit === d.current_revision;
+  return `${shell}<p class="muted">所查看 PS 的相关提交，上新下旧；点击变更打开其最新 PS。</p><div class="chain">${nodes.map(node => {
+    const current = node.commit?.commit === (d.viewRevision || d.current_revision);
     const old = node._revision_number && node._current_revision_number && node._revision_number !== node._current_revision_number;
     const label = node._change_number ? `#${node._change_number} · ${node.commit?.subject || ''}` : node.commit?.subject || node.commit?.commit || '提交';
     return `<div class="chain-node ${current ? 'current' : ''}">${node._change_number ? button(label, 'relatedOpen', 'secondary file', `data-number="${e(node._change_number)}"`) : `<div class="chain-commit">${e(label)}</div>`}<div class="muted"><span class="mono">${e(node.commit?.commit?.slice(0, 10))}</span> ${node._revision_number ? `· PS ${e(node._revision_number)}` : ''} ${e(statusText(node.status))} ${current ? '<span class="badge">当前 PS</span>' : ''}${old ? `<span class="badge">旧 PS · 最新为 ${e(node._current_revision_number)}</span>` : ''}</div>${node.commit?.parents?.length ? `<div class="chain-parents muted mono">父提交 ← ${e(node.commit.parents.map(p => p.commit?.slice(0, 10)).join(', '))}</div>` : ''}</div>`;
@@ -152,19 +160,22 @@ function discussion(d) {
     const replyKey = `${key()}::${last.id}`;
     return `<details class="card thread" data-thread-key="${e(`${key()}::${root.id}`)}" ${state.threadCollapsed?.[`${key()}::${root.id}`] ? '' : 'open'}><summary class="thread-summary"><b title="${e(path)}">${e(path)}${root.line ? `:${e(root.line)}` : ' · 文件评论'}</b><span class="thread-snippet" title="${e(firstLine(root.message))}">${markdown.renderInline(firstLine(root.message))}</span><span class="badge">${last.unresolved ? '未解决' : '已解决'}</span></summary><p class="muted">PS ${e(root.patch_set || '?')} · ${root.side === 'PARENT' ? 'Base' : 'Patch'} ${root.range ? `· 行 ${root.range.start_line}–${root.range.end_line}` : ''}</p>${list.map(c => `<div class="thread-message"><div class="message-byline"><span class="avatar">${e(who(c.author).slice(0, 1))}</span><b>${e(who(c.author))}</b><time>${e(time(c.updated))}</time></div><div class="message markdown-body">${md(c.message)}</div></div>`).join('')}<div class="row">${button('定位到代码', 'locate', 'secondary', `data-path="${e(path)}" data-comment="${e(root.id)}"`)}</div><form data-form="reply" data-path="${e(path)}" data-comment="${e(last.id)}">${markdownEditor(state.replies?.[replyKey] || '', { replyKey, label: `回复 ${path} 的讨论`, placeholder: '回复这条讨论…' })}<div class="row"><button type="submit">发布回复</button></div></form></details>`;
   }).join('') || '<div class="empty">暂无符合筛选的代码讨论</div>'}<h2>活动记录</h2>${(d.messages || []).slice().reverse().map(m => `<details class="card activity"><summary><b>${e(who(m.author))}</b><span class="badge">PS ${e(m._revision_number)}</span><span class="activity-snippet" title="${e(firstLine(m.message))}">${markdown.renderInline(firstLine(m.message))}</span><time>${e(time(m.date))}</time></summary><div class="message markdown-body">${md(m.message)}</div></details>`).join('') || '<p class="muted">暂无活动</p>'}`;
-  return `<div class="review-shell"><div class="hero"><div class="hero-top"><span class="eyebrow">CHANGE #${e(d._number)}</span><span class="badge status">${e(statusText(d.status))}</span><div class="hero-actions">${button('刷新', 'refresh')}${button('内置浏览器', 'browser')}</div></div><div id="result-navigation" class="result-navigation" aria-label="检索结果导航">${resultNavigation()}</div><h1>${e(d.subject)}</h1><p class="muted">${metadataLink(d.project, 'repo')} <span class="separator">/</span> ${metadataLink(d.branch, 'branch')} <span class="separator">·</span> ${metadataLink(who(d.owner), 'owner')} <span class="badge">最新 PS ${e(d.revisions?.[d.current_revision]?._number)}</span></p>${timestamps(d)}</div>${commitInfo(d)}${relationChain(d)}<div class="discussion-layout"><section><nav class="tabs" aria-label="评审视图">${button('讨论', 'tabDiscussion', codeTab ? 'tab' : 'tab active')}${button('代码与下载', 'tabCode', codeTab ? 'tab active' : 'tab')}</nav>${codeTab ? `<div class="card code-panel" id="patch-browser">${patchBrowser(d)}</div>` : discussionBody}</section><aside><div class="ratings"><h2>当前评分</h2>${votes(d.labels) || '<p class="muted">暂无评分标签</p>'}</div><div class="card composer">${reviewForm(d)}</div></aside></div></div>`;
+  return `<div class="review-shell"><div class="hero"><div class="hero-top"><span class="eyebrow">CHANGE #${e(d._number)}</span><span class="badge status">${e(statusText(d.status))}</span><div class="hero-actions">${button('刷新', 'refresh')}${button('内置浏览器', 'browser')}</div></div><div id="result-navigation" class="result-navigation" aria-label="检索结果导航">${resultNavigation()}</div><h1>${e(displaySubject(d))}</h1><p class="muted">${metadataLink(d.project, 'repo')} <span class="separator">/</span> ${metadataLink(d.branch, 'branch')} <span class="separator">·</span> ${metadataLink(who(d.owner), 'owner')} <span class="badge">最新 PS ${e(d.revisions?.[d.current_revision]?._number)}</span></p>${timestamps(d)}</div>${commitInfo(d)}${relationChain(d)}<div class="discussion-layout"><section><nav class="tabs" aria-label="评审视图">${button('讨论', 'tabDiscussion', codeTab ? 'tab' : 'tab active')}${button('代码与下载', 'tabCode', codeTab ? 'tab active' : 'tab')}</nav>${codeTab ? `<div class="card code-panel" id="patch-browser">${patchBrowser(d)}</div>` : discussionBody}</section><aside><div class="ratings"><h2>当前评分 <span class="muted">最新 PS</span></h2>${votes(d.labels) || '<p class="muted">暂无评分标签</p>'}</div><div class="card composer">${reviewForm(d)}</div></aside></div></div>`;
 }
 
 function resultNavigation() {
+  const historical = model.detail?.viewRevision && model.detail.viewRevision !== model.detail.current_revision;
+  const latest = historical ? button('查看最新 PS', 'openLatest', 'secondary') : '';
+  if (model.parentNavigation) return `${button(`← 返回子提交 #${model.parentNavigation.number}`, 'returnChild', 'secondary')}${latest}<span class="muted">父提交浏览${historical ? ` · 正在查看 PS ${e(model.detail.revisions?.[model.detail.viewRevision]?._number)}` : ''}</span>`;
   const nav = model.resultNavigation || {};
   const control = (label, direction, enabled) => button(label, 'navigate', 'secondary', `data-direction="${direction}" ${enabled ? '' : 'data-unavailable="true" disabled'}`);
-  return `${control('← 上一条', -1, nav.previous)}${control('下一条 →', 1, nav.next)}<span class="muted" title="按当前检索结果顺序">${nav.index ? `第 ${nav.index} 条${nav.total ? ` / ${nav.total}${nav.more ? '+' : ''}` : ''}` : '不在当前检索结果中'}</span>`;
+  return `${latest}${control('← 上一条', -1, nav.previous)}${control('下一条 →', 1, nav.next)}<span class="muted" title="按当前检索结果顺序">${nav.index ? `第 ${nav.index} 条${nav.total ? ` / ${nav.total}${nav.more ? '+' : ''}` : ''}` : '不在当前检索结果中'}</span>`;
 }
 
 function sidebarDetail(d) {
-  const rev = d.revisions?.[d.current_revision]; const actions = d.actions || {};
+  const rev = d.revisions?.[d.current_revision]; const actions = d.viewRevision && d.viewRevision !== d.current_revision ? {} : d.actions || {};
   const commentCount = Object.values(d.comments || {}).flat().length;
-  return `<div class="row">${button('← 返回列表', 'back')}${button('刷新', 'refresh')}${button('内置浏览器', 'browser')}</div><p><span class="badge">#${e(d._number)}</span><span class="badge status">${e(statusText(d.status))}</span>${d.work_in_progress ? '<span class="badge">WIP</span>' : ''}</p><div id="result-navigation" class="result-navigation" aria-label="检索结果导航">${resultNavigation()}</div><h1>${e(d.subject)}</h1><p class="muted">${metadataLink(d.project, 'repo')} → ${metadataLink(d.branch, 'branch')}<br>${metadataLink(who(d.owner), 'owner')} · 最新 PS ${e(rev?._number)}</p>${timestamps(d)}${commitInfo(d)}<div class="review-entry">${icon('discussion')}${button(`打开评审讨论（${commentCount} 条代码评论）`, 'discussion', 'wide')}<p class="muted">讨论与评分、Commit 信息、单个 Patch 代码和本地下载。</p></div><div class="row">${d.mine && actions.ready?.enabled ? button('发布为待评审', 'ready', '') : ''}${d.mine && actions.abandon?.enabled ? button('废弃', 'abandon', 'secondary danger') : ''}${actions.submit?.enabled ? button('合入分支', 'submit') : ''}</div>${relationChain(d)}${fileComparison(d)}`;
+  return `<div class="row">${button('← 返回列表', 'back')}${button('刷新', 'refresh')}${button('内置浏览器', 'browser')}</div><p><span class="badge">#${e(d._number)}</span><span class="badge status">${e(statusText(d.status))}</span>${d.work_in_progress ? '<span class="badge">WIP</span>' : ''}</p><div id="result-navigation" class="result-navigation" aria-label="检索结果导航">${resultNavigation()}</div><h1>${e(displaySubject(d))}</h1><p class="muted">${metadataLink(d.project, 'repo')} → ${metadataLink(d.branch, 'branch')}<br>${metadataLink(who(d.owner), 'owner')} · 最新 PS ${e(rev?._number)}</p>${timestamps(d)}${commitInfo(d)}<div class="review-entry">${icon('discussion')}${button(`打开评审讨论（${commentCount} 条代码评论）`, 'discussion', 'wide')}<p class="muted">讨论与评分、Commit 信息、单个 Patch 代码和本地下载。</p></div><div class="row">${d.mine && actions.ready?.enabled ? button('发布为待评审', 'ready', '') : ''}${d.mine && actions.abandon?.enabled ? button('废弃', 'abandon', 'secondary danger') : ''}${actions.submit?.enabled ? button('合入分支', 'submit') : ''}</div>${relationChain(d)}${fileComparison(d)}`;
 }
 
 const searchIdentity = () => `${model.server || ''}::${model.accountId ?? model.username ?? ''}`;
@@ -213,7 +224,7 @@ function render() {
     const presets = [['Open', 'is:open'], ['Merged', 'is:merged'], ['Abandoned', 'is:abandoned'], ['与我相关', 'is:open (owner:self OR reviewer:self)'], ['我的提交', 'owner:self']];
     app.innerHTML = `<div class="row">${button('上传本地提交', 'push', '')}${button('连接设置', 'connect')}${button('断开', 'disconnect')}</div><h1>评审收件箱</h1><div class="row">${presets.map(([name, query]) => button(name, 'preset', model.query === query ? '' : 'secondary', `data-query="${e(query)}"`)).join('')}</div>${searchControls()}<p class="muted">每页最多 ${model.pageSize || 50} 条</p><div id="inbox-results">${inboxResults()}</div>`;
   }
-  setBusy(); requestRelation();
+  setBusy();
   post('rendered', { surface: model.surface || 'sidebar' });
 }
 function setBusy() { app.querySelectorAll('button,select').forEach(el => { el.disabled = el.dataset?.unavailable === 'true' || (busy && el.dataset?.action !== 'cancelSearch') || (el.dataset?.action === 'download' && (model.downloads || []).some(job => job.changeId === model.detail?.id && job.status === 'running')); }); app.setAttribute('aria-busy', String(busy)); }
@@ -280,8 +291,7 @@ app.addEventListener('keydown', event => {
 app.addEventListener('toggle', event => {
   if (event.target.dataset?.relationKey) {
     state.relations ||= {}; state.relations[event.target.dataset.relationKey] = event.target.open; save();
-    if (!event.target.open && !model.detail?.related) relationRequested = undefined;
-    requestRelation(); return;
+    return;
   }
   if (!event.target.dataset?.threadKey) return;
   state.threadCollapsed ||= {}; state.threadCollapsed[event.target.dataset.threadKey] = !event.target.open; save();
@@ -295,7 +305,11 @@ window.addEventListener('message', ({ data }) => {
     const region = document.getElementById('inbox-results');
     if (region && !model.detail && model.surface !== 'discussion' && model.surface !== 'files') { region.innerHTML = inboxResults(); setBusy(); }
   }
-  if (data.type === 'relatedState' && model.detail?.id === data.id && model.detail.current_revision === data.rev) {
+  if (data.type === 'parentState' && model.detail?.id === data.id && model.detail.current_revision === data.rev && (model.detail.viewRevision || model.detail.current_revision) === (data.focusRevision || data.rev)) {
+    model.detail.parentTargets = data.parentTargets;
+    const panel = document.getElementById('commit-info'); if (panel) { panel.outerHTML = commitInfo(model.detail, panel.open); setBusy(); }
+  }
+  if (data.type === 'relatedState' && model.detail?.id === data.id && model.detail.current_revision === data.rev && (model.detail.viewRevision || model.detail.current_revision) === (data.focusRevision || data.rev)) {
     model.detail.related = data.related;
     const panel = document.getElementById('relation-chain');
     if (panel) {
@@ -309,7 +323,7 @@ window.addEventListener('message', ({ data }) => {
   }
   if (data.type === 'downloadState') { model.downloads = data.downloads; const region = document.getElementById('download-status'); if (region) region.innerHTML = downloadStatus(); setBusy(); }
   if (data.type === 'searchProgress') { model.searchStatus = data.searchStatus; const region = document.getElementById('search-status'); if (region) region.innerHTML = searchStatus(); setBusy(); }
-  if (data.type === 'busy') { busy = data.value; if (busy) notice.textContent = '处理中…'; else if (notice.textContent === '处理中…') notice.textContent = ''; setBusy(); if (!busy) requestRelation(); }
+  if (data.type === 'busy') { busy = data.value; if (busy) notice.textContent = '处理中…'; else if (notice.textContent === '处理中…') notice.textContent = ''; setBusy(); }
   if (data.type === 'error') {
     notice.textContent = data.message;
     if (model.detail && document.getElementById('compare-left')) {

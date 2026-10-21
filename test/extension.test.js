@@ -392,7 +392,7 @@ test('Patch path search ignores case, reuses its index and does not hold global 
 });
 
 test('metadata links reset old filters and search the selected commit identity across statuses', async () => {
-  for (const kind of ['author', 'committer', 'parent', 'repo', 'branch', 'owner']) {
+  for (const kind of ['author', 'committer', 'repo', 'branch', 'owner']) {
     const { app, executed } = fixture();
     app.selected.change = { project: 'team/p', branch: 'release', owner: { username: 'owner-user' }, revisions: { abc: { commit: { author: { name: 'Author', email: 'author@example.invalid' }, committer: { email: 'committer@example.invalid' }, parents: [{ commit: 'a'.repeat(40) }] } } } };
     Object.assign(app.model, { message: 'old', repo: 'old', branch: 'old', unreviewed: true, start: 50, detail: {} });
@@ -403,14 +403,13 @@ test('metadata links reset old filters and search the selected commit identity a
     assert.ok(executed.some(args => args[0] === 'gerrit.dashboard.focus'));
     if (kind === 'author') assert.equal(app.model.query, 'author:"author@example.invalid"');
     if (kind === 'committer') assert.equal(app.model.query, 'committer:"committer@example.invalid"');
-    if (kind === 'parent') assert.equal(app.model.query, 'commit:' + 'a'.repeat(40));
     if (kind === 'repo' || kind === 'branch') assert.equal(app.model.repo, 'team/p');
     if (kind === 'branch') assert.equal(app.model.branch, 'release');
     if (kind === 'owner') assert.equal(app.model.owner, 'owner-user');
   }
   const { app } = fixture();
   await assert.rejects(app.handle({ type: 'metadata', id: app.selected.id, rev: 'old', kind: 'repo' }), /页面已更新/);
-  await assert.rejects(app.searchMetadata('parent', 'b'.repeat(40)), /父提交/);
+  await assert.rejects(app.searchMetadata('parent', 'b'.repeat(40)), /不支持/);
 });
 
 test('result navigation follows full cached message order, crosses pages and never searches again', async () => {
@@ -447,4 +446,122 @@ test('relation default expansion is supplied by settings and loading only update
   app.model.detail = {}; app.api.related = async () => ({ changes: [] }); app.send = message => sent.push(message);
   app.render = () => { throw new Error('must preserve active editor'); };
   await app.loadRelated(); assert.equal(sent[0].type, 'relatedState');
+});
+
+function familyFixture() {
+  const f = fixture(), { app } = f;
+  const childSha = 'c'.repeat(40), oldChild = 'b'.repeat(40), parentSha = 'a'.repeat(40), latestParent = 'd'.repeat(40), grandSha = 'e'.repeat(40);
+  const changes = {
+    child: { id: 'child', _number: 3, project: 'p', branch: 'main', subject: 'Child', owner: {}, current_revision: childSha, revisions: { [oldChild]: { _number: 1, commit: { message: 'Old child', parents: [] } }, [childSha]: { _number: 2, commit: { message: 'Child', parents: [{ commit: parentSha }] } } } },
+    parent: { id: 'parent', _number: 2, project: 'p', branch: 'main', subject: 'Latest parent', owner: {}, current_revision: latestParent, revisions: { [parentSha]: { _number: 1, commit: { message: 'Exact parent', parents: [{ commit: grandSha }] } }, [latestParent]: { _number: 2, commit: { message: 'Latest parent', parents: [] } } } },
+    grand: { id: 'grand', _number: 1, project: 'p', branch: 'main', subject: 'Grand', owner: {}, current_revision: grandSha, revisions: { [grandSha]: { _number: 1, commit: { message: 'Grand', parents: [] } } } }
+  };
+  app.selected = null; app.user = { _account_id: 1 }; app.showFiles = async () => {};
+  app.api.url = 'https://review.example.invalid';
+  app.api.detail = async id => changes[id];
+  app.api.files = async () => ({ 'code.c': {} }); app.api.allComments = async () => ({});
+  app.api.related = async (id, rev) => ({ changes: [{ commit: { commit: rev } }] });
+  const queries = []; app.api.list = async query => {
+    queries.push(query);
+    return query.endsWith(parentSha) ? [changes.parent] : query.endsWith(grandSha) ? [changes.grand] : [];
+  };
+  app.model.changes = [{ id: 'child', updated: 'today' }];
+  return { ...f, changes, queries, childSha, oldChild, parentSha, latestParent, grandSha };
+}
+test('context preloads while collapsed without holding busy and ignores superseded responses', async () => {
+  const { app } = familyFixture(); let finish;
+  const gate = new Promise(resolve => { finish = resolve; });
+  app.api.related = async (id, rev) => { if (id === 'child') await gate; return { changes: [{ commit: { commit: rev } }] }; };
+  const messages = []; app.send = message => messages.push(message);
+  await app.run(() => app.load('child'));
+  assert.equal(app.busy, false); assert.equal(app.model.relationChainExpanded, false);
+  assert.equal(app.model.detail.related.status, 'loading');
+  const oldJob = app.contextJob;
+  await app.load('parent'); await app.contextJob; finish(); await oldJob;
+  assert.equal(app.selected.id, 'parent'); assert.equal(app.model.detail.related.status, 'completed');
+  assert.ok(!messages.some(message => message.type === 'relatedState' && message.id === 'child'));
+});
+
+test('parent navigation pins exact historical Patch, returns through ancestors and restores child comparison', async () => {
+  const { app, childSha, oldChild, parentSha, latestParent, grandSha, queries } = familyFixture();
+  await app.load('child'); await app.contextJob;
+  assert.equal(app.model.detail.parentTargets[parentSha].status, 'found');
+  await app.compare(oldChild, childSha);
+  app.model.detail.patchView = { rev: oldChild, query: '', files: ['code.c'] };
+  await app.openParent(parentSha); await app.contextJob;
+  assert.equal(app.selected.id, 'parent'); assert.equal(app.selected.rev, latestParent);
+  assert.equal(app.model.detail.viewRevision, parentSha); assert.equal(app.selected.comparison.right, parentSha);
+  assert.equal(app.model.detail.patchView.rev, parentSha); assert.equal(app.model.parentNavigation.number, 3);
+  await assert.rejects(app.navigateResult(1), /返回子提交/);
+  await assert.rejects(app.handle({ type: 'review', id: 'parent', rev: latestParent, message: 'wrong PS' }), /历史 PS/);
+  await app.openParent(grandSha); assert.equal(app.parentTrail.length, 2);
+  await app.returnChild(); assert.equal(app.selected.id, 'parent'); assert.equal(app.model.detail.viewRevision, parentSha);
+  await app.returnChild();
+  assert.equal(app.selected.id, 'child'); assert.equal(app.parentTrail.length, 0);
+  assert.equal(app.selected.comparison.left, oldChild); assert.equal(app.selected.comparison.right, childSha);
+  assert.equal(app.model.detail.patchView.rev, oldChild); assert.equal(app.model.parentNavigation, undefined);
+  assert.ok(queries.every(query => query.startsWith('project:')));
+});
+
+test('missing parent has no navigation target and failed jumps retain their return context', async () => {
+  const { app, parentSha } = familyFixture();
+  app.api.list = async () => [];
+  await app.load('child'); await app.contextJob;
+  assert.equal(app.model.detail.parentTargets[parentSha].status, 'missing');
+  await assert.rejects(app.openParent(parentSha), /没有已确认/);
+  app.model.detail.parentTargets[parentSha] = { status: 'found', changes: [{ id: 'unavailable', number: 2 }] };
+  app.api.detail = async () => { throw new Error('network failure'); };
+  await assert.rejects(app.openParent(parentSha), /network failure/);
+  assert.equal(app.parentTrail.length, 0); assert.equal(app.selected.id, 'child');
+});
+
+test('switching a historical parent to latest permits review there while retaining return-to-child navigation', async () => {
+  const { app, parentSha, latestParent } = familyFixture();
+  await app.load('child'); await app.contextJob; await app.openParent(parentSha);
+  await app.handle({ type: 'openLatest', id: 'parent', rev: latestParent });
+  assert.equal(app.model.detail.viewRevision, latestParent);
+  assert.equal(app.parentTrail.length, 1); assert.equal(app.model.parentNavigation.number, 3);
+});
+
+test('parent resolution prefers the current branch across query pages and ambiguous selection can be cancelled', async () => {
+  const { app, vscode, parentSha, changes } = familyFixture();
+  const offsets = [];
+  app.api.list = async (query, start, options) => {
+    assert.equal(options.search, true); offsets.push(start);
+    return start === 0 ? [{ ...changes.parent, id: 'other-branch', branch: 'release', _more_changes: true }] : [changes.parent];
+  };
+  await app.load('child'); await app.contextJob;
+  assert.deepEqual(offsets, [0, 1]);
+  assert.equal(app.model.detail.parentTargets[parentSha].changes[0].id, 'parent');
+  app.model.detail.parentTargets[parentSha].changes.push({ id: 'another', number: 9, branch: 'main', subject: 'Another', patch: 1 });
+  app.selected.change.project = 'p';
+  app.model.detail.parentTargets[parentSha].changes[0].subject = 'Parent';
+  vscode.window.showQuickPick = async () => undefined;
+  await app.openParent(parentSha);
+  assert.equal(app.selected.id, 'child'); assert.equal(app.parentTrail.length, 0);
+});
+test('preload failures leave the detail usable and never manufacture parent links', async () => {
+  const { app, parentSha } = familyFixture();
+  app.api.related = async () => { throw new Error('relation unavailable'); };
+  app.api.list = async () => { throw new Error('query unavailable'); };
+  await app.run(() => app.load('child')); await app.contextJob;
+  assert.equal(app.busy, false); assert.equal(app.selected.id, 'child');
+  assert.equal(app.model.detail.related.status, 'failed');
+  assert.equal(app.model.detail.parentTargets[parentSha].status, 'failed');
+  await assert.rejects(app.openParent(parentSha), /没有已确认/);
+});
+
+test('normal refresh follows new latest PS while explicit parent SHA remains pinned', async () => {
+  const { app, changes, childSha } = familyFixture();
+  await app.load('child'); await app.contextJob;
+  const newer = 'f'.repeat(40);
+  changes.child.revisions[newer] = { _number: 3, commit: { message: 'New child', parents: [] } };
+  changes.child.current_revision = newer;
+  await app.load('child');
+  assert.equal(app.model.detail.viewRevision, newer);
+  assert.equal(app.model.detail.comparison.right, newer); assert.equal(app.model.detail.patchView.rev, newer);
+  await app.load('child', true, { revision: childSha });
+  await app.load('child');
+  assert.equal(app.model.detail.viewRevision, childSha); assert.equal(app.model.detail.viewPinned, true);
+  assert.equal(app.model.detail.comparison.right, childSha);
 });
