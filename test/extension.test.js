@@ -390,3 +390,61 @@ test('Patch path search ignores case, reuses its index and does not hold global 
   app.selected = null; app.model.detail = { id: 'different' }; finish(['Library/Init.c']); await job.promise;
   assert.equal(app.model.detail.id, 'different'); assert.equal(app.model.detail.patchView, undefined);
 });
+
+test('metadata links reset old filters and search the selected commit identity across statuses', async () => {
+  for (const kind of ['author', 'committer', 'parent', 'repo', 'branch', 'owner']) {
+    const { app, executed } = fixture();
+    app.selected.change = { project: 'team/p', branch: 'release', owner: { username: 'owner-user' }, revisions: { abc: { commit: { author: { name: 'Author', email: 'author@example.invalid' }, committer: { email: 'committer@example.invalid' }, parents: [{ commit: 'a'.repeat(40) }] } } } };
+    Object.assign(app.model, { message: 'old', repo: 'old', branch: 'old', unreviewed: true, start: 50, detail: {} });
+    let searched = false; app.refresh = async () => { searched = true; };
+    await app.handle({ type: 'metadata', id: app.selected.id, rev: 'abc', kind, value: 'a'.repeat(40) });
+    assert.equal(searched, true); assert.equal(app.selected, null); assert.equal(app.model.detail, undefined);
+    assert.equal(app.model.message, ''); assert.equal(app.model.unreviewed, false); assert.equal(app.model.start, 0);
+    assert.ok(executed.some(args => args[0] === 'gerrit.dashboard.focus'));
+    if (kind === 'author') assert.equal(app.model.query, 'author:"author@example.invalid"');
+    if (kind === 'committer') assert.equal(app.model.query, 'committer:"committer@example.invalid"');
+    if (kind === 'parent') assert.equal(app.model.query, 'commit:' + 'a'.repeat(40));
+    if (kind === 'repo' || kind === 'branch') assert.equal(app.model.repo, 'team/p');
+    if (kind === 'branch') assert.equal(app.model.branch, 'release');
+    if (kind === 'owner') assert.equal(app.model.owner, 'owner-user');
+  }
+  const { app } = fixture();
+  await assert.rejects(app.handle({ type: 'metadata', id: app.selected.id, rev: 'old', kind: 'repo' }), /页面已更新/);
+  await assert.rejects(app.searchMetadata('parent', 'b'.repeat(40)), /父提交/);
+});
+
+test('result navigation follows full cached message order, crosses pages and never searches again', async () => {
+  const { app } = fixture();
+  Object.assign(app.model, { query: 'is:open', message: 'test', pageSize: 1, start: 0, changes: [{ id: 'a' }] });
+  const plan = require('../src/inbox').searchPlan(app.model.query, app.model);
+  app.searchResults = { key: JSON.stringify(plan), rows: [{ id: 'a' }, { id: 'b' }, { id: 'c' }] };
+  app.selected = { id: 'a', rev: 'abc' };
+  app.api.list = async () => { throw new Error('must use cache'); };
+  const opened = []; app.load = async id => { opened.push(id); app.selected = { id, rev: 'abc' }; };
+  await app.handle({ type: 'navigate', id: 'a', rev: 'abc', direction: 1 });
+  assert.equal(opened[0], 'b'); assert.equal(app.model.start, 1);
+  assert.equal(app.resultNavigation().index, 2);
+  await app.navigateResult(1); assert.equal(opened.at(-1), 'c'); assert.equal(app.resultNavigation().next, false);
+  await app.navigateResult(-1); assert.equal(opened.at(-1), 'b');
+  await assert.rejects(app.navigateResult(4), /方向/);
+});
+
+test('ordinary navigation fetches each result page once and reuses pages in both directions', async () => {
+  const { app } = fixture(); app.selected = null; const requested = [];
+  Object.assign(app.model, { query: 'is:open', pageSize: 2, start: 0 });
+  app.api.list = async (query, start) => { requested.push(start); return start === 0 ? [{ id: 'a', updated: '2' }, { id: 'b', updated: '1', _more_changes: true }] : [{ id: 'c', updated: '0' }]; };
+  await app.refresh();
+  app.selected = { id: 'b', rev: 'r' };
+  app.load = async id => { app.selected = { id, rev: 'r' }; };
+  await app.navigateResult(1); assert.equal(app.selected.id, 'c'); assert.equal(app.resultNavigation().next, false);
+  await app.navigateResult(-1); assert.equal(app.selected.id, 'b'); assert.equal(app.model.start, 0);
+  await app.navigateResult(1); assert.deepEqual(requested, [0, 2]);
+});
+
+test('relation default expansion is supplied by settings and loading only updates its own region', async () => {
+  const { app, settings } = fixture(); const sent = [];
+  settings['relationChain.defaultExpanded'] = true; app.render(); assert.equal(app.model.relationChainExpanded, true);
+  app.model.detail = {}; app.api.related = async () => ({ changes: [] }); app.send = message => sent.push(message);
+  app.render = () => { throw new Error('must preserve active editor'); };
+  await app.loadRelated(); assert.equal(sent[0].type, 'relatedState');
+});

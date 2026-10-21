@@ -58,7 +58,7 @@ body:has(.file-panel){padding:4px 8px}
 
 /* Explicit outlines remain visible in themes without panel borders. */
 :root{--border:var(--vscode-panel-border,var(--vscode-contrastBorder,#80808070));--button-outline:var(--vscode-button-border,var(--vscode-descriptionForeground,#808080))}
-button:not(.change){border:1px solid var(--button-outline)}
+button:not(.change){border:1px solid var(--border)}
 button:hover{border-color:var(--accent)}
 button.danger{border-color:var(--vscode-errorForeground)}
 .change.state-open{border-left-color:var(--vscode-charts-blue,#3794ff)}
@@ -99,3 +99,62 @@ button.danger{border-color:var(--vscode-errorForeground)}
 .activity summary{flex-wrap:nowrap;min-width:0}
 .activity summary>b,.activity summary>.badge,.activity summary>time{flex-shrink:0}
 .thread>.thread-summary~p{margin:4px 12px 8px}
+
+/* Actions have quiet outlines; file rows, links and tabs stay visually lightweight. */
+button:not(.change){border-color:var(--vscode-widget-border,var(--border))}
+button.secondary{border-color:var(--border)}
+button.file,button.file-row,button.meta-link,button.tab{border:1px solid transparent;background:transparent;color:var(--vscode-foreground)}
+button.file-row{border-bottom:1px solid var(--border)}
+button.file:hover,button.file-row:hover,button.tab:hover{background:var(--vscode-list-hoverBackground);border-color:transparent}
+button.file-row:hover{border-bottom-color:var(--border)}
+button.meta-link{display:inline;padding:0!important;margin:0;font:inherit;line-height:inherit;color:var(--accent);border:0;border-radius:2px;text-align:left;overflow-wrap:anywhere}
+button.meta-link:hover{background:transparent;text-decoration:underline}
+button.tab.active{background:var(--vscode-button-secondaryBackground);border-bottom:2px solid var(--accent)}
+button.danger{border-color:var(--vscode-errorForeground)}
+/* One geometric chevron, rotated consistently in every collapsible section. */
+.thread-summary,.activity>summary,.relation-chain>summary{display:flex;align-items:center;list-style:none;gap:8px}
+.thread-summary::-webkit-details-marker,.activity>summary::-webkit-details-marker,.relation-chain>summary::-webkit-details-marker{display:none}
+.thread-summary:before,.activity>summary:before,.relation-chain>summary:before{content:'';display:inline-block;width:6px;height:6px;flex:0 0 6px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(-45deg);transform-origin:center;transition:transform .12s ease;color:var(--vscode-descriptionForeground);margin-right:3px}
+.thread[open]>.thread-summary:before,.activity[open]>summary:before,.relation-chain[open]>summary:before{content:'';transform:rotate(45deg)}
+.thread[open]>.thread-summary b{max-width:none;flex:1}
+.relation-chain>summary .muted{margin-left:auto;font-weight:400}
+.relation-chain>p{margin:6px 0;font-size:11px}
+@media(prefers-reduced-motion:reduce){.thread-summary:before,.activity>summary:before,.relation-chain>summary:before{transition:none}}
+/* Keep discussion text readable while reducing surrounding chrome. */
+body:has(.review-shell){padding:12px 18px}
+body:has(.review-shell)>header{padding-bottom:7px;margin-bottom:8px}
+.review-shell .hero{padding:3px 0}
+.review-shell .hero h1{font-size:22px;line-height:1.3;margin:8px 0}
+.review-shell .hero>p{margin:5px 0;line-height:1.5}
+.review-shell .hero-actions button,.review-shell .row button{padding:5px 8px}
+.review-shell .timestamps{margin:9px 0;gap:6px 24px}
+.review-shell .commit-info{padding:8px 11px;margin:8px 0}
+.review-shell .commit-info pre{padding:8px;margin:8px 0}
+.review-shell .metadata{gap:5px}
+.review-shell .discussion-layout{gap:16px;margin-top:12px;grid-template-columns:minmax(0,1fr) 280px}
+.review-shell .tabs{gap:5px;padding-bottom:6px;margin-bottom:10px}
+.review-shell h2{margin:13px 0 8px}
+.review-shell .filters{gap:8px 14px;margin-bottom:8px}
+.review-shell .thread{margin:7px 0}
+.review-shell .thread-summary{padding:7px 10px}
+.review-shell .thread-message{padding:9px 11px}
+.review-shell .thread-message .message{margin-top:7px}
+.review-shell .thread>form{padding:7px 0 0;margin:0 11px 8px}
+.review-shell .thread>.row{margin:5px 11px}
+.review-shell .thread .markdown-preview{min-height:48px;padding:7px}
+.review-shell .thread textarea{min-height:66px}
+.review-shell .activity{padding:8px 10px;margin:6px 0}
+.review-shell .activity summary{line-height:1.5}
+.review-shell .activity .message{margin-top:8px}
+.review-shell .ratings .card{padding:9px 11px;margin:7px 0}
+.review-shell .vote{padding:5px 0}
+.review-shell .composer{padding:10px;margin-top:12px}
+.review-shell .composer textarea{min-height:100px}
+.review-shell .composer .markdown-preview{min-height:80px}
+.review-shell .composer label{margin:7px 0 4px}
+.review-shell .row{gap:6px;margin:7px 0}
+.result-navigation{display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin:6px 0}
+.result-navigation button{padding:4px 8px}
+.result-navigation .muted{font-size:11px;font-variant-numeric:tabular-nums}
+@media(max-width:850px){.review-shell .discussion-layout{grid-template-columns:minmax(0,1fr) 245px;gap:12px}}
+@media(max-width:650px){body:has(.review-shell){padding:10px}.review-shell .discussion-layout{display:flex;flex-direction:column}.review-shell .hero h1{font-size:20px}}

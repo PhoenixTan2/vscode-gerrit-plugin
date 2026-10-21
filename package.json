@@ -2,7 +2,7 @@
   "name": "gerrit-workbench",
   "displayName": "Gerrit Workbench",
   "description": "在侧边栏完成 Gerrit 提交、代码评审、评论、评分与变更管理",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "publisher": "local-tools",
   "license": "MIT",
   "engines": {
@@ -241,6 +241,11 @@
           "type": "boolean",
           "default": false,
           "description": "进入变更详情时默认展开 Commit 信息。"
+        },
+        "gerrit.relationChain.defaultExpanded": {
+          "type": "boolean",
+          "default": false,
+          "description": "进入变更详情或评审讨论时默认展开并加载关系链；展开/收起状态在当前变更内保留。"
         }
       }
     },

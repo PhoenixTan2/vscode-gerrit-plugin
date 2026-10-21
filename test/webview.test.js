@@ -255,3 +255,42 @@ test('collapsed thread state survives a page redraw and publishing does not shif
   f.events.focusout({ relatedTarget: { matches: () => true }, target: { matches: () => true, closest: () => { touched = true; } } });
   assert.equal(touched, false);
 });
+
+test('relation is always a collapsible panel and lazy loading respects busy and collapsed state', () => {
+  const f = surfaceFixture();
+  const panel = { open: true, dataset: {} }; f.elements['relation-chain'] = panel;
+  f.message({ type: 'busy', value: true });
+  const model = { connected: true, relationChainExpanded: true, detail: { id: 'c', current_revision: 'r' } };
+  f.update(model);
+  assert.ok(f.app.innerHTML.includes('<details id="relation-chain"'));
+  assert.ok(!f.app.innerHTML.includes('relation-unloaded'));
+  assert.equal(f.messages.filter(message => message.type === 'related').length, 0);
+  f.message({ type: 'busy', value: false });
+  assert.equal(f.messages.filter(message => message.type === 'related').length, 1);
+  panel.dataset.relationKey = f.app.innerHTML.match(/data-relation-key="([^"]+)"/)[1];
+  panel.open = false; f.events.toggle({ target: panel });
+  f.message({ type: 'relatedState', id: 'c', rev: 'r', related: { rev: 'r', changes: [] } });
+  assert.ok(!/data-relation-key="[^"]+" open/.test(panel.outerHTML));
+});
+
+test('metadata controls and result navigation retain exact change identity', () => {
+  const f = surfaceFixture();
+  f.update({ connected: true, resultNavigation: { previous: false, next: true, index: 1, total: 3 }, detail: { id: 'c', current_revision: 'r', project: 'team/p', branch: 'main', owner: { name: 'Owner' }, revisions: { r: { commit: { author: { name: 'Author', email: 'author@example.invalid' }, committer: { name: 'Committer' }, parents: [{ commit: 'a'.repeat(40) }] } } } } });
+  for (const kind of ['repo', 'branch', 'owner', 'author', 'committer', 'parent']) assert.ok(f.app.innerHTML.includes('data-kind="' + kind + '"'));
+  f.events.click({ target: { closest: selector => selector === '.markdown-preview' ? null : ({ dataset: { action: 'metadata', kind: 'repo' } }) } });
+  assert.equal(f.messages.at(-1).type, 'metadata'); assert.equal(f.messages.at(-1).id, 'c'); assert.equal(f.messages.at(-1).rev, 'r');
+  f.events.click({ target: { closest: selector => selector === '.markdown-preview' ? null : ({ dataset: { action: 'navigate', direction: '1' } }) } });
+  assert.equal(f.messages.at(-1).type, 'navigate'); assert.equal(f.messages.at(-1).direction, '1');
+  const before = f.messages.length;
+  f.events.click({ target: { closest: selector => selector === '.markdown-preview' ? null : ({ dataset: { action: 'navigate', direction: '-1', unavailable: 'true' } }) } });
+  assert.equal(f.messages.length, before);
+});
+
+test('new streamed results update navigation without replacing an active discussion draft', () => {
+  const f = surfaceFixture();
+  f.update({ connected: true, surface: 'discussion', detail: { id: 'c', current_revision: 'r' } });
+  f.elements['result-navigation'] = { innerHTML: '' };
+  const before = f.app.innerHTML;
+  f.message({ type: 'inboxResults', changes: [], start: 0, more: false, navigation: { previous: true, next: true, index: 2, total: 4 } });
+  assert.equal(f.app.innerHTML, before); assert.ok(f.elements['result-navigation'].innerHTML.includes('第 2 条 / 4'));
+});

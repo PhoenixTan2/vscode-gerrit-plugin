@@ -41,7 +41,7 @@ async function run() {
 
     // Render a representative review with the shipped script inside a real Webview.
     const fixture = {
-      connected: true, surface: 'discussion', commitInfoExpanded: true, user: 'Reviewer', server: 'https://review.example.invalid',
+      connected: true, surface: 'discussion', commitInfoExpanded: true, resultNavigation: { previous: true, next: true, index: 2, total: 3 }, user: 'Reviewer', server: 'https://review.example.invalid',
       detail: { id: 'fixture', _number: 142, subject: 'Improve boot device initialization', status: 'NEW', project: 'team/firmware', branch: 'main',
         owner: { name: 'Alex' }, current_revision: 'a'.repeat(40), change_id: 'Ifixture',
         created: '2026-10-20 01:02:03', updated: '2026-10-21 07:08:09',
@@ -56,7 +56,7 @@ async function run() {
     const panel = vscode.window.createWebviewPanel('gerrit.smoke.review', 'Review UI smoke', vscode.ViewColumn.Active, { enableScripts: true, localResourceRoots: [extension.extensionUri] });
     const nonce = require('node:crypto').randomBytes(16).toString('hex');
     const media = name => panel.webview.asWebviewUri(vscode.Uri.joinPath(extension.extensionUri, 'media', name));
-    let fileAction, searchAction, patchAction, cancelAction, compareAction;
+    let fileAction, searchAction, patchAction, cancelAction, compareAction, navigationAction, metadataAction, relatedAction;
     const reviewResult = new Promise((resolve, reject) => {
       const timeout = setTimeout(() => reject(new Error('Review Webview fixture did not render')), 15000);
       panel.webview.onDidReceiveMessage(message => {
@@ -64,13 +64,16 @@ async function run() {
         if (message.type === 'search') searchAction = message;
         if (message.type === 'patch') patchAction = message;
         if (message.type === 'compare') compareAction = message;
+        if (message.type === 'navigate') navigationAction = message;
+        if (message.type === 'metadata') metadataAction = message;
+        if (message.type === 'related') relatedAction = message;
         if (message.type === 'cancelSearch') cancelAction = message;
         if (message.type === 'smokeResult') { clearTimeout(timeout); message.ok ? resolve() : reject(new Error(message.error)); }
         if (message.type === 'clientError') { clearTimeout(timeout); reject(new Error(message.message)); }
       });
     });
     const fixtureScript = `
-      try {
+      (async () => { try {
         window.dispatchEvent(new MessageEvent('message', {data:{type:'state',model:${JSON.stringify(fixture)}}}));
         if (!document.querySelector('.discussion-layout') || !document.querySelector('#review') || !document.querySelector('.thread')) throw new Error('Review sections missing');
         if (document.getElementById('app').textContent.includes('提交时间')) throw new Error('Obsolete timestamp');
@@ -78,9 +81,19 @@ async function run() {
         if (!thread.querySelector('.markdown-body strong')) throw new Error('Markdown not rendered');
         thread.open = false;
         if (!thread.querySelector('.thread-snippet').textContent.includes('Could we check') || thread.getBoundingClientRect().height > 55) throw new Error('Collapsed discussion is not one line');
+        await new Promise(resolve=>setTimeout(resolve,180));
+        const threadClosed = getComputedStyle(thread.querySelector('summary'),'::before').transform;
         thread.open = true;
+        await new Promise(resolve=>setTimeout(resolve,180));
+        const threadOpen = getComputedStyle(thread.querySelector('summary'),'::before').transform;
+        if (threadClosed === threadOpen) throw new Error('Thread chevron did not rotate');
         const activity = document.querySelector('.activity');
         if (!activity.querySelector('.activity-snippet').textContent.includes('Activity first line')) throw new Error('Activity first line missing');
+        const activityClosed=getComputedStyle(activity.querySelector('summary'),'::before').transform;
+        activity.open=true; await new Promise(resolve=>setTimeout(resolve,180));
+        if (getComputedStyle(activity.querySelector('summary'),'::before').transform===activityClosed) throw new Error('Activity chevron did not rotate');
+        document.querySelector('[data-action="navigate"][data-direction="1"]').click();
+        if (parseFloat(getComputedStyle(document.body).paddingTop) > 12) throw new Error('Discussion chrome is not compact');
         const replyPreview = thread.querySelector('.markdown-preview'); replyPreview.click();
         const replyInput = thread.querySelector('textarea');
         if (replyInput.hidden) throw new Error('Reply editor did not open');
@@ -107,6 +120,8 @@ async function run() {
 
         window.dispatchEvent(new MessageEvent('message',{data:{type:'state',model:{...model,surface:'sidebar'}}}));
         if (!document.querySelector('.timestamps').nextElementSibling.matches('.commit-info')) throw new Error('Commit ordering');
+        document.querySelector('[data-action="navigate"][data-direction="-1"]').click();
+        document.querySelector('[data-action="metadata"][data-kind="author"]').click();
         if (!document.querySelector('#compare') || document.querySelector('[data-action="file"]')) throw new Error('Sidebar comparison/file placement');
         if (document.querySelector('#compare button[type="submit"]')) throw new Error('Manual comparison button remains');
         const leftVersion=document.getElementById('compare-left'), rightVersion=document.getElementById('compare-right');
@@ -114,9 +129,13 @@ async function run() {
         leftVersion.dispatchEvent(new Event('change',{bubbles:true}));
         if (document.querySelector('.review-entry').getBoundingClientRect().height > 95) throw new Error('Review entry still too large');
         window.dispatchEvent(new MessageEvent('message',{data:{type:'state',model:{...model,detail:{...model.detail,related:undefined}}}}));
-        const relation=document.querySelector('.relation-unloaded');
-        if (!relation || getComputedStyle(relation).borderTopStyle==='none') throw new Error('Unloaded relation outline missing');
+        const relation=document.getElementById('relation-chain');
+        if (!relation || relation.tagName!=='DETAILS' || relation.open) throw new Error('Relation must start as a collapsed panel');
+        relation.open=true; relation.dispatchEvent(new Event('toggle'));
+        window.dispatchEvent(new MessageEvent('message',{data:{type:'relatedState',id:'fixture',rev:'a'.repeat(40),related:{changes:[]}}}));
+        if (!document.getElementById('relation-chain').open) throw new Error('Relation collapsed while loading');
         window.dispatchEvent(new MessageEvent('message',{data:{type:'state',model:{...model,surface:'files'}}}));
+        if (getComputedStyle(document.querySelector('.file-row')).borderTopColor !== 'rgba(0, 0, 0, 0)') throw new Error('File rows should not have box outlines');
         if (document.querySelector('.file-row').getBoundingClientRect().height > 30) throw new Error('File rows are not compact');
         const filter=document.getElementById('file-filter');
         filter.value='Device'; filter.dispatchEvent(new Event('input',{bubbles:true}));
@@ -144,10 +163,12 @@ async function run() {
         window.dispatchEvent(new MessageEvent('message',{data:{type:'busy',value:false}}));
 
         post('smokeResult',{ok:true});
-      } catch(error) { post('smokeResult',{ok:false,error:error.stack}); }
+      } catch(error) { post('smokeResult',{ok:false,error:error.stack}); } })();
     `;
     panel.webview.html = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${panel.webview.cspSource}; script-src 'nonce-${nonce}'"><link rel="stylesheet" href="${media('style.css')}"></head><body><header><div id="account"></div></header><div id="notice"></div><main id="app"></main><script nonce="${nonce}" src="${media('vendor/markdown-it.min.js')}"></script><script nonce="${nonce}" src="${media('main.js')}"></script><script nonce="${nonce}">${fixtureScript}</script></body></html>`;
     await reviewResult;
+    assert.equal(navigationAction?.direction, '-1'); assert.equal(navigationAction?.id, 'fixture');
+    assert.equal(metadataAction?.kind, 'author'); assert.equal(relatedAction?.id, 'fixture');
     assert.equal(fileAction?.id, 'fixture'); assert.equal(fileAction?.rev, 'a'.repeat(40));
     assert.equal(fileAction?.compareLeft, 'base'); assert.equal(fileAction?.compareRight, 'a'.repeat(40));
     assert.equal(fileAction?.path, 'Boot/Device.c');

@@ -50,7 +50,7 @@ class Workbench {
     this.output = vscode.window.createOutputChannel('Gerrit Workbench');
     this.logger = new Logger(this.output);
     this.model = { connected: false, changes: [], query: this.setting('defaultQuery', 'is:open'), start: 0 };
-    this.patchPathCache = new Map(); this.downloadJobs = new Map(); this.nativeFiles = new NativeFiles(vscode);
+    this.inboxPages = new Map(); this.patchPathCache = new Map(); this.downloadJobs = new Map(); this.nativeFiles = new NativeFiles(vscode);
     this.configure();
     this.documents = new Map(); this.threads = new Map(); this.selected = null; this.busy = false;
     this.commentDecoration = vscode.window.createTextEditorDecorationType({
@@ -70,6 +70,7 @@ class Workbench {
     this.logger.level = this.setting('logLevel', 'info');
     this.model.pageSize = this.setting('pageSize', 50);
     this.model.commitInfoExpanded = this.setting('commitInfo.defaultExpanded', false);
+    this.model.relationChainExpanded = this.setting('relationChain.defaultExpanded', false);
     if (this.api) { this.api.pageSize = this.model.pageSize; this.api.timeout = this.setting('requestTimeout', 30000); }
     this.render();
   }
@@ -90,9 +91,11 @@ class Workbench {
   send(message) { this.view?.webview.postMessage(message); this.discussion?.webview.postMessage(message); this.filesView?.webview.postMessage(message); }
   render() {
     this.model.commitInfoExpanded = this.setting('commitInfo.defaultExpanded', false);
+    this.model.relationChainExpanded = this.setting('relationChain.defaultExpanded', false);
     this.model.downloads = [...(this.downloadJobs?.values() || [])].map(({ promise, ...item }) => item);
     this.model.accountId = this.user?._account_id;
     this.model.username = this.user?.username;
+    this.model.resultNavigation = this.selected ? this.resultNavigation() : undefined;
     this.updateDecorations();
     this.view?.webview.postMessage({ type: 'state', model: { ...this.model, surface: 'sidebar' } });
     this.discussion?.webview.postMessage({ type: 'state', model: { ...this.model, surface: 'discussion' } });
@@ -112,11 +115,38 @@ class Workbench {
     if (this.filesView) this.filesView.show(true);
     else await vscode.commands.executeCommand('gerrit.changedFiles.focus');
   }
+
+  async searchMetadata(kind, value) {
+    const change = this.selected.change, commit = change.revisions?.[this.selected.rev]?.commit || {};
+    const filters = { query: 'is:visible', message: '', repo: '', branch: '', owner: '', unreviewed: false };
+    if (kind === 'repo') filters.repo = change.project;
+    else if (kind === 'branch') { filters.repo = change.project; filters.branch = change.branch; }
+    else if (kind === 'owner') filters.owner = String(change.owner?.username || change.owner?.email || change.owner?._account_id || '');
+    else if (kind === 'author' || kind === 'committer') {
+      const identity = commit[kind]?.email || commit[kind]?.name;
+      if (!identity) throw new Error('此提交没有可检索的身份信息');
+      filters.query = kind + ':' + JSON.stringify(identity);
+    } else if (kind === 'parent') {
+      const parent = (commit.parents || []).find(item => item.commit === value);
+      if (!parent || !/^[a-f0-9]{40,64}$/.test(parent.commit)) throw new Error('父提交已更新，请重新打开变更');
+      filters.query = 'commit:' + parent.commit;
+    } else throw new Error('不支持的检索字段');
+    searchPlan(filters.query, filters);
+    this.cancelSearch(); this.searchResults = undefined;
+    this.selected = null; this.clearThreads(); delete this.model.detail; delete this.model.searchStatus;
+    Object.assign(this.model, filters, { changes: [], start: 0, more: false });
+    this.send({ type: 'searchNavigation' }); this.render();
+    await vscode.commands.executeCommand('gerrit.dashboard.focus');
+    return this.refresh();
+  }
+
   async loadRelated() {
     const s = this.selected;
     const related = await this.api.related(s.id, s.rev);
     if (!Array.isArray(related?.changes)) throw new Error('服务器未返回有效的 Relation chain');
-    this.model.detail.related = { rev: s.rev, changes: related.changes }; this.render();
+    if (this.selected?.id !== s.id || this.selected?.rev !== s.rev || this.disposed) return;
+    this.model.detail.related = { rev: s.rev, changes: related.changes };
+    this.send({ type: 'relatedState', id: s.id, rev: s.rev, related: this.model.detail.related });
   }
   receiveMessage(webview, message) {
     if (message?.type === 'init') {
@@ -244,7 +274,7 @@ class Workbench {
     this.model.changes = rows.slice(start, start + this.model.pageSize);
     this.model.more = start + this.model.pageSize < rows.length;
     if (render) this.render();
-    else this.send({ type: 'inboxResults', changes: this.model.changes, start, more: this.model.more });
+    else this.send({ type: 'inboxResults', changes: this.model.changes, start, more: this.model.more, navigation: this.selected ? this.resultNavigation() : undefined });
   }
   startTextSearch(plan) {
     this.cancelSearch();
@@ -276,14 +306,55 @@ class Workbench {
       this.logger.write('error', error.logMessage || '评论搜索请求失败');
     });
   }
-  async refresh() {
+
+  resultNavigation() {
+    const cache = this.searchResults?.key === JSON.stringify(searchPlan(this.model.query, this.model)) ? this.searchResults : undefined;
+    const rows = cache?.rows || this.model.changes;
+    const index = rows.findIndex(item => item.id === this.selected?.id);
+    const offset = cache ? 0 : this.model.start || 0;
+    return { previous: index >= 0 && (index > 0 || (!cache && offset > 0)), next: index >= 0 && (index + 1 < rows.length || (!cache && !!this.model.more)), index: index < 0 ? 0 : offset + index + 1, total: offset + rows.length, more: cache ? this.searchJob?.status === 'running' : !!this.model.more };
+  }
+  async inboxPage(plan, start) {
+    const key = JSON.stringify([plan, start]);
+    let page = this.inboxPages.get(key);
+    if (!page) {
+      const rows = await this.api.list(plan.scope, start);
+      const more = Boolean(rows.at(-1)?._more_changes);
+      page = { rows: rows.sort((a, b) => String(b.updated || '').localeCompare(String(a.updated || ''))), more };
+      this.inboxPages.set(key, page);
+    }
+    return page;
+  }
+  async navigateResult(direction) {
+    if (direction !== 1 && direction !== -1) throw new Error('无效的导航方向');
+    const cache = this.searchResults?.key === JSON.stringify(searchPlan(this.model.query, this.model)) ? this.searchResults : undefined;
+    const rows = cache?.rows || this.model.changes, index = rows.findIndex(item => item.id === this.selected.id);
+    if (index < 0) throw new Error('当前变更不在检索结果中，请返回列表选择');
+    const target = rows[index + direction];
+    if (target) {
+      if (cache) {
+        this.model.start = Math.floor((index + direction) / this.model.pageSize) * this.model.pageSize;
+        this.showSearchPage(false);
+      }
+      return this.load(target.id);
+    }
+    if (cache || (direction < 0 && !this.model.start) || (direction > 0 && !this.model.more)) return;
+    const start = Math.max(0, this.model.start + direction * this.model.pageSize);
+    const page = await this.inboxPage(searchPlan(this.model.query, this.model), start);
+    if (!page.rows.length) { if (direction > 0) this.model.more = false; this.render(); return; }
+    Object.assign(this.model, { start, changes: page.rows, more: page.more });
+    return this.load(direction > 0 ? page.rows[0].id : page.rows.at(-1).id);
+  }
+
+  async refresh(useCachedPage = false) {
+    if (!useCachedPage) this.inboxPages.clear();
     this.needConnection();
     const plan = searchPlan(this.model.query, this.model);
     this.model.searchPlan = plan;
     if (plan.message) { if (this.selected) await this.load(this.selected.id, false); this.startTextSearch(plan); return; }
     this.cancelSearch(); this.searchResults = undefined; delete this.model.searchStatus;
-    this.model.changes = (await this.api.list(plan.scope, this.model.start)).sort((a, b) => String(b.updated || '').localeCompare(String(a.updated || '')));
-    this.model.more = Boolean(this.model.changes.at(-1)?._more_changes);
+    const page = await this.inboxPage(plan, this.model.start);
+    this.model.changes = page.rows; this.model.more = page.more;
     this.model.branchOptions = [...new Set([...(this.model.branchOptions || []), ...this.model.changes.map(c => c.branch).filter(Boolean)])].sort();
     if (this.selected) await this.load(this.selected.id, false);
     this.render();
@@ -305,7 +376,10 @@ class Workbench {
     }
     this.clearThreads(); this.selected = { id: change.id, rev, change, files, comments, comparison: plan };
     const related = this.model.detail?.id === change.id && this.model.detail.related?.rev === rev ? this.model.detail.related : undefined;
-    this.model.changes = this.model.changes.map(item => item.id === change.id ? { ...item, reviewed: !!change.reviewed, status: change.status, updated: change.updated } : item);
+    const update = item => item.id === change.id ? { ...item, reviewed: !!change.reviewed, status: change.status, updated: change.updated } : item;
+    this.model.changes = this.model.changes.map(update);
+    for (const page of this.inboxPages.values()) page.rows = page.rows.map(update);
+    if (this.searchResults) this.searchResults.rows = this.searchResults.rows.map(update);
     this.model.detail = { ...change, files, comments, comparison: plan, patchView, related, mine: change.owner?._account_id === this.user._account_id };
     if (this.discussion) this.discussion.title = `#${change._number} · 评审讨论`;
     // Reattach comments in any already-open snapshot for this exact patch set.
@@ -465,12 +539,14 @@ class Workbench {
     if (m.type === 'page') {
       this.model.start = Math.max(0, this.model.start + (m.next ? this.model.pageSize : -this.model.pageSize));
       if (this.model.message && this.searchResults?.key === JSON.stringify(searchPlan(this.model.query, this.model))) return this.showSearchPage();
-      return this.refresh();
+      return this.refresh(true);
     }
     if (m.type === 'refresh') return this.refresh();
     if (m.type === 'open') return this.load(String(m.id));
     if (m.type === 'back') { this.selected = null; delete this.model.detail; this.clearThreads(); this.render(); return; }
     const s = this.selected; if (!s || m.id !== s.id || m.rev !== s.rev) throw new Error('页面已更新，请重新选择变更后操作');
+    if (m.type === 'navigate') return this.navigateResult(Number(m.direction));
+    if (m.type === 'metadata') return this.searchMetadata(String(m.kind), String(m.value || ''));
     if (m.type === 'file') {
       if (m.compareLeft && (m.compareLeft !== s.comparison?.left || m.compareRight !== s.comparison?.right)) throw new Error('比较版本已更新，请重新点击文件');
       return this.openDiff(String(m.path));
