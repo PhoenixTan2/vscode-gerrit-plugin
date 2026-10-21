@@ -1,0 +1,184 @@
+'use strict';
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+function fixture() {
+  const commands = new Map(); const executed = []; const created = []; const panels = []; const settings = {};
+  const controller = { dispose() {}, createCommentThread(uri, range, comments) { const thread = { uri, range, comments, dispose() { this.disposed = true; } }; created.push(thread); return thread; } };
+  class Range { constructor(a, b, c, d) { this.start = { line: a, character: b }; this.end = { line: c, character: d }; this.isEmpty = a === c && b === d; } }
+  const api = {
+    comments: { createCommentController: () => controller }, Range,
+    StatusBarAlignment: { Left: 1 }, CommentMode: { Preview: 0 }, CommentThreadState: { Resolved: 1, Unresolved: 0 }, CommentThreadCollapsibleState: { Expanded: 1, Collapsed: 0 },
+    window: { createStatusBarItem: () => ({ show() {}, dispose() {} }), createOutputChannel: () => ({ appendLine() {}, show() {}, dispose() {} }), registerWebviewViewProvider() {},
+      createTextEditorDecorationType: options => ({ options, dispose() {} }), onDidChangeVisibleTextEditors() {}, visibleTextEditors: [], setStatusBarMessage() {}, showInformationMessage() {},
+      createWebviewPanel: (...args) => { const panel = { webview: { postMessage() {} }, onDidDispose() {}, reveal: column => { panel.revealed = column; } }; panels.push({ args, panel }); return panel; }
+    },
+    Uri: { joinPath: (_, ...segments) => ({ path: segments.join('/') }), from: value => ({ ...value, toString: () => `${value.scheme}://${value.authority}${value.path}` }), parse: value => ({ toString: () => value }) },
+    ThemeColor: class { constructor(id) { this.id = id; } }, OverviewRulerLane: { Full: 7 }, MinimapPosition: { Gutter: 2 },
+    Selection: class extends Range { constructor(...args) { super(...args); this.active = this.end; } }, TextEditorRevealType: { InCenter: 0 },
+    env: { asExternalUri: async uri => uri },
+    ViewColumn: { Beside: -2, Active: -1 },
+    MarkdownString: class { constructor() { this.value = ''; } appendText(text) { this.value += text; } },
+    Hover: class { constructor(contents) { this.contents = contents; } },
+    languages: { registerHoverProvider() {} },
+    workspace: { getConfiguration: () => ({ get: (key, value) => settings[key] ?? value }), onDidChangeConfiguration() {}, registerTextDocumentContentProvider() {} },
+    commands: { registerCommand(name, handler) { commands.set(name, handler); }, executeCommand: async (...args) => executed.push(args), getCommands: async () => ['workbench.action.browser.open'] }
+  };
+  const context = { subscriptions: [] };
+  const module = { exports: {} };
+  vm.runInNewContext(fs.readFileSync(require.resolve('../src/extension'), 'utf8'), {
+    module, Buffer, URL, require: name => name === 'vscode' ? api : name.startsWith('./') ? require('../src/' + name.slice(2)) : require(name)
+  });
+  module.exports.activate(context);
+  const app = context.subscriptions[0];
+  const sent = [];
+  app.api = { review: async (...args) => sent.push(args) };
+  app.selected = { id: 'p~main~I1', rev: 'abc', change: { permitted_labels: { 'Code-Review': ['-1', ' 0', '+1'] } }, comments: {} };
+  return { app, sent, controller, commands, Range, executed, created, panels, settings, vscode: api };
+}
+test('registers all visible commands and binds permitted review values', async () => {
+  const { app, sent, commands } = fixture();
+  assert.ok(commands.has('gerrit.comment')); assert.ok(commands.has('gerrit.push'));
+  app.load = async () => {};
+  await app.handle({ type: 'review', id: 'p~main~I1', rev: 'abc', message: 'LGTM', labels: { 'Code-Review': 1 } });
+  assert.equal(sent[0][1], 'abc'); assert.equal(sent[0][2].labels['Code-Review'], 1);
+  await assert.rejects(app.handle({ type: 'review', id: 'p~main~I1', rev: 'abc', labels: { 'Code-Review': 2 } }), /权限/);
+  await assert.rejects(app.handle({ type: 'review', id: 'p~main~I1', rev: 'old', message: 'wrong patch' }), /页面已更新/);
+  assert.equal(sent.length, 1);
+});
+test('parent-side multi-line comments retain exact range and revision', async () => {
+  const { app, sent } = fixture();
+  await app.postComment({ path: 'src/a.js', side: 'PARENT', line: 7, range: { start_line: 5, start_character: 1, end_line: 7, end_character: 3 } }, 'check boundary');
+  const comment = sent[0][2].comments['src/a.js'][0];
+  assert.equal(sent[0][1], 'abc'); assert.equal(comment.side, 'PARENT'); assert.equal(comment.range.start_line, 5); assert.equal(comment.line, 7);
+});
+test('native inline reply uses parent ID and keeps resolved state', async () => {
+  const { app, sent } = fixture();
+  app.load = async () => {};
+  const thread = { uri: { toString: () => 'gerrit:test' } };
+  app.threads.set(thread, { id: 'p~main~I1', rev: 'abc', path: 'a.js', side: 'PARENT', parent: { id: 'comment-1', line: 3, unresolved: false } });
+  await app.reply({ thread, text: 'fixed' });
+  const comment = sent[0][2].comments['a.js'][0];
+  assert.equal(comment.in_reply_to, 'comment-1'); assert.equal(comment.unresolved, false); assert.equal(comment.side, 'PARENT'); assert.equal(comment.line, 3);
+  app.selected.rev = 'new-patch';
+  await assert.rejects(app.reply({ thread, text: 'stale' }), /旧变更/);
+  assert.equal(sent.length, 1);
+});
+test('native new comment translates zero-based multiline ranges', async () => {
+  const { app, sent, Range } = fixture(); app.load = async () => {};
+  const uri = { toString: () => 'gerrit:current' }; let disposed = false;
+  app.documents.set(uri.toString(), { id: 'p~main~I1', rev: 'abc', path: 'a.js', side: 'REVISION' });
+  await app.reply({ thread: { uri, range: new Range(1, 2, 4, 5), dispose() { disposed = true; } }, text: 'test' });
+  const c = sent[0][2].comments['a.js'][0];
+  assert.equal(c.range.start_line, 2); assert.equal(c.range.end_line, 5); assert.equal(c.range.end_character, 5); assert.equal(c.line, 5); assert.equal(disposed, true);
+});
+test('commenting provider rejects old snapshots and unknown documents', () => {
+  const { app, controller } = fixture();
+  const document = { uri: { toString: () => 'gerrit:old' }, lineCount: 10 };
+  assert.equal(controller.commentingRangeProvider.provideCommentingRanges(document), undefined);
+  app.documents.set('gerrit:old', { id: 'p~main~I1', rev: 'old' });
+  assert.equal(controller.commentingRangeProvider.provideCommentingRanges(document), undefined);
+  app.documents.set('gerrit:old', { id: 'p~main~I1', rev: 'abc' });
+  assert.equal(controller.commentingRangeProvider.provideCommentingRanges(document)[0].end.line, 9);
+  app.selected = null;
+  assert.equal(controller.commentingRangeProvider.provideCommentingRanges({ uri: { toString: () => 'file:ordinary' }, lineCount: 1 }), undefined);
+});
+test('historical patch comments publish to their own revision and hover shows only matching version', async () => {
+  const { app, sent } = fixture();
+  app.selected.change.revisions = { old: { _number: 1 }, abc: { _number: 3 } };
+  app.selected.comments = { 'a.js': [
+    { id: 'c1', patch_set: 1, line: 4, message: 'old discussion', author: { name: 'Alice' } },
+    { id: 'c2', patch_set: 3, line: 4, message: 'latest discussion' }
+  ] };
+  const info = { id: app.selected.id, rev: 'old', path: 'a.js', side: 'REVISION', label: 'PS 1' };
+  app.documents.set('gerrit:old', info);
+  const hover = app.commentHover({ uri: { toString: () => 'gerrit:old' } }, { line: 3 });
+  assert.ok(hover.contents.value.includes('old discussion'));
+  assert.ok(!hover.contents.value.includes('latest discussion'));
+  await app.postComment(info, 'reply to PS1');
+  assert.equal(sent[0][1], 'old');
+});
+test('diff reads selected patch snapshots and tracks renamed left paths accurately', async () => {
+  const { app, executed } = fixture(); const calls = [];
+  app.api.url = 'https://review.example'; app.api.content = async (...args) => { calls.push(args); return 'code'; };
+  app.selected.change.revisions = { old: { _number: 1 }, abc: { _number: 3 } };
+  app.selected.comparison = { left: 'old', right: 'abc', revision: 'abc', base: 'old' };
+  app.selected.files = { 'new.js': { status: 'R', old_path: 'old.js' } };
+  app.attach = async () => {};
+  await app.openDiff('new.js');
+  assert.equal(calls[0][1], 'old'); assert.equal(calls[0][2], 'old.js'); assert.equal(calls[0][3], false);
+  assert.equal(calls[1][1], 'abc'); assert.equal(calls[1][2], 'new.js');
+  assert.equal(executed[0][0], 'vscode.diff');
+  assert.ok(executed[0][3].includes('PS 1 ↔ PS 3'));
+  assert.equal([...app.documents.values()][0].rev, 'old');
+});
+test('reverse Base diff loads parent on right and disables commenting on absent files', async () => {
+  const { app, controller } = fixture(); const calls = [];
+  app.api.url = 'https://review.example'; app.api.content = async (...args) => { calls.push(args); return 'parent'; };
+  app.selected.change.revisions = { abc: { _number: 3 } };
+  app.selected.comparison = { left: 'abc', right: 'base', revision: 'abc', reverse: true };
+  app.selected.files = { 'deleted.js': { status: 'A' } }; app.attach = async () => {};
+  await app.openDiff('deleted.js');
+  assert.equal(calls.length, 1); assert.equal(calls[0][3], true);
+  const [uri, info] = [...app.documents][0]; assert.equal(info.empty, true);
+  assert.equal(controller.commentingRangeProvider.provideCommentingRanges({ uri: { toString: () => uri }, lineCount: 1 }), undefined);
+});
+test('right-click creates inline multiline input without posting immediately', async () => {
+  const { app, created, sent, Range, vscode } = fixture();
+  const uri = { toString: () => 'gerrit:current' };
+  app.documents.set(uri.toString(), { id: app.selected.id, rev: 'abc', path: 'a.js', side: 'REVISION' });
+  vscode.window.activeTextEditor = { document: { uri }, selection: new Range(2, 0, 4, 3) };
+  await app.addComment();
+  assert.equal(created.length, 1); assert.equal(created[0].range.start.line, 2); assert.equal(created[0].collapsibleState, 1);
+  assert.equal(created[0].comments.length, 0); assert.equal(sent.length, 0);
+});
+test('Gerrit pages use the authenticated gateway in VS Code integrated browser', async () => {
+  const { app, executed } = fixture(); app.api.url = 'https://review.example'; app.selected.change._number = 42;
+  app.gateway = { entry: path => { assert.equal(path, '/c/42'); return 'http://127.0.0.1:3333/one-time-ticket'; } };
+  await app.openBrowser();
+  assert.equal(executed[0][0], 'workbench.action.browser.open'); assert.equal(executed[0][1], 'http://127.0.0.1:3333/one-time-ticket');
+});
+test('discussion creates and reuses a tab in the active editor group', () => {
+  const { app, panels } = fixture(); app.setupWebview = () => {}; app.selected.change._number = 42;
+  app.openDiscussion(); assert.equal(panels[0].args[2], -1);
+  app.openDiscussion(); assert.equal(panels.length, 1); assert.equal(panels[0].panel.revealed, -1);
+});
+test('single patch file opens a normal code editor, not a diff', async () => {
+  const { app, executed, vscode } = fixture(); app.api.url = 'https://review.example';
+  app.selected.change.revisions = { old: { _number: 1 }, abc: { _number: 3 } };
+  const calls = []; app.api.content = async (...args) => { calls.push(args); return 'full snapshot'; };
+  vscode.workspace.openTextDocument = async uri => ({ uri, lineCount: 1 });
+  let opened; vscode.window.showTextDocument = async (document, options) => { opened = { document, options }; return { document }; };
+  await app.openSingle('a.js', 'old');
+  assert.equal(calls[0][1], 'old'); assert.equal(opened.options.viewColumn, -1);
+  assert.equal(app.provideTextDocumentContent(opened.document.uri), 'full snapshot');
+  assert.equal(executed.length, 0);
+});
+test('comment navigation visits distinct marked lines and wraps in both directions', async () => {
+  const { app, vscode } = fixture();
+  const uri = { toString: () => 'gerrit:marked' };
+  app.documents.set(uri.toString(), { id: app.selected.id, rev: 'abc', path: 'a.js', side: 'REVISION' });
+  app.selected.comments = { 'a.js': [{ id: 'a', line: 3, message: 'a' }, { id: 'reply', line: 3, message: 'reply' }, { id: 'b', line: 9, message: 'b' }] };
+  const editor = { document: { uri, lineCount: 20 }, selection: new vscode.Selection(0, 0, 0, 0), revealRange() {} };
+  vscode.window.activeTextEditor = editor;
+  await app.navigateComment(1); assert.equal(editor.selection.active.line, 2);
+  await app.navigateComment(1); assert.equal(editor.selection.active.line, 8);
+  await app.navigateComment(1); assert.equal(editor.selection.active.line, 2);
+  await app.navigateComment(-1); assert.equal(editor.selection.active.line, 8);
+});
+test('comment decorations include strong gutter, minimap, overview ruler and counts', () => {
+  const { app, vscode } = fixture(); const uri = { toString: () => 'gerrit:marks' };
+  app.documents.set(uri.toString(), { id: app.selected.id, rev: 'abc', path: 'a.js', side: 'REVISION' });
+  app.selected.comments = { 'a.js': [{ id: 'a', line: 3, message: 'a' }, { id: 'b', line: 3, message: 'b' }] };
+  let marks; vscode.window.visibleTextEditors = [{ document: { uri, lineCount: 10, lineAt: () => ({ text: 'source code' }) }, setDecorations: (_, value) => { marks = value; } }];
+  app.updateDecorations(); assert.equal(marks.length, 1); assert.ok(marks[0].renderOptions.after.contentText.includes('2'));
+  assert.equal(app.commentDecoration.options.overviewRulerColor.id, 'gerrit.commentMarker');
+  assert.equal(app.commentDecoration.options.minimap.position, 2);
+});
+test('changes are displayed newest update first and Commit expansion follows settings', async () => {
+  const { app, settings } = fixture(); app.selected = null;
+  app.api.list = async () => [{ id: 'old', updated: '2026-01-01 12:00:00' }, { id: 'new', updated: '2026-02-01 12:00:00' }];
+  settings['commitInfo.defaultExpanded'] = true;
+  await app.refresh(); assert.equal(app.model.changes[0].id, 'new'); assert.equal(app.model.commitInfoExpanded, true);
+});

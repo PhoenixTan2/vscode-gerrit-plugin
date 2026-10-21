@@ -1,0 +1,235 @@
+{
+  "name": "gerrit-workbench",
+  "displayName": "Gerrit Workbench",
+  "description": "在侧边栏完成 Gerrit 提交、代码评审、评论、评分与变更管理",
+  "version": "0.3.0",
+  "publisher": "local-tools",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.95.0"
+  },
+  "categories": [
+    "SCM Providers",
+    "Other"
+  ],
+  "main": "./src/extension.js",
+  "activationEvents": [
+    "onView:gerrit.dashboard",
+    "onFileSystem:gerrit"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false
+    }
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "check": "node --check src/extension.js && node --check src/api.js && node --check src/git.js && node --check media/main.js"
+  },
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "gerrit",
+          "title": "Gerrit",
+          "icon": "media/gerrit.svg"
+        }
+      ]
+    },
+    "views": {
+      "gerrit": [
+        {
+          "type": "webview",
+          "id": "gerrit.dashboard",
+          "name": "Gerrit 工作台"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "gerrit.refresh",
+        "title": "Gerrit: 刷新",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "gerrit.connect",
+        "title": "Gerrit: 连接服务器",
+        "icon": "$(plug)"
+      },
+      {
+        "command": "gerrit.push",
+        "title": "Gerrit: 提交到评审",
+        "icon": "$(cloud-upload)"
+      },
+      {
+        "command": "gerrit.comment",
+        "title": "Gerrit: 评论所选代码行",
+        "icon": "$(comment)"
+      },
+      {
+        "command": "gerrit.reply",
+        "title": "发布评论 / 回复",
+        "icon": "$(send)"
+      },
+      {
+        "command": "gerrit.discussion",
+        "title": "Gerrit: 打开评审讨论窗口",
+        "icon": "$(comment-discussion)"
+      },
+      {
+        "command": "gerrit.settings",
+        "title": "Gerrit: 扩展设置",
+        "icon": "$(gear)"
+      },
+      {
+        "command": "gerrit.logs",
+        "title": "Gerrit: 查看调试输出",
+        "icon": "$(output)"
+      },
+      {
+        "command": "gerrit.previousComment",
+        "title": "Gerrit: 上一处评论",
+        "icon": "$(arrow-up)"
+      },
+      {
+        "command": "gerrit.nextComment",
+        "title": "Gerrit: 下一处评论",
+        "icon": "$(arrow-down)"
+      },
+      {
+        "command": "gerrit.fileComments",
+        "title": "Gerrit: 本文件评论位置",
+        "icon": "$(list-selection)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "gerrit.refresh",
+          "when": "view == gerrit.dashboard",
+          "group": "navigation"
+        },
+        {
+          "command": "gerrit.connect",
+          "when": "view == gerrit.dashboard",
+          "group": "navigation"
+        },
+        {
+          "command": "gerrit.settings",
+          "when": "view == gerrit.dashboard",
+          "group": "navigation"
+        },
+        {
+          "command": "gerrit.logs",
+          "when": "view == gerrit.dashboard",
+          "group": "navigation"
+        }
+      ],
+      "scm/title": [
+        {
+          "command": "gerrit.push",
+          "when": "scmProvider == git",
+          "group": "navigation"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "gerrit.comment",
+          "when": "resourceScheme == gerrit",
+          "group": "gerrit"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "gerrit.comment",
+          "when": "resourceScheme == gerrit",
+          "group": "navigation"
+        },
+        {
+          "command": "gerrit.previousComment",
+          "when": "resourceScheme == gerrit",
+          "group": "navigation"
+        },
+        {
+          "command": "gerrit.nextComment",
+          "when": "resourceScheme == gerrit",
+          "group": "navigation"
+        },
+        {
+          "command": "gerrit.fileComments",
+          "when": "resourceScheme == gerrit",
+          "group": "navigation"
+        }
+      ],
+      "comments/commentThread/context": [
+        {
+          "command": "gerrit.reply",
+          "when": "commentController == gerrit",
+          "group": "inline"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Gerrit Workbench",
+      "properties": {
+        "gerrit.defaultQuery": {
+          "type": "string",
+          "default": "is:open",
+          "description": "连接时默认使用的 Gerrit 查询。支持 owner:self、is:merged 等表达式。"
+        },
+        "gerrit.pageSize": {
+          "type": "number",
+          "default": 50,
+          "minimum": 10,
+          "maximum": 100,
+          "description": "变更列表每页条数，修改后从第一页重新加载。"
+        },
+        "gerrit.requestTimeout": {
+          "type": "number",
+          "default": 30000,
+          "minimum": 3000,
+          "maximum": 120000,
+          "description": "HTTP 请求超时，单位毫秒。"
+        },
+        "gerrit.comments.expandThreads": {
+          "type": "boolean",
+          "default": false,
+          "description": "打开 diff 时自动展开代码中的已有评论；默认显示行号旁的评论图标，可点击或悬停查看。"
+        },
+        "gerrit.diff.openBeside": {
+          "type": "boolean",
+          "default": false,
+          "description": "在旁边的编辑器组中打开文件 diff。"
+        },
+        "gerrit.logLevel": {
+          "type": "string",
+          "enum": [
+            "off",
+            "error",
+            "info",
+            "debug"
+          ],
+          "default": "info",
+          "description": "Gerrit Workbench 输出频道日志级别。记录请求路径、状态、耗时及 Git 操作结果，不记录认证头、Cookie、请求正文或响应正文。"
+        },
+        "gerrit.commitInfo.defaultExpanded": {
+          "type": "boolean",
+          "default": false,
+          "description": "进入变更详情时默认展开 Commit 信息。"
+        }
+      }
+    },
+    "colors": [
+      {
+        "id": "gerrit.commentMarker",
+        "description": "Gerrit 评论的行号图标、代码标记、滚动条和缩略图标记颜色。",
+        "defaults": {
+          "dark": "#FFB020",
+          "light": "#A15C00",
+          "highContrast": "#FFFF00",
+          "highContrastLight": "#8F4200"
+        }
+      }
+    ]
+  }
+}
