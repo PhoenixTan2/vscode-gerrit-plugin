@@ -2,7 +2,7 @@
   "name": "gerrit-workbench",
   "displayName": "Gerrit Workbench",
   "description": "在侧边栏完成 Gerrit 提交、代码评审、评论、评分与变更管理",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "publisher": "local-tools",
   "license": "MIT",
   "engines": {
@@ -120,6 +120,11 @@
         "command": "gerrit.showFiles",
         "title": "Gerrit: 显示修改文件",
         "icon": "$(files)"
+      },
+      {
+        "command": "gerrit.tasks",
+        "title": "Gerrit: 后台任务",
+        "icon": "$(tasklist)"
       }
     ],
     "menus": {
@@ -147,6 +152,11 @@
         {
           "command": "gerrit.refresh",
           "when": "view == gerrit.changedFiles",
+          "group": "navigation"
+        },
+        {
+          "command": "gerrit.tasks",
+          "when": "view == gerrit.dashboard || view == gerrit.changedFiles",
           "group": "navigation"
         }
       ],

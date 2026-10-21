@@ -6,6 +6,7 @@ const { inboxQuery, searchPlan, scanChanges } = require('./inbox');
 const { classifyFile } = require('./files');
 const { NativeFiles } = require('./native-files');
 const { PathIndex } = require('./path-index');
+const { ReviewProgress } = require('./review-progress');
 const { git, pushRef } = require('./git');
 const { comparisonPlan, comparisonFiles } = require('./comparison');
 const { Logger } = require('./log');
@@ -21,10 +22,11 @@ function activate(context) {
     vscode.commands.registerCommand('gerrit.showFiles', () => app.showFiles()),
     vscode.workspace.registerTextDocumentContentProvider('gerrit', app),
     vscode.commands.registerCommand('gerrit.connect', () => app.run(() => app.connect())),
-    vscode.commands.registerCommand('gerrit.refresh', () => app.run(() => app.refresh())),
+    vscode.commands.registerCommand('gerrit.refresh', () => app.run(() => app.refreshCurrent())),
     vscode.commands.registerCommand('gerrit.push', () => app.run(() => app.push())),
     vscode.commands.registerCommand('gerrit.comment', () => app.run(() => app.addComment())),
     vscode.commands.registerCommand('gerrit.reply', reply => app.run(() => app.reply(reply))),
+    vscode.commands.registerCommand('gerrit.tasks', () => app.openTasks()),
     vscode.commands.registerCommand('gerrit.settings', () => app.openSettings()),
     vscode.commands.registerCommand('gerrit.logs', () => app.output.show(true)),
     vscode.commands.registerCommand('gerrit.discussion', () => app.run(() => app.openDiscussion())),
@@ -52,7 +54,7 @@ class Workbench {
     this.output = vscode.window.createOutputChannel('Gerrit Workbench');
     this.logger = new Logger(this.output);
     this.model = { connected: false, changes: [], query: this.setting('defaultQuery', 'is:open'), start: 0 };
-    this.parentTrail = []; this.inboxPages = new Map(); this.patchPathCache = new Map(); this.downloadJobs = new Map(); this.nativeFiles = new NativeFiles(vscode); this.pathIndex = new PathIndex((...args) => this.runGit(...args));
+    this.backgroundJobs = new Map(); this.reviewProgress = new ReviewProgress(context.globalState); this.parentTrail = []; this.inboxPages = new Map(); this.patchPathCache = new Map(); this.downloadJobs = new Map(); this.nativeFiles = new NativeFiles(vscode); this.pathIndex = new PathIndex((...args) => this.runGit(...args));
     this.configure();
     this.documents = new Map(); this.threads = new Map(); this.selected = null; this.busy = false;
     this.commentDecoration = vscode.window.createTextEditorDecorationType({
@@ -85,7 +87,9 @@ class Workbench {
   dispose() {
     if (this.disposal) return this.disposal;
     this.disposed = true; this.contextController?.abort(); this.cancelSearch();
-    this.disposal = Promise.allSettled([this.nativeFiles.dispose(), this.pathIndex.dispose()]);
+    for (const job of this.backgroundJobs.values()) this.cancelTask(job.taskId);
+    this.tasksView?.dispose();
+    this.disposal = Promise.allSettled([this.nativeFiles.dispose(), this.pathIndex.dispose(), this.reviewProgress.saving]);
     this.gateway?.dispose(); this.discussion?.dispose(); this.clearThreads(); this.controller.dispose();
     this.commentDecoration.dispose(); this.status.dispose(); this.output.dispose();
     return this.disposal;
@@ -97,11 +101,13 @@ class Workbench {
     try { await fn(); } catch (error) { this.logger.write('error', error.logMessage || error.message); this.send({ type: 'error', message: error.message }); vscode.window.showErrorMessage(`Gerrit: ${error.message}`); }
     finally { this.busy = false; this.send({ type: 'busy', value: false }); }
   }
-  send(message) { this.view?.webview.postMessage(message); this.discussion?.webview.postMessage(message); this.filesView?.webview.postMessage(message); }
+  send(message) { this.view?.webview.postMessage(message); this.discussion?.webview.postMessage(message); this.filesView?.webview.postMessage(message); this.tasksView?.webview.postMessage(message); }
   render() {
     this.model.commitInfoExpanded = this.setting('commitInfo.defaultExpanded', false);
     this.model.relationChainExpanded = this.setting('relationChain.defaultExpanded', false);
-    this.model.downloads = [...(this.downloadJobs?.values() || [])].map(({ promise, ...item }) => item);
+    this.model.downloads = this.downloadSnapshot();
+    this.model.backgroundTasks = this.taskSnapshot();
+    this.model.breadcrumbs = this.parentTrail.map((item, index) => ({ index, number: item.number }));
     this.model.accountId = this.user?._account_id;
     this.model.username = this.user?.username;
     this.model.parentNavigation = this.parentTrail?.length ? { number: this.parentTrail.at(-1).number } : undefined;
@@ -110,6 +116,7 @@ class Workbench {
     this.view?.webview.postMessage({ type: 'state', model: { ...this.model, surface: 'sidebar' } });
     this.discussion?.webview.postMessage({ type: 'state', model: { ...this.model, surface: 'discussion' } });
     this.filesView?.webview.postMessage({ type: 'state', model: { ...this.model, surface: 'files' } });
+    this.tasksView?.webview.postMessage({ type: 'state', model: { ...this.model, surface: 'tasks' } });
   }
   async resolveWebviewView(view) {
     this.view = view;
@@ -168,7 +175,7 @@ class Workbench {
       detail.related = { rev: focus, status: 'loading', changes: [] };
       work.push(this.loadRelated().catch(error => {
         if (!active()) return;
-        detail.related = { rev: focus, status: 'failed', changes: [], error: this.logger.redact(error.message) };
+        detail.related = { rev: focus, status: 'failed', changes: [], error: this.logger.redact(error.name === 'AbortError' ? '查找已取消，可在后台任务中重试' : error.message) };
         this.logger.write('error', error.logMessage || '关系链预加载失败');
         this.send({ type: 'relatedState', id: s.id, rev: s.rev, focusRevision: focus, related: detail.related });
       }));
@@ -217,13 +224,15 @@ class Workbench {
     try { await this.load(change.id, true, { revision: sha }); }
     catch (error) { this.parentTrail.pop(); this.render(); throw error; }
   }
-  async returnChild() {
-    const snapshot = this.parentTrail.pop();
+  async returnChild(index = this.parentTrail.length - 1) {
+    if (!Number.isInteger(index) || index < 0 || index >= this.parentTrail.length) throw new Error('导航路径已更新');
+    const trail = [...this.parentTrail], snapshot = trail[index];
+    this.parentTrail = trail.slice(0, index);
     if (!snapshot) throw new Error('没有可返回的子提交');
     try {
       await this.load(snapshot.id, true, { revision: snapshot.revision, comparison: snapshot.comparison, patchView: snapshot.patchView, pinned: snapshot.pinned });
       this.model.start = snapshot.start; this.render();
-    } catch (error) { this.parentTrail.push(snapshot); this.render(); throw error; }
+    } catch (error) { this.parentTrail = trail; this.render(); throw error; }
   }
   receiveMessage(webview, message) {
     if (message?.type === 'init') {
@@ -244,6 +253,10 @@ class Workbench {
       this.logger.write('error', `Webview: ${text}`);
       vscode.window.showErrorMessage(`Gerrit 工作台页面加载失败：${text}`); return;
     }
+    if (message?.type === 'taskCancel') { this.cancelTask(String(message.taskId)); return; }
+    if (message?.type === 'taskRetry') return this.retryTask(String(message.taskId)).catch(error => this.send({ type: 'error', message: error.message }));
+    if (message?.type === 'tasks') return this.openTasks();
+    if (message?.type === 'lockSearch') { this.lockSearch(); return; }
     if (message?.type === 'cancelSearch') { this.cancelSearch(); return; }
     return this.run(() => this.handle(message));
   }
@@ -342,46 +355,51 @@ class Workbench {
   searchProgress(job) {
     if (this.searchJob !== job) return;
     this.model.searchStatus = { status: job.status, scanned: job.scanned || 0, matches: job.matches || 0, error: job.error };
-    this.send({ type: 'searchProgress', searchStatus: this.model.searchStatus });
+    this.send({ type: 'searchProgress', searchStatus: this.model.searchStatus }); this.taskState();
   }
   showSearchPage(render = true) {
     const rows = this.searchResults.rows;
+    this.model.searchUpdates = { pending: this.searchResults.pending?.size || 0 };
     const start = Math.min(this.model.start || 0, Math.max(0, Math.floor((rows.length - 1) / this.model.pageSize) * this.model.pageSize));
     this.model.start = start;
     this.model.changes = rows.slice(start, start + this.model.pageSize);
     this.model.more = start + this.model.pageSize < rows.length;
     if (render) this.render();
-    else this.send({ type: 'inboxResults', changes: this.model.changes, start, more: this.model.more, navigation: this.selected ? this.resultNavigation() : undefined });
+    else this.send({ type: 'inboxResults', changes: this.model.changes, start, more: this.model.more, navigation: this.selected ? this.resultNavigation() : undefined, updates: this.model.searchUpdates });
   }
+
   startTextSearch(plan) {
     this.cancelSearch();
     const api = this.api, job = { status: 'running', scanned: 0, matches: 0, controller: new AbortController() };
-    const cache = { key: JSON.stringify(plan), rows: [] }, found = new Map();
+    const fields = Object.fromEntries(['query','message','repo','branch','owner','unreviewed'].map(name => [name, this.model[name]]));
+    const cache = { key: JSON.stringify(plan), rows: [], pending: new Map(), locked: false };
     this.searchJob = job; this.searchResults = cache;
+    this.registerTask('search', 'Message 检索 · ' + plan.message.slice(0, 60), job, () => this.retrySearch(fields));
     this.model.changes = []; this.model.more = false;
     this.searchProgress(job); this.render();
     const active = () => !job.cancelled && this.searchJob === job && this.api === api && !this.disposed;
+    const receive = change => {
+      if (!active()) return;
+      const index = cache.rows.findIndex(row => row.id === change.id);
+      if (index >= 0) cache.rows[index] = { ...cache.rows[index], ...change };
+      else if (cache.locked) cache.pending.set(change.id, change);
+      else cache.rows.push(change);
+      this.showSearchPage(false);
+    };
     job.promise = scanChanges(api, plan, {
-      signal: job.controller.signal,
-      cancelled: () => !active(),
-      onMatch: change => {
-        if (!active()) return;
-        found.set(change.id, change);
-        cache.rows = [...found.values()].sort((a, b) => String(b.updated || '').localeCompare(String(a.updated || '')));
-        this.showSearchPage(false);
-      },
+      signal: job.controller.signal, cancelled: () => !active(), onMatch: receive,
       progress: update => { if (active()) { Object.assign(job, update); this.searchProgress(job); } }
     }).then(rows => {
       if (!rows || !active()) return;
-      job.status = 'completed'; cache.rows = rows;
+      job.status = 'completed';
+      if (!cache.locked) cache.rows.sort((a,b) => String(b.updated || '').localeCompare(String(a.updated || '')) || String(a.id).localeCompare(String(b.id)));
       this.model.branchOptions = [...new Set([...(this.model.branchOptions || []), ...rows.map(c => c.branch).filter(Boolean)])].sort();
       this.searchProgress(job); this.showSearchPage(false);
     }).catch(error => {
       if (!active()) return;
-      job.controller.abort();
-      job.status = 'failed'; job.error = '搜索未完成：' + error.message; this.searchProgress(job);
-      this.logger.write('error', error.logMessage || '评论搜索请求失败');
-    });
+      job.controller.abort(); job.status = 'failed'; job.error = '搜索未完成：' + error.message;
+      this.searchProgress(job); this.logger.write('error', error.logMessage || '评论搜索请求失败');
+    }).finally(() => { job.settled = true; this.taskState(); });
   }
 
   resultNavigation() {
@@ -408,6 +426,7 @@ class Workbench {
     const cache = this.searchResults?.key === JSON.stringify(searchPlan(this.model.query, this.model)) ? this.searchResults : undefined;
     const rows = cache?.rows || this.model.changes, index = rows.findIndex(item => item.id === this.selected.id);
     if (index < 0) throw new Error('当前变更不在检索结果中，请返回列表选择');
+    this.lockSearch();
     const target = rows[index + direction];
     if (target) {
       if (cache) {
@@ -430,7 +449,7 @@ class Workbench {
     const plan = searchPlan(this.model.query, this.model);
     this.model.searchPlan = plan;
     if (plan.message) { if (this.selected) await this.load(this.selected.id, false); this.startTextSearch(plan); return; }
-    this.cancelSearch(); this.searchResults = undefined; delete this.model.searchStatus;
+    this.cancelSearch(); this.searchResults = undefined; delete this.model.searchStatus; delete this.model.searchUpdates;
     const page = await this.inboxPage(plan, this.model.start);
     this.model.changes = page.rows; this.model.more = page.more;
     this.model.branchOptions = [...new Set([...(this.model.branchOptions || []), ...this.model.changes.map(c => c.branch).filter(Boolean)])].sort();
@@ -467,7 +486,7 @@ class Workbench {
     for (const page of this.inboxPages.values()) page.rows = page.rows.map(update);
     if (this.searchResults) this.searchResults.rows = this.searchResults.rows.map(update);
     this.model.detail = { ...change, viewRevision: focus, viewPinned: pinned, files, comments, comparison: plan, patchView, related, mine: change.owner?._account_id === this.user._account_id };
-    this.preloadContext();
+    this.preloadContext(); this.loadFileProgress();
     if (this.discussion) this.discussion.title = `#${change._number} · 评审讨论`;
     // Reattach comments in any already-open snapshot for this exact patch set.
     for (const [uri, info] of this.documents) if (this.validInfo(info)) await this.attach(vscode.Uri.parse(uri), info);
@@ -477,16 +496,30 @@ class Workbench {
     const s = this.selected; const plan = comparisonPlan(s.change.revisions, left, right);
     const files = comparisonFiles(await this.api.files(s.id, plan.revision, plan.base), plan.reverse);
     s.files = files; s.comparison = plan;
-    this.model.detail.files = files; this.model.detail.comparison = plan; this.render(); await this.showFiles();
+    this.model.detail.files = files; this.model.detail.comparison = plan; this.loadFileProgress(); this.render(); await this.showFiles();
   }
+
   async patchPaths(s, rev, api) {
     const cacheKey = JSON.stringify([api.url, this.user._account_id, s.id, rev]);
     let pending = this.patchPathCache.get(cacheKey);
     if (!pending) {
-      pending = (async () => {
+      const job = { status: 'running', stage: '准备路径索引', controller: new AbortController() };
+      this.registerTask('index', `#${s.change._number || s.id} · PS ${s.change.revisions[rev]._number} 路径索引`, job, () => {
+        if (this.selected?.id === s.id && this.model.detail?.patchView?.rev === rev) return this.selectPatch(rev, this.model.detail.patchView.query);
+        return this.patchPaths(s, rev, api);
+      });
+      pending = Promise.resolve().then(() => {
         const revision = s.change.revisions[rev];
-        return this.pathIndex.read({ server: api.url, account: this.user._account_id ?? this.user.username, project: s.change.project, revision: rev, ref: revision.ref, url: sshUrl(revision.fetch, this.user.username) });
-      })();
+        return this.pathIndex.read({ server: api.url, account: this.user._account_id ?? this.user.username, project: s.change.project, revision: rev, ref: revision.ref, url: sshUrl(revision.fetch, this.user.username) }, {
+          signal: job.controller.signal, progress: stage => { if (job.status === 'running') { job.stage = stage; this.taskState(); } }
+        });
+      }).then(paths => {
+        if (job.controller.signal.aborted) throw job.controller.signal.reason;
+        job.status = 'completed'; job.stage = `已索引 ${paths.length} 个文件`; return paths;
+      }).catch(error => {
+        job.status = job.controller.signal.aborted ? 'cancelled' : 'failed';
+        job.error = this.logger.redact(job.status === 'cancelled' ? '路径索引已取消' : error.message); throw error;
+      }).finally(() => { job.settled = true; this.taskState(); });
       this.patchPathCache.set(cacheKey, pending);
       pending.catch(() => { if (this.patchPathCache.get(cacheKey) === pending) this.patchPathCache.delete(cacheKey); });
     }
@@ -513,7 +546,7 @@ class Workbench {
       publish();
     }).catch(error => {
       if (!active()) return;
-      this.model.detail.patchView = { rev, query, files: [], error: this.logger.redact(error.message) };
+      this.model.detail.patchView = { rev, query, files: [], error: this.logger.redact(error.name === 'AbortError' ? '查找已取消，可在后台任务中重试' : error.message) };
       this.logger.write('error', 'Patch 路径检索失败：' + error.message); publish();
     });
   }
@@ -553,27 +586,125 @@ class Workbench {
     if (!candidates.length) throw new Error(`请先在 VS Code 中打开 ${project} 的本地 Git 仓库，并配置指向该项目的 remote`);
     return candidates.length === 1 ? candidates[0].directory : (await vscode.window.showQuickPick(candidates, { title: '选择本地代码仓库', ignoreFocusOut: true }))?.directory;
   }
+
+  downloadSnapshot() {
+    return [...this.downloadJobs.values()].map(job => Object.fromEntries(['id','changeId','number','patch','directory','branch','status','stage','settled'].map(key => [key, job[key]])));
+  }
+  taskSnapshot() {
+    return [...(this.backgroundJobs?.values() || [])].reverse().map(job => ({
+      id: job.taskId, kind: job.kind, title: job.title, status: job.status,
+      stage: job.error || job.stage || (job.kind === 'search' ? `已检查 ${job.scanned || 0} 笔，匹配 ${job.matches || 0} 笔` : ''),
+      cancelable: job.status === 'running' && job.canCancel !== false,
+      retryable: !!job.settled && !job.retried && ['failed','cancelled'].includes(job.status) && job.api === this.api
+    }));
+  }
+  taskState() {
+    this.model.backgroundTasks = this.taskSnapshot();
+    if (!this.disposed) this.send({ type: 'tasks', tasks: this.model.backgroundTasks });
+  }
+  registerTask(kind, title, job, retry) {
+    Object.assign(job, { kind, title, settled: false, taskId: crypto.randomBytes(8).toString('hex'), api: this.api, retry });
+    this.backgroundJobs.set(job.taskId, job);
+    for (const [id, entry] of this.backgroundJobs) if (this.backgroundJobs.size > 40 && entry.settled) this.backgroundJobs.delete(id);
+    this.taskState(); return job;
+  }
+  cancelTask(id) {
+    const job = this.backgroundJobs.get(id);
+    if (!job || job.status !== 'running' || job.canCancel === false) return;
+    if (job === this.searchJob) return this.cancelSearch();
+    job.status = 'cancelled'; job.cancelled = true; job.controller.abort(); this.taskState();
+  }
+  async retryTask(id) {
+    const job = this.backgroundJobs.get(id);
+    if (!job || !job.settled || job.retried || !['failed','cancelled'].includes(job.status)) return;
+    if (job.api !== this.api) throw new Error('连接已更改，请在当前连接中重新发起任务');
+    job.retried = true; this.taskState();
+    try { await job.retry(); } catch (error) { job.retried = false; this.taskState(); throw error; }
+  }
+  openTasks() {
+    if (!this.tasksView) {
+      const panel = vscode.window.createWebviewPanel('gerrit.tasks', 'Gerrit 后台任务', vscode.ViewColumn.Active, { enableScripts: true, retainContextWhenHidden: true });
+      this.tasksView = panel; this.setupWebview(panel.webview);
+      panel.onDidDispose(() => { if (this.tasksView === panel) this.tasksView = undefined; });
+    } else this.tasksView.reveal(vscode.ViewColumn.Active);
+    this.render();
+  }
+  async retrySearch(fields) {
+    this.parentTrail = []; this.selected = null; this.clearThreads(); delete this.model.detail;
+    Object.assign(this.model, fields, { start: 0 });
+    this.send({ type: 'searchNavigation' });
+    await this.refresh(); await vscode.commands.executeCommand('gerrit.dashboard.focus');
+  }
+  lockSearch() { if (this.searchResults) this.searchResults.locked = true; }
+  applySearchUpdates() {
+    const cache = this.searchResults; if (!cache) return;
+    cache.rows = [...cache.rows, ...cache.pending.values()].sort((a,b) => String(b.updated || '').localeCompare(String(a.updated || '')) || String(a.id).localeCompare(String(b.id)));
+    cache.pending.clear(); cache.locked = true;
+    const index = cache.rows.findIndex(row => row.id === this.selected?.id);
+    if (index >= 0) this.model.start = Math.floor(index / this.model.pageSize) * this.model.pageSize;
+    this.showSearchPage(false);
+  }
+  async refreshCurrent() {
+    this.needConnection();
+    if (this.selected) return this.load(this.selected.id);
+    return this.refresh();
+  }
+  loadFileProgress() {
+    const s = this.selected, detail = this.model.detail, api = this.api, rev = s.comparison?.revision;
+    if (!rev || !s.change.revisions[rev]) return;
+    const key = this.reviewProgress.key(api.url, this.user?._account_id ?? this.user?.username, s.id);
+    const record = this.reviewProgress.ensure(key, rev), baseline = record.ready ? record.baseline : this.reviewProgress.baseline(key, s.change.revisions, rev);
+    const token = {}; this.progressJob = token;
+    const active = () => this.progressJob === token && this.model.detail === detail && this.api === api && !this.disposed;
+    const publish = (loading = false, error) => {
+      if (!active()) return;
+      const current = this.reviewProgress.ensure(key, rev);
+      detail.fileProgress = { revision: rev, number: s.change.revisions[rev]._number, read: [...current.read], changed: current.changed || [], baselineNumber: s.change.revisions[current.baseline]?._number, baselineRevision: current.baseline, loading, error };
+      this.send({ type: 'fileProgress', id: s.id, revision: rev, progress: detail.fileProgress });
+    };
+    publish(!record.ready && !!baseline);
+    this.progressPromise = (async () => {
+      if (!record.ready) {
+        const changes = baseline ? await api.files(s.id, rev, baseline, { signal: this.contextController?.signal }) : {};
+        if (!active()) return;
+        this.reviewProgress.prepare(key, rev, baseline, changes);
+      }
+      publish();
+    })().catch(error => { if (active()) publish(false, '版本比较未完成，可刷新重试'); });
+  }
+  async markFileRead(path, revision, read) {
+    const s = this.selected;
+    if (revision !== s.comparison?.revision || !Object.hasOwn(s.files, path) || path.startsWith('/')) throw new Error('文件或比较版本已更新，请重新选择');
+    const key = this.reviewProgress.key(this.api.url, this.user?._account_id ?? this.user?.username, s.id);
+    const canonical = s.comparison.reverse && s.files[path].old_path ? s.files[path].old_path : path;
+    await this.reviewProgress.mark(key, revision, canonical, read);
+    if (this.selected === s) this.loadFileProgress();
+  }
+
   downloadState() {
-    this.model.downloads = [...this.downloadJobs.values()].map(({ promise, ...item }) => item);
+    this.model.downloads = this.downloadSnapshot();
+    this.taskState();
     if (!this.disposed) this.send({ type: 'downloadState', downloads: this.model.downloads });
   }
-  async download(patchRev) {
-    const s = this.selected; const rev = patchRev || this.model.detail.patchView?.rev || s.rev;
+  async download(patchRev, target) {
+    const s = target?.selection || this.selected; const rev = patchRev || this.model.detail.patchView?.rev || s.rev;
     const revision = s.change.revisions[rev];
     if (!revision) throw new Error('Patch set 不存在，请刷新后重试');
     const url = sshUrl(revision.fetch, this.user.username);
-    const directory = await this.localRepository(s.change.project);
+    const directory = target?.directory || await this.localRepository(s.change.project);
     if (!directory) return;
     const repoKey = require('node:path').resolve(directory).toLowerCase();
-    if ([...this.downloadJobs.values()].some(job => job.repoKey === repoKey && job.status === 'running')) throw new Error('此仓库已有下载任务，请等待完成');
+    if ([...this.downloadJobs.values()].some(job => job.repoKey === repoKey && (job.status === 'running' || job.settled === false))) throw new Error('此仓库已有下载任务，请等待完成');
     const id = crypto.randomBytes(8).toString('hex');
-    const job = { id, changeId: s.id, number: s.change._number, patch: revision._number, directory, repoKey, branch: `change-${s.change._number}`, status: 'running', stage: '准备下载' };
+    const job = { id, changeId: s.id, number: s.change._number, patch: revision._number, directory, repoKey, branch: `change-${s.change._number}`, status: 'running', stage: '准备下载', controller: new AbortController() };
     // Keep the current job per repository; completed states remain visible until the next download.
     for (const [key, previous] of this.downloadJobs) if (previous.repoKey === repoKey) this.downloadJobs.delete(key);
-    this.downloadJobs.set(id, job); this.downloadState();
+    this.downloadJobs.set(id, job);
+    this.registerTask('download', `#${job.number} · PS ${job.patch} 下载到本地`, job, () => this.download(rev, { selection: s, directory }));
+    this.downloadState();
     job.promise = Promise.resolve().then(() => vscode.window.withProgress({
       location: vscode.ProgressLocation.Notification, title: `Gerrit #${job.number} · PS ${job.patch} 下载到本地`
-    }, progress => downloadBranch({ directory, url, branch: job.branch, ref: revision.ref, revision: rev, checkWorkspace: () => {
+    }, progress => downloadBranch({ directory, url, signal: job.controller.signal, branch: job.branch, ref: revision.ref, revision: rev, checkWorkspace: () => {
       const path = require('node:path');
       if ((vscode.workspace.textDocuments || []).some(doc => {
         if (!doc.isDirty || doc.uri.scheme !== 'file') return false;
@@ -581,20 +712,21 @@ class Workbench {
         return !path.isAbsolute(relative) && relative !== '..' && !relative.startsWith('..' + path.sep);
       })) throw new Error('本地仓库有未保存的编辑器内容，请先保存并处理修改后重试下载');
     }, stage: stage => {
-      job.stage = stage; progress.report({ message: stage }); this.downloadState();
-    } }, (cwd, args, options) => this.runGit(cwd, args, options))))
+      job.stage = stage; job.canCancel = stage !== 'Git checkout'; progress.report({ message: stage }); this.downloadState();
+    } }, (cwd, args, options) => this.runGit(cwd, args, { ...options, signal: job.controller.signal }))))
       .then(() => {
         job.status = 'completed'; job.stage = '下载完成';
         this.logger.write('info', `下载任务完成：#${job.number} PS ${job.patch} → ${job.branch}`);
         if (!this.disposed) vscode.window.showInformationMessage(`Gerrit #${job.number} 已切换到本地分支 ${job.branch}`);
       }).catch(error => {
+        if (job.controller.signal.aborted) { job.status = 'cancelled'; job.stage = '下载已取消，未切换分支'; return; }
         job.status = 'failed';
         job.stage = /Permission denied|publickey|Host key verification failed|Could not resolve hostname|Connection refused|Could not read from remote repository/i.test(error.message)
           ? 'SSH 下载失败：请检查本机 SSH key / agent、Gerrit 公钥、端口和 known_hosts'
           : error.message;
         this.logger.write('error', `下载任务失败：${job.stage}`);
         if (!this.disposed) vscode.window.showErrorMessage(`Gerrit: ${job.stage}`);
-      }).finally(() => this.downloadState());
+      }).finally(() => { job.settled = true; this.downloadState(); });
     // Deliberately do not await the job or the completion notification.
   }
   async handle(m) {
@@ -602,9 +734,11 @@ class Workbench {
     if (m.type === 'init') { this.render(); if (!this.api) await this.restore(); return; }
     if (m.type === 'connect') return this.connect();
     if (m.type === 'settings') return this.openSettings();
+    if (m.type === 'tasks') return this.openTasks();
     if (m.type === 'logs') return this.output.show(true);
     if (m.type === 'cancelSearch') { this.cancelSearch(); this.render(); return; }
     if (m.type === 'disconnect') {
+      for (const job of this.backgroundJobs.values()) this.cancelTask(job.taskId);
       this.cancelSearch(); this.contextController?.abort(); this.parentTrail = []; this.searchResults = undefined; this.patchPathCache.clear();
       this.pathIndex.dispose().catch(() => {}); this.pathIndex = new PathIndex((...args) => this.runGit(...args));
       const saved = this.context.globalState.get('connection');
@@ -627,10 +761,13 @@ class Workbench {
       if (this.model.message && this.searchResults?.key === JSON.stringify(searchPlan(this.model.query, this.model))) return this.showSearchPage();
       return this.refresh(true);
     }
-    if (m.type === 'refresh') return this.refresh();
-    if (m.type === 'open') { this.parentTrail = []; return this.load(String(m.id)); }
+    if (m.type === 'applySearchUpdates') return this.applySearchUpdates();
+    if (m.type === 'refresh') return this.refreshCurrent();
+    if (m.type === 'open') { this.lockSearch(); this.parentTrail = []; return this.load(String(m.id)); }
     if (m.type === 'back') { this.parentTrail = []; this.contextController?.abort(); this.selected = null; delete this.model.detail; this.clearThreads(); this.render(); return; }
     const s = this.selected; if (!s || m.id !== s.id || m.rev !== s.rev) throw new Error('页面已更新，请重新选择变更后操作');
+    if (m.type === 'fileRead') return this.markFileRead(String(m.path), String(m.fileRev), !!m.read);
+    if (m.type === 'returnAncestor') return this.returnChild(Number(m.index));
     if (m.type === 'parentOpen') return this.openParent(String(m.sha || ''));
     if (m.type === 'openLatest') return this.load(s.id, true, { revision: s.rev, pinned: false });
     if (m.type === 'returnChild') return this.returnChild();
@@ -845,7 +982,7 @@ class Workbench {
     const cwd = folder.uri.fsPath;
     const root = await this.runGit(cwd, ['rev-parse', '--show-toplevel']);
     const repoKey = require('node:path').resolve(root).toLowerCase();
-    if ([...this.downloadJobs.values()].some(job => job.repoKey === repoKey && job.status === 'running')) throw new Error('此仓库正在下载，请完成后再上传');
+    if ([...this.downloadJobs.values()].some(job => job.repoKey === repoKey && (job.status === 'running' || job.settled === false))) throw new Error('此仓库正在下载，请完成后再上传');
     if (await this.runGit(cwd, ['status', '--porcelain'])) {
       const choice = await vscode.window.showQuickPick([
         { label: '提交已暂存文件，再推送 HEAD', commit: true },

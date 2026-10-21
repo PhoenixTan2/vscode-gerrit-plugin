@@ -114,3 +114,15 @@ test('missing Patch path index fetches only objects over SSH without checkout or
   assert.ok(!calls.some(args => args.includes('checkout') || args.includes('reset')));
   await assert.rejects(readPatchPaths({ directory: '/repo', revision: 'b'.repeat(40), ref: 'refs/heads/main', url: 'http://review.example/p' }, async () => { throw new Error('missing'); }), /SSH/);
 });
+
+
+test('cancellation after fetch never creates a branch or checks out files', async () => {
+  const controller = new AbortController(), calls = [];
+  await assert.rejects(downloadBranch({ ...options, signal: controller.signal }, async (_, args) => {
+    calls.push(args);
+    if (args[0] === 'fetch') controller.abort();
+    return args[0] === 'rev-parse' ? options.revision : '';
+  }), /abort/i);
+  assert.ok(calls.some(args => args[0] === 'fetch'));
+  assert.ok(!calls.some(args => args.includes('checkout')));
+});

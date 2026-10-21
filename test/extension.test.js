@@ -581,3 +581,57 @@ test('version file lookup opens an unchanged header from Gerrit with an unrelate
   await app.handle({ type: 'single', id, rev, patchRev: rev, path: 'Include/Unmodified.h' });
   assert.deepEqual(reads[0].slice(0, 3), [id, rev, 'Include/Unmodified.h']);
 });
+
+test('new matches remain pending after opening a result until explicitly merged', async () => {
+  const { app } = fixture(); app.selected = null;
+  let release, entered; const gate = new Promise(resolve => { release = resolve; }), scanning = new Promise(resolve => { entered = resolve; });
+  app.api.list = async (query,start,options) => {
+    if (!options?.search) return [{id:'first',subject:'test',updated:'1'}];
+    entered(); await gate; return [{id:'second',subject:'test',updated:'2'}];
+  };
+  await app.handle({type:'search',query:'is:open',message:'test'}); await scanning;
+  app.load = async id => { app.selected = {id,rev:'r'}; };
+  await app.handle({type:'open',id:'first'});
+  release(); await app.searchJob.promise;
+  assert.deepEqual(Array.from(app.searchResults.rows, x=>x.id), ['first']);
+  assert.equal(app.model.searchUpdates.pending,1); assert.equal(app.resultNavigation().next,false);
+  app.applySearchUpdates();
+  assert.deepEqual(Array.from(app.searchResults.rows,x=>x.id),['second','first']); assert.equal(app.model.searchUpdates.pending,0);
+  assert.equal(app.resultNavigation().index,2);
+});
+test('detail refresh does not rerun list or Message search and preserves parent path', async () => {
+  const { app } = fixture(); const calls=[];
+  app.parentTrail=[{id:'origin',number:9}]; app.load=async id=>calls.push(id); app.refresh=async()=>{throw new Error('must not search');};
+  await app.handle({type:'refresh'}); assert.deepEqual(calls,['p~main~I1']); assert.equal(app.parentTrail.length,1);
+});
+test('breadcrumbs return directly to any ancestor and failed navigation restores the full path', async () => {
+  const { app, parentSha, grandSha } = familyFixture();
+  await app.load('child'); await app.contextJob; await app.openParent(parentSha); await app.contextJob; await app.openParent(grandSha);
+  assert.deepEqual(Array.from(app.model.breadcrumbs,x=>x.number),[3,2]);
+  const detail = app.api.detail; app.api.detail = async()=>{throw new Error('offline');};
+  await assert.rejects(app.returnChild(0),/offline/); assert.equal(app.parentTrail.length,2);
+  app.api.detail=detail; await app.returnChild(0); assert.equal(app.selected.id,'child'); assert.equal(app.parentTrail.length,0);
+});
+test('task controls bypass busy state, retry failed work and never serialize API credentials', async () => {
+  const { app } = fixture(); app.api.auth='PRIVATE_AUTH'; app.busy=true;
+  let attempts=0; const job={status:'running',controller:new AbortController()};
+  app.registerTask('index','Index',job,async()=>{attempts++;});
+  app.receiveMessage({}, {type:'taskCancel',taskId:job.taskId});
+  assert.equal(job.controller.signal.aborted,true); assert.equal(job.status,'cancelled');
+  job.settled=true; await app.receiveMessage({}, {type:'taskRetry',taskId:job.taskId}); assert.equal(attempts,1);
+  assert.ok(!JSON.stringify(app.taskSnapshot()).includes('PRIVATE_AUTH'));
+  app.downloadJobs.set('x',{...job,id:'x',api:app.api}); assert.ok(!JSON.stringify(app.downloadSnapshot()).includes('PRIVATE_AUTH'));
+  const checkout={status:'running',canCancel:false,controller:new AbortController()};
+  app.registerTask('download','Checkout',checkout,async()=>{}); app.cancelTask(checkout.taskId); assert.equal(checkout.controller.signal.aborted,false);
+});
+test('new PS resets changed file reads, carries unchanged reads and persists manual markers', async () => {
+  const { app, changes, oldChild, childSha } = familyFixture();
+  const key=app.reviewProgress.key(app.api.url,1,'child');
+  app.reviewProgress.prepare(key,oldChild); await app.reviewProgress.mark(key,oldChild,'same.h',true); await app.reviewProgress.mark(key,oldChild,'code.c',true);
+  app.api.files=async(id,rev,base)=>base===oldChild?{'code.c':{}}:{'code.c':{},'same.h':{}};
+  await app.load('child'); await app.progressPromise;
+  assert.deepEqual(Array.from(app.model.detail.fileProgress.read),['same.h']); assert.ok(app.model.detail.fileProgress.changed.includes('code.c'));
+  await app.handle({type:'fileRead',id:'child',rev:childSha,fileRev:childSha,path:'code.c',read:true}); await app.progressPromise;
+  assert.ok(app.model.detail.fileProgress.read.includes('code.c'));
+  await assert.rejects(app.markFileRead('other.h',childSha,true),/文件或比较版本/);
+});

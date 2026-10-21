@@ -11,7 +11,7 @@ class PathIndex {
     this.run = run; this.repositories = new Map(); this.paths = new Map(); this.queues = new Map();
     this.controller = new AbortController();
   }
-  read(info) {
+  read(info, { signal, progress = () => {} } = {}) {
     if (this.disposed) return Promise.reject(new Error('文件查找会话已结束，请重新连接'));
     let remote;
     try { remote = new URL(info.url); } catch { return Promise.reject(new Error('无法读取版本文件清单：SSH 地址无效')); }
@@ -22,12 +22,24 @@ class PathIndex {
     const repoKey = crypto.createHash('sha256').update(JSON.stringify([info.server, info.account, info.project, remote.toString(), info.revision.length])).digest('hex');
     const key = repoKey + ':' + info.revision;
     if (!this.paths.has(key)) {
+      const controller = new AbortController();
+      const abort = () => controller.abort(signal?.reason || this.controller.signal.reason);
+      this.controller.signal.addEventListener('abort', abort, { once: true });
+      signal?.addEventListener('abort', abort, { once: true });
+      if (signal?.aborted) abort();
       const previous = this.queues.get(repoKey) || Promise.resolve();
       const pending = previous.catch(() => {}).then(async () => {
         if (this.disposed) throw new Error('文件查找会话已结束');
+        controller.signal.throwIfAborted(); progress('准备路径缓存');
         const directory = await this.repository(repoKey, info.revision.length);
+        controller.signal.throwIfAborted();
         return readPatchPaths({ directory, revision: info.revision, ref: info.ref, url: remote.toString(), lightweight: true },
-          (cwd, args, options) => this.run(cwd, args, { ...options, signal: this.controller.signal }));
+          (cwd, args, options) => {
+            progress(args[0] === 'fetch' ? 'SSH 获取版本路径' : '读取文件路径');
+            return this.run(cwd, args, { ...options, signal: controller.signal });
+          });
+      }).catch(error => { if (controller.signal.aborted) throw controller.signal.reason; throw error; }).finally(() => {
+        this.controller.signal.removeEventListener('abort', abort); signal?.removeEventListener('abort', abort);
       });
       this.paths.set(key, pending); this.queues.set(repoKey, pending);
       pending.catch(() => { if (this.paths.get(key) === pending) this.paths.delete(key); });

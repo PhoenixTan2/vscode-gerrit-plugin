@@ -93,3 +93,23 @@ test('invalid remote metadata never creates a cache and failed fetches can be re
     assert.deepEqual(await index.read(info), ['Header.h']); assert.equal(tries, 2);
   } finally { await index.dispose(); }
 });
+
+
+test('cancelling one index task permits retry without ending its session', async () => {
+  let started, attempts = 0, available = false;
+  const fetching = new Promise(resolve => { started = resolve; });
+  const index = new PathIndex(async (cwd, args, options) => {
+    if (args[0] === 'ls-tree') { if (!available) throw new Error('missing'); return 'Include/Header.h\0'; }
+    if (args[0] === 'fetch') {
+      if (++attempts === 1) { started(); await new Promise((resolve, reject) => options.signal.addEventListener('abort', () => reject(options.signal.reason), { once: true })); }
+      available = true;
+    }
+    return '';
+  });
+  try {
+    const controller = new AbortController(), pending = index.read(info, { signal: controller.signal });
+    const rejected = assert.rejects(pending, /abort/i);
+    await fetching; controller.abort(); await rejected;
+    assert.deepEqual(await index.read(info), ['Include/Header.h']); assert.equal(attempts, 2);
+  } finally { await index.dispose(); }
+});

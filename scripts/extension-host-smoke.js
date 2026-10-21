@@ -14,7 +14,7 @@ async function run() {
     const commands = await vscode.commands.getCommands(true);
     assert.ok(commands.includes('workbench.view.extension.gerrit'), 'Legacy Gerrit container fixture must be present');
     assert.ok(commands.includes('workbench.view.extension.gerritWorkbench'), 'Our container must remain separate');
-    for (const id of ['gerrit.connect', 'gerrit.refresh', 'gerrit.logs', 'gerrit.comment', 'gerrit.fileComments']) assert.ok(commands.includes(id), `${id} must be registered`);
+    for (const id of ['gerrit.connect', 'gerrit.refresh', 'gerrit.logs', 'gerrit.comment', 'gerrit.fileComments', 'gerrit.tasks']) assert.ok(commands.includes(id), `${id} must be registered`);
     await vscode.commands.executeCommand('workbench.view.extension.gerritWorkbench');
     await vscode.commands.executeCommand('gerrit.dashboard.focus');
     const deadline = Date.now() + 20000;
@@ -48,7 +48,7 @@ async function run() {
         revisions: { ['a'.repeat(40)]: { _number: 3, commit: { message: 'Improve boot device initialization\n\nKeep initialization deterministic.', author: { name: 'Alex', email: 'alex@example.invalid' }, committer: { name: 'Alex' }, parents: [{ commit: 'b'.repeat(40) }] } } },
         parentTargets: { ['b'.repeat(40)]: { status: 'found', changes: [{ id: 'parent-fixture', number: 141, patch: 1 }] } },
         labels: { 'Code-Review': { all: [{ name: 'Sam', value: 1 }] } }, permitted_labels: { 'Code-Review': ['-1', ' 0', '+1'] },
-        comparison: { left: 'base', right: 'a'.repeat(40) },
+        comparison: { left: 'base', right: 'a'.repeat(40), revision: 'a'.repeat(40) },
         related: { rev: 'a'.repeat(40), changes: [{ _change_number: 141, _revision_number: 1, _current_revision_number: 2, status: 'NEW', commit: { commit: 'b'.repeat(40), subject: 'Dependency', parents: [] } }] },
         patchView: { rev: 'a'.repeat(40), files: ['Boot/Device.c'] }, files: { 'Boot/Device.c': { lines_inserted: 12, lines_deleted: 3 }, 'Library/Init.c': { lines_inserted: 3 } },
         comments: { 'Boot/Device.c': [{ id: 'root', patch_set: 3, line: 42, updated: '2026-10-21 06:30:01', unresolved: true, author: { name: 'Sam' }, message: '**Could we check** the device state before initializing?\nSecond line of discussion' }] }, messages: [{ author: { name: 'Sam' }, _revision_number: 3, message: 'Activity first line\nActivity second line' }]
@@ -57,10 +57,15 @@ async function run() {
     const panel = vscode.window.createWebviewPanel('gerrit.smoke.review', 'Review UI smoke', vscode.ViewColumn.Active, { enableScripts: true, localResourceRoots: [extension.extensionUri] });
     const nonce = require('node:crypto').randomBytes(16).toString('hex');
     const media = name => panel.webview.asWebviewUri(vscode.Uri.joinPath(extension.extensionUri, 'media', name));
-    let fileAction, searchAction, patchAction, cancelAction, compareAction, navigationAction, metadataAction, relatedAction, parentAction, childAction, patchSearchAction, singleAction;
+    let fileAction, searchAction, patchAction, cancelAction, compareAction, navigationAction, metadataAction, relatedAction, parentAction, childAction, patchSearchAction, singleAction, readAction, ancestorAction, taskCancelAction, taskRetryAction, updatesAction;
     const reviewResult = new Promise((resolve, reject) => {
       const timeout = setTimeout(() => reject(new Error('Review Webview fixture did not render')), 15000);
       panel.webview.onDidReceiveMessage(message => {
+        if (message.type === 'fileRead') readAction = message;
+        if (message.type === 'returnAncestor') ancestorAction = message;
+        if (message.type === 'taskCancel') taskCancelAction = message;
+        if (message.type === 'taskRetry') taskRetryAction = message;
+        if (message.type === 'applySearchUpdates') updatesAction = message;
         if (message.type === 'file') fileAction = message;
         if (message.type === 'search') searchAction = message;
         if (message.type === 'patch') patchAction = message;
@@ -126,6 +131,11 @@ async function run() {
         document.querySelector('#review .markdown-preview').click();
         const input = document.getElementById('review-message'); input.value='Unsent draft'; input.dispatchEvent(new Event('input',{bubbles:true}));
         window.dispatchEvent(new MessageEvent('message',{data:{type:'downloadState',downloads:[]}}));
+        window.dispatchEvent(new MessageEvent('message',{data:{type:'tasks',tasks:[{id:'working',title:'Index',status:'running',cancelable:true}]}}));
+        window.dispatchEvent(new MessageEvent('message',{data:{type:'inboxResults',changes:[],navigation:{previous:true,next:true,index:2,total:3},updates:{pending:2}}}));
+        if (document.getElementById('review-message')!==input) throw new Error('Background updates replaced review editor');
+        if (!document.querySelector('[data-action="applySearchUpdates"]')) throw new Error('New results banner missing in discussion');
+        document.querySelector('[data-action="applySearchUpdates"]').click();
         if (document.getElementById('review-message').value!=='Unsent draft') throw new Error('Draft replaced by download update');
         window.dispatchEvent(new MessageEvent('message',{data:{type:'parentState',id:'fixture',rev:'a'.repeat(40),parentTargets:model.detail.parentTargets}}));
         if (document.getElementById('review-message')!==input) throw new Error('Parent resolution replaced active draft');
@@ -150,6 +160,10 @@ async function run() {
         window.dispatchEvent(new MessageEvent('message',{data:{type:'state',model:{...model,surface:'files'}}}));
         if (getComputedStyle(document.querySelector('.file-row')).borderTopColor !== 'rgba(0, 0, 0, 0)') throw new Error('File rows should not have box outlines');
         if (document.querySelector('.file-row').getBoundingClientRect().height > 30) throw new Error('File rows are not compact');
+        window.dispatchEvent(new MessageEvent('message',{data:{type:'fileProgress',id:'fixture',revision:'a'.repeat(40),progress:{revision:'a'.repeat(40),number:3,read:['Library/Init.c'],changed:['Boot/Device.c'],baselineNumber:2,baselineRevision:'b'.repeat(40)}}}));
+        if (!document.getElementById('app').textContent.includes('版本有变化')) throw new Error('Changed file indication missing');
+        const read=document.querySelector('input[data-read-file="Boot/Device.c"]');
+        read.checked=true; read.dispatchEvent(new Event('change',{bubbles:true}));
         const filter=document.getElementById('file-filter');
         filter.value='Device'; filter.dispatchEvent(new Event('input',{bubbles:true}));
         if (document.querySelectorAll('.file-row').length!==1) throw new Error('File path filtering');
@@ -181,6 +195,11 @@ async function run() {
         if (document.querySelector('[data-action="parentOpen"]')) throw new Error('Unrelated Git parent should not be clickable');
         if (document.querySelector('h1').textContent!=='Exact parent') throw new Error('Historical parent title incorrect');
         document.querySelector('[data-action="returnChild"]').click();
+        window.dispatchEvent(new MessageEvent('message',{data:{type:'state',model:{...model,parentNavigation:{number:142},breadcrumbs:[{index:0,number:142},{index:1,number:141}]}}}));
+        document.querySelector('[data-action="returnAncestor"][data-index="0"]').click();
+        window.dispatchEvent(new MessageEvent('message',{data:{type:'state',model:{...model,surface:'tasks',backgroundTasks:[{id:'working',title:'Path index',status:'running',cancelable:true},{id:'failed',title:'Download',status:'failed',retryable:true}]}}}));
+        window.dispatchEvent(new MessageEvent('message',{data:{type:'busy',value:true}}));
+        for (const action of ['taskCancel','taskRetry']) { const button=document.querySelector('[data-action="'+action+'"]'); if(button.disabled) throw new Error('Busy disabled task control'); button.click(); }
         post('smokeResult',{ok:true});
       } catch(error) { post('smokeResult',{ok:false,error:error.stack}); } })();
     `;
@@ -197,6 +216,9 @@ async function run() {
     assert.equal(fileAction?.path, 'Boot/Device.c');
     assert.equal(compareAction?.left, 'base'); assert.equal(compareAction?.right, 'a'.repeat(40));
     assert.equal(patchAction?.patchRev, 'a'.repeat(40)); assert.equal(cancelAction?.type, 'cancelSearch');
+    assert.equal(readAction?.path, 'Boot/Device.c'); assert.equal(readAction?.fileRev, 'a'.repeat(40)); assert.equal(readAction?.read, true);
+    assert.equal(ancestorAction?.index, '0'); assert.equal(taskCancelAction?.taskId, 'working'); assert.equal(taskRetryAction?.taskId, 'failed');
+    assert.equal(updatesAction?.type, 'applySearchUpdates');
     assert.equal(searchAction?.message, 'test'); assert.equal(searchAction?.repo, 'team/firmware');
     assert.equal(searchAction?.branch, 'main'); assert.equal(searchAction?.owner, 'self'); panel.dispose();
 

@@ -96,7 +96,7 @@ class GerritApi {
   list(query, start = 0, { search = false, signal } = {}) { return this.request(`/changes/?q=${enc(query)}&n=${this.pageSize}&S=${start}&o=DETAILED_LABELS&o=DETAILED_ACCOUNTS&o=REVIEWED${search ? '&o=ALL_REVISIONS&o=ALL_COMMITS&o=MESSAGES' : ''}`, 'GET', undefined, false, { signal }); }
   detail(id) { return this.request(`/changes/${enc(id)}/detail?o=ALL_REVISIONS&o=ALL_COMMITS&o=DETAILED_LABELS&o=DETAILED_ACCOUNTS&o=MESSAGES&o=CURRENT_ACTIONS&o=REVIEWED`); }
   revision(id, rev, path = '') { return `/changes/${enc(id)}/revisions/${enc(rev)}${path}`; }
-  files(id, rev, base) { return this.request(this.revision(id, rev, `/files/?${base ? `base=${enc(base)}` : 'parent=1'}`)); }
+  files(id, rev, base, { signal } = {}) { return this.request(this.revision(id, rev, `/files/?${base ? `base=${enc(base)}` : 'parent=1'}`), 'GET', undefined, false, { signal }); }
   related(id, rev, { signal } = {}) { return this.request(this.revision(id, rev, '/related'), 'GET', undefined, false, { signal }); }
   allComments(id, { signal } = {}) { return this.request(`/changes/${enc(id)}/comments`, 'GET', undefined, false, { signal }); }
   async treeFiles(id, rev, query) {
