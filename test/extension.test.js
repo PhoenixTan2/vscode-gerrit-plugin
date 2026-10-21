@@ -15,7 +15,7 @@ function fixture() {
       createWebviewPanel: (...args) => { const panel = { webview: { postMessage() {} }, onDidDispose() {}, reveal: column => { panel.revealed = column; } }; panels.push({ args, panel }); return panel; }
     },
     Uri: { joinPath: (_, ...segments) => ({ path: segments.join('/') }), from: value => ({ ...value, toString: () => `${value.scheme}://${value.authority}${value.path}` }), parse: value => ({ toString: () => value }) },
-    ThemeColor: class { constructor(id) { this.id = id; } }, OverviewRulerLane: { Full: 7 }, MinimapPosition: { Gutter: 2 },
+    ThemeColor: class { constructor(id) { this.id = id; } }, OverviewRulerLane: { Full: 7 },
     Selection: class extends Range { constructor(...args) { super(...args); this.active = this.end; } }, TextEditorRevealType: { InCenter: 0 },
     env: { asExternalUri: async uri => uri },
     ViewColumn: { Beside: -2, Active: -1 },
@@ -167,14 +167,16 @@ test('comment navigation visits distinct marked lines and wraps in both directio
   await app.navigateComment(1); assert.equal(editor.selection.active.line, 2);
   await app.navigateComment(-1); assert.equal(editor.selection.active.line, 8);
 });
-test('comment decorations include strong gutter, minimap, overview ruler and counts', () => {
+test('comment decorations use public VS Code gutter/overview API without MinimapPosition', () => {
   const { app, vscode } = fixture(); const uri = { toString: () => 'gerrit:marks' };
   app.documents.set(uri.toString(), { id: app.selected.id, rev: 'abc', path: 'a.js', side: 'REVISION' });
   app.selected.comments = { 'a.js': [{ id: 'a', line: 3, message: 'a' }, { id: 'b', line: 3, message: 'b' }] };
   let marks; vscode.window.visibleTextEditors = [{ document: { uri, lineCount: 10, lineAt: () => ({ text: 'source code' }) }, setDecorations: (_, value) => { marks = value; } }];
   app.updateDecorations(); assert.equal(marks.length, 1); assert.ok(marks[0].renderOptions.after.contentText.includes('2'));
   assert.equal(app.commentDecoration.options.overviewRulerColor.id, 'gerrit.commentMarker');
-  assert.equal(app.commentDecoration.options.minimap.position, 2);
+  assert.equal(vscode.MinimapPosition, undefined);
+  assert.equal(app.commentDecoration.options.minimap, undefined);
+  assert.ok(app.commentDecoration.options.gutterIconPath);
 });
 test('changes are displayed newest update first and Commit expansion follows settings', async () => {
   const { app, settings } = fixture(); app.selected = null;

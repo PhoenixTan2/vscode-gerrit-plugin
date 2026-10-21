@@ -48,8 +48,7 @@ class Workbench {
     this.documents = new Map(); this.threads = new Map(); this.selected = null; this.busy = false;
     this.commentDecoration = vscode.window.createTextEditorDecorationType({
       gutterIconPath: vscode.Uri.joinPath(context.extensionUri, 'media', 'comment.svg'), gutterIconSize: 'contain',
-      overviewRulerColor: new vscode.ThemeColor('gerrit.commentMarker'), overviewRulerLane: vscode.OverviewRulerLane.Full,
-      minimap: { color: new vscode.ThemeColor('gerrit.commentMarker'), position: vscode.MinimapPosition.Gutter }
+      overviewRulerColor: new vscode.ThemeColor('gerrit.commentMarker'), overviewRulerLane: vscode.OverviewRulerLane.Full
     });
     this.controller = vscode.comments.createCommentController('gerrit', 'Gerrit');
     this.controller.commentingRangeProvider = { provideCommentingRanges: document => {

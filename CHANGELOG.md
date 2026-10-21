@@ -1,5 +1,10 @@
 # 更新记录
 
+## 0.3.1
+
+- 修复启动崩溃：移除 VS Code 公共 API 不支持的 MinimapPosition / minimap 装饰调用，保留醒目的行号、行末和滚动条评论标记。
+- 删除测试中虚构的 MinimapPosition 模拟，新增真实 Extension Host 的激活、命令和侧边栏启动检查。
+
 ## 0.3.0
 
 - 修复内置网页 HTTP Basic 401：新增仅监听本机的一次性登录认证桥接。
