@@ -24,6 +24,7 @@ function activate(context) {
     vscode.commands.registerCommand('gerrit.nextComment', () => app.run(() => app.navigateComment(1))),
     vscode.commands.registerCommand('gerrit.previousComment', () => app.run(() => app.navigateComment(-1))),
     vscode.commands.registerCommand('gerrit.fileComments', () => app.run(() => app.navigateComment(0))),
+    vscode.commands.registerCommand('gerrit._viewStatus', () => ({ resolved: !!app.view, ready: !!app.sidebarReady, error: app.sidebarError || null })),
     vscode.window.onDidChangeVisibleTextEditors(() => app.updateDecorations()),
     vscode.languages.registerHoverProvider({ scheme: 'gerrit' }, { provideHover: (document, position) => app.commentHover(document, position) }),
     vscode.workspace.onDidChangeConfiguration(event => { if (event.affectsConfiguration('gerrit')) app.run(async () => {
@@ -91,18 +92,38 @@ class Workbench {
   }
   async resolveWebviewView(view) {
     this.view = view;
+    this.sidebarReady = false; this.sidebarError = undefined;
     this.setupWebview(view.webview);
+  }
+  receiveMessage(webview, message) {
+    if (message?.type === 'init') {
+      // A newly loaded page must receive state even while another action is busy.
+      this.render(); webview.postMessage({ type: 'busy', value: this.busy });
+      if (!this.api && !this.busy) return this.run(() => this.restore());
+      return;
+    }
+    if (message?.type === 'rendered') {
+      if (webview === this.view?.webview) { this.sidebarReady = true; this.sidebarError = undefined; }
+      return;
+    }
+    if (message?.type === 'clientError') {
+      const text = String(message.message || '工作台页面加载失败').slice(0, 500);
+      if (webview === this.view?.webview) this.sidebarError = text;
+      this.logger.write('error', `Webview: ${text}`);
+      vscode.window.showErrorMessage(`Gerrit 工作台页面加载失败：${text}`); return;
+    }
+    return this.run(() => this.handle(message));
   }
   setupWebview(webview) {
     const root = vscode.Uri.joinPath(this.context.extensionUri, 'media');
     webview.options = { enableScripts: true, localResourceRoots: [root] };
     const nonce = crypto.randomBytes(18).toString('hex');
     const fs = require('node:fs');
+    webview.onDidReceiveMessage(message => this.receiveMessage(webview, message), undefined, this.context.subscriptions);
     webview.html = fs.readFileSync(vscode.Uri.joinPath(root, 'index.html').fsPath, 'utf8')
       .replaceAll('{{csp}}', webview.cspSource).replaceAll('{{nonce}}', nonce)
       .replace('{{css}}', webview.asWebviewUri(vscode.Uri.joinPath(root, 'style.css')).toString())
       .replace('{{js}}', webview.asWebviewUri(vscode.Uri.joinPath(root, 'main.js')).toString());
-    webview.onDidReceiveMessage(message => this.run(() => this.handle(message)), undefined, this.context.subscriptions);
   }
   openDiscussion() {
     if (!this.selected) throw new Error('请先打开一笔变更');

@@ -4,7 +4,7 @@
 
 ## 安装与连接
 
-在扩展面板 `…` → **从 VSIX 安装**，选择 `gerrit-workbench-0.3.1.vsix`。点击左侧 Gerrit 图标连接服务器。支持服务器根地址、`/gerrit` 部署前缀及直接粘贴 `/dashboard/self` 地址。
+在扩展面板 `…` → **从 VSIX 安装**，选择 `gerrit-workbench-0.3.2.vsix`。点击左侧 Gerrit Workbench 图标连接服务器。该入口与其他 Gerrit 插件相互独立；若活动栏未显示，可右键活动栏勾选 Gerrit Workbench，或点击状态栏 Gerrit 打开。支持服务器根地址、`/gerrit` 部署前缀及直接粘贴 `/dashboard/self` 地址。
 
 认证方式：
 

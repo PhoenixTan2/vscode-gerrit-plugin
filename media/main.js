@@ -4,6 +4,8 @@ const app = document.getElementById('app');
 const notice = document.getElementById('notice');
 let model = {}; let busy = false; let state = vscode.getState() || {};
 const post = (type, data = {}) => vscode.postMessage({ type, ...data });
+window.addEventListener('error', event => post('clientError', { message: event.message || '工作台脚本加载失败' }));
+window.addEventListener('unhandledrejection', event => post('clientError', { message: event.reason?.message || '工作台页面处理失败' }));
 const e = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const who = account => account?.name || account?.username || account?.email || `用户 ${account?._account_id || '?'}`;
 const key = () => `${model.server || ''}::${model.accountId ?? model.username ?? ''}::${model.detail?.id}::${model.detail?.current_revision}`;
@@ -78,6 +80,7 @@ function render() {
     app.innerHTML = `<div class="row">${button('上传本地提交', 'push', '')}${button('连接设置', 'connect')}${button('断开', 'disconnect')}</div><h1>评审收件箱</h1><div class="row">${presets.map(([name, query]) => button(name, 'preset', model.query === query ? '' : 'secondary', `data-query="${e(query)}"`)).join('')}</div><form id="search"><label for="query">Gerrit 查询</label><input id="query" value="${e(model.query)}" placeholder="is:open project:my/project"><div class="row"><button type="submit">搜索</button>${button('刷新', 'refresh')}<span class="muted">每页最多 ${pageSize} 条</span></div></form>${(model.changes || []).map(c => `<button type="button" class="change" data-action="open" data-id="${e(c.id)}"><span class="muted">#${e(c._number)} · ${e(c.status)}${c.work_in_progress ? ' · WIP' : ''}</span><span class="subject">${e(c.subject)}</span><span class="muted">${e(c.project)} → ${e(c.branch)}<br>${e(who(c.owner))}<br>最后更新：${e(time(c.updated))}</span><div class="row">${Object.entries(c.labels || {}).map(([name, l]) => `<span class="badge">${e(name)} ${e(l.approved ? '✓' : l.rejected ? '✕' : (l.all || []).map(v => v.value > 0 ? `+${v.value}` : v.value).join(' / ') || '—')}</span>`).join('')}</div></button>`).join('') || '<div class="card muted">没有匹配的变更。可切换 Open 或修改查询。</div>'}<div class="row">${model.start ? button('上一页', 'prev') : ''}${model.more ? button('下一页', 'next') : ''}<span class="muted">第 ${Math.floor((model.start || 0) / pageSize) + 1} 页</span></div>`;
   }
   setBusy();
+  post('rendered', { surface: model.surface || 'sidebar' });
 }
 function setBusy() { app.querySelectorAll('button,select').forEach(el => { el.disabled = busy; }); app.setAttribute('aria-busy', String(busy)); }
 function payload() { return { id: model.detail?.id, rev: model.detail?.current_revision, compareLeft: model.detail?.comparison?.left, compareRight: model.detail?.comparison?.right }; }

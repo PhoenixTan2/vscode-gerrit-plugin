@@ -144,6 +144,16 @@ test('discussion creates and reuses a tab in the active editor group', () => {
   app.openDiscussion(); assert.equal(panels[0].args[2], -1);
   app.openDiscussion(); assert.equal(panels.length, 1); assert.equal(panels[0].panel.revealed, -1);
 });
+test('a reloaded sidebar receives initial state while another action is busy', () => {
+  const { app } = fixture(); const messages = [];
+  const webview = { postMessage: message => messages.push(message) };
+  app.view = { webview }; app.busy = true;
+  app.receiveMessage(webview, { type: 'init' });
+  assert.ok(messages.some(m => m.type === 'state'));
+  assert.ok(messages.some(m => m.type === 'busy' && m.value === true));
+  app.receiveMessage(webview, { type: 'rendered', surface: 'sidebar' });
+  assert.equal(app.sidebarReady, true);
+});
 test('single patch file opens a normal code editor, not a diff', async () => {
   const { app, executed, vscode } = fixture(); app.api.url = 'https://review.example';
   app.selected.change.revisions = { old: { _number: 1 }, abc: { _number: 3 } };

@@ -33,7 +33,16 @@ if options.vsix:
 env = os.environ.copy()
 env.pop('ELECTRON_RUN_AS_NODE', None)
 env['GERRIT_HOST_SMOKE_RESULT'] = str(result)
-args = [str(code), '--new-window', '--disable-extensions', '--disable-workspace-trust', '--skip-welcome', '--skip-release-notes', '--disable-updates', '--user-data-dir=' + str(temporary / 'profile'), '--extensions-dir=' + str(temporary / 'extensions'), '--extensionDevelopmentPath=' + str(development), '--extensionTestsPath=' + str(root / 'scripts/extension-host-smoke.js')]
+# Reproduce an installed Gerrit extension owning the old generic container ID.
+legacy = temporary / 'extensions' / 'smoke-test.legacy-gerrit-1.0.0'
+legacy.mkdir(parents=True)
+(legacy / 'package.json').write_text(json.dumps({
+    'name': 'legacy-gerrit', 'publisher': 'smoke-test', 'version': '1.0.0',
+    'engines': {'vscode': '^1.95.0'},
+    'contributes': {'viewsContainers': {'activitybar': [{'id': 'gerrit', 'title': 'Legacy Gerrit', 'icon': 'icon.svg'}]}, 'views': {'gerrit': [{'id': 'legacy.gerrit.changes', 'name': 'Legacy Changes'}]}}
+}), encoding='utf-8')
+(legacy / 'icon.svg').write_text('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="#ccc" d="M4 4h16v16H4z"/></svg>', encoding='utf-8')
+args = [str(code), '--new-window', '--disable-workspace-trust', '--skip-welcome', '--skip-release-notes', '--disable-updates', '--user-data-dir=' + str(temporary / 'profile'), '--extensions-dir=' + str(temporary / 'extensions'), '--extensionDevelopmentPath=' + str(development), '--extensionTestsPath=' + str(root / 'scripts/extension-host-smoke.js')]
 with (temporary / 'process.log').open('w', encoding='utf-8') as log:
     process = subprocess.Popen(args, env=env, stdout=log, stderr=log)
     deadline = time.monotonic() + 120
