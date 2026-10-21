@@ -56,12 +56,14 @@ async function run() {
     const panel = vscode.window.createWebviewPanel('gerrit.smoke.review', 'Review UI smoke', vscode.ViewColumn.Active, { enableScripts: true, localResourceRoots: [extension.extensionUri] });
     const nonce = require('node:crypto').randomBytes(16).toString('hex');
     const media = name => panel.webview.asWebviewUri(vscode.Uri.joinPath(extension.extensionUri, 'media', name));
-    let fileAction, searchAction;
+    let fileAction, searchAction, patchAction, cancelAction;
     const reviewResult = new Promise((resolve, reject) => {
       const timeout = setTimeout(() => reject(new Error('Review Webview fixture did not render')), 15000);
       panel.webview.onDidReceiveMessage(message => {
         if (message.type === 'file') fileAction = message;
         if (message.type === 'search') searchAction = message;
+        if (message.type === 'patch') patchAction = message;
+        if (message.type === 'cancelSearch') cancelAction = message;
         if (message.type === 'smokeResult') { clearTimeout(timeout); message.ok ? resolve() : reject(new Error(message.error)); }
         if (message.type === 'clientError') { clearTimeout(timeout); reject(new Error(message.message)); }
       });
@@ -81,6 +83,8 @@ async function run() {
         document.querySelector('[data-action="tabCode"]').click();
         if (document.querySelector('#compare')) throw new Error('Discussion must not have comparison controls');
         if (!document.querySelector('[data-action="single"]') || !document.querySelector('[data-action="download"]')) throw new Error('Patch tools missing');
+        if (document.getElementById('app').textContent.includes('浏览此 Patch')) throw new Error('Obsolete Patch browse button');
+        document.getElementById('patch-revision').dispatchEvent(new Event('change', {bubbles:true}));
         document.querySelector('[data-action="tabDiscussion"]').click();
         const input = document.getElementById('review-message'); input.value='Unsent draft'; input.dispatchEvent(new Event('input',{bubbles:true}));
         window.dispatchEvent(new MessageEvent('message',{data:{type:'downloadState',downloads:[]}}));
@@ -90,6 +94,7 @@ async function run() {
         if (!document.querySelector('.timestamps').nextElementSibling.matches('.commit-info')) throw new Error('Commit ordering');
         if (!document.querySelector('#compare') || document.querySelector('[data-action="file"]')) throw new Error('Sidebar comparison/file placement');
         window.dispatchEvent(new MessageEvent('message',{data:{type:'state',model:{...model,surface:'files'}}}));
+        if (document.querySelector('.file-row').getBoundingClientRect().height > 30) throw new Error('File rows are not compact');
         const filter=document.getElementById('file-filter');
         filter.value='Device'; filter.dispatchEvent(new Event('input',{bubbles:true}));
         if (document.querySelectorAll('.file-row').length!==1) throw new Error('File path filtering');
@@ -100,7 +105,19 @@ async function run() {
         for (const [name, value] of Object.entries({message:'test',repo:'team/firmware',branch:'main',owner:'self'})) {
           const input=document.getElementById(name+'-filter'); if(!input) throw new Error('Missing search field '+name); input.value=value; input.dispatchEvent(new Event('input',{bubbles:true}));
         }
+        if (!document.querySelector('[data-query="is:abandoned"]') || document.getElementById('app').textContent.includes('待我评审')) throw new Error('Inbox presets incorrect');
         document.getElementById('search').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));
+        const searchInput = document.getElementById('message-filter');
+        window.dispatchEvent(new MessageEvent('message',{data:{type:'inboxResults',changes:[{id:'hit',subject:'Streaming test',status:'NEW',work_in_progress:true,owner:{name:'Sam'},project:'team/firmware',branch:'main',updated:'2026-10-21 06:30:00'}],start:0,more:false}}));
+        if (document.getElementById('message-filter') !== searchInput || searchInput.value !== 'test') throw new Error('Search form replaced by incremental result');
+        const card = document.querySelector('.change');
+        if (!card || card.getBoundingClientRect().height > 125 || !card.textContent.includes('WIP')) throw new Error('Streaming card missing or not compact');
+        window.dispatchEvent(new MessageEvent('message',{data:{type:'searchProgress',searchStatus:{status:'running',scanned:1,matches:1}}}));
+        window.dispatchEvent(new MessageEvent('message',{data:{type:'busy',value:true}}));
+        const stop = document.querySelector('[data-action="cancelSearch"]');
+        if (stop.disabled) throw new Error('Busy state disables stop');
+        stop.click();
+        window.dispatchEvent(new MessageEvent('message',{data:{type:'busy',value:false}}));
 
         post('smokeResult',{ok:true});
       } catch(error) { post('smokeResult',{ok:false,error:error.stack}); }
@@ -110,6 +127,7 @@ async function run() {
     assert.equal(fileAction?.id, 'fixture'); assert.equal(fileAction?.rev, 'a'.repeat(40));
     assert.equal(fileAction?.compareLeft, 'base'); assert.equal(fileAction?.compareRight, 'a'.repeat(40));
     assert.equal(fileAction?.path, 'Boot/Device.c');
+    assert.equal(patchAction?.patchRev, 'a'.repeat(40)); assert.equal(cancelAction?.type, 'cancelSearch');
     assert.equal(searchAction?.message, 'test'); assert.equal(searchAction?.repo, 'team/firmware');
     assert.equal(searchAction?.branch, 'main'); assert.equal(searchAction?.owner, 'self'); panel.dispose();
 

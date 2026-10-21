@@ -161,3 +161,20 @@ test('original byte reads preserve binary data and reject malformed content inst
   await assert.rejects(api.content('id','rev','file.xlsx'),/原文件预览/);
   for(const invalid of ['<html>Login</html>','abc!!','a']) { api.request=async()=>invalid;await assert.rejects(api.bytes('id','rev','file.bin'),/编码|Base64/); }
 });
+
+test('aborting a search destroys its in-flight HTTP request without waiting for timeout', async () => {
+  let receivedRequest, closedRequest;
+  const received = new Promise(resolve => { receivedRequest = resolve; });
+  const closed = new Promise(resolve => { closedRequest = resolve; });
+  const slow = http.createServer((req, res) => { receivedRequest(); res.on('close', closedRequest); });
+  await new Promise(resolve => slow.listen(0, '127.0.0.1', resolve));
+  try {
+    const api = new GerritApi('http://127.0.0.1:' + slow.address().port, 'user', 'test-key');
+    const controller = new AbortController();
+    const pending = api.list('is:open', 0, { signal: controller.signal });
+    await received; controller.abort();
+    await assert.rejects(pending, { name: 'AbortError' });
+    await closed;
+    await assert.rejects(api.allComments('id', { signal: controller.signal }), { name: 'AbortError' });
+  } finally { slow.closeAllConnections(); await new Promise(resolve => slow.close(resolve)); }
+});

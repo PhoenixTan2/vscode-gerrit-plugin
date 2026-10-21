@@ -29,3 +29,29 @@ body:has(.file-panel){padding:8px 14px;background:var(--vscode-editor-background
 @media(max-width:600px){.file-toolbar{align-items:stretch;flex-direction:column;gap:8px}.file-toolbar input{width:100%}.file-columns,.file-row{grid-template-columns:24px minmax(0,1fr) 85px;gap:8px}.file-columns>span:last-child,.file-row>span:last-child{display:none}}
 
 .search-form{border:1px solid var(--border);border-radius:8px;padding:12px;margin:12px 0;background:var(--surface)}.search-fields{display:grid;grid-template-columns:54px minmax(0,1fr);gap:8px;align-items:center;margin-top:12px}.search-fields label{margin:0;font-size:12px;color:var(--vscode-descriptionForeground)}.search-fields input{min-width:0;width:100%}.advanced-search{font-size:12px}.advanced-search code{display:block;white-space:pre-wrap;overflow-wrap:anywhere;padding:8px;background:var(--vscode-textCodeBlock-background);font-family:var(--vscode-editor-font-family)}.search-progress{font-size:12px;color:var(--accent);line-height:1.7}.search-form input[type=checkbox]{width:auto}
+
+/* Compact workbench and file lists; discussion text retains its reading spacing. */
+body:not(:has(.review-shell)):not(:has(.file-panel)){padding:10px}
+body:not(:has(.review-shell)) header{padding-bottom:8px;margin-bottom:9px}
+body:not(:has(.review-shell)) h1{font-size:18px;margin:8px 0}
+body:not(:has(.review-shell)) .row{gap:5px;margin:6px 0}
+body:not(:has(.review-shell)) button{padding:5px 8px}
+.change{padding:8px!important;margin:5px 0;border-radius:5px}
+.change .subject{margin:3px 0;line-height:1.35}
+.card-byline{display:block;font-size:11px;line-height:1.5}
+.change .card-votes{gap:3px;margin:3px 0 0!important}
+.change .card-votes:empty{display:none}
+.change .badge{padding:0 5px;margin:0;font-size:10px}
+.change .review-mark{padding:0 5px}
+.search-form{padding:8px;margin:8px 0}
+.search-form input{padding:5px 7px}
+.search-form label{margin:5px 0 3px}
+.search-fields{gap:5px;margin-top:6px}
+body:has(.file-panel){padding:4px 8px}
+.file-toolbar{padding:3px 0 5px;gap:8px}
+.file-toolbar input{padding:5px 7px}
+.file-count{padding:2px 0 4px}
+.file-columns,.file-row{padding:4px 6px!important;gap:8px;line-height:1.35}
+.file-path{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.file-path small{margin-top:1px;overflow:hidden;text-overflow:ellipsis}
+.code-panel .file{padding:5px 8px;margin:1px 0}

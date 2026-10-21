@@ -32,27 +32,29 @@ function matchesChange(change, message, comments = {}) {
   for (const [path, list] of Object.entries(comments)) for (const comment of list) values.push(comment.message);
   return values.some(value => typeof value === 'string' && value.toLowerCase().includes(needle));
 }
-async function scanChanges(api, plan, { cancelled = () => false, progress = () => {} } = {}) {
+async function scanChanges(api, plan, { cancelled = () => false, progress = () => {}, onMatch = () => {}, signal } = {}) {
   const found = new Map(), commitHits = new Set(); let offset = 0, scanned = 0, failed = false;
-  const stopped = () => failed || cancelled();
-  // Run the generated native regex, then supplement it with complete scoped comments.
+  const stopped = () => failed || signal?.aborted || cancelled();
+  // Publish native hits immediately, then supplement historical commits and comments.
   for (let start = 0; !stopped();) {
-    const rows = await api.list(plan.commitQuery, start);
-    for (const row of rows) commitHits.add(row.id);
+    const rows = await api.list(plan.commitQuery, start, { signal });
+    if (stopped()) return null;
+    for (const row of rows) { commitHits.add(row.id); found.set(row.id, row); onMatch(row); }
+    progress({ scanned, matches: found.size });
     if (!rows.length || !rows.at(-1)._more_changes) break;
     start += rows.length;
   }
   while (!stopped()) {
-    const rows = await api.list(plan.scope, offset, { search: true });
+    const rows = await api.list(plan.scope, offset, { search: true, signal });
     if (stopped()) return null;
     let next = 0;
     await Promise.all(Array.from({ length: Math.min(4, rows.length) }, async () => {
       while (next < rows.length && !stopped()) {
         const change = rows[next++];
         let matches = commitHits.has(change.id) || matchesChange(change, plan.message);
-        if (!matches) matches = matchesChange(change, plan.message, await api.allComments(change.id));
+        if (!matches) matches = matchesChange(change, plan.message, await api.allComments(change.id, { signal }));
         if (stopped()) return;
-        if (matches) found.set(change.id, change);
+        if (matches) { found.set(change.id, change); onMatch(change); }
         progress({ scanned: ++scanned, matches: found.size });
       }
     }).map(promise => promise.catch(error => { failed = true; throw error; })));

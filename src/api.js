@@ -39,12 +39,14 @@ class GerritApi {
     })();
     try { await this.sessionPromise; } finally { this.sessionPromise = undefined; }
   }
-  async request(path, method = 'GET', body, raw = false) {
+  async request(path, method = 'GET', body, raw = false, { signal } = {}) {
+    signal?.throwIfAborted();
     if (this.authMode === 'webPassword') await this.ensureSession();
     const url = new URL(`${this.url}${this.authMode === 'httpKey' ? '/a' : ''}${path}`);
-    return this.exchange(url, method, body, raw);
+    signal?.throwIfAborted();
+    return this.exchange(url, method, body, raw, false, { signal });
   }
-  exchange(url, method, body, raw, login = false) {
+  exchange(url, method, body, raw, login = false, { signal } = {}) {
     const started = Date.now();
     this.log('debug', `${method} ${url.origin}${url.pathname}`);
     const data = body === undefined ? undefined : JSON.stringify(body);
@@ -59,7 +61,7 @@ class GerritApi {
     }
     return new Promise((resolve, reject) => {
       const req = (url.protocol === 'https:' ? https : http).request(url, {
-        method, headers
+        method, headers, signal
       }, res => {
         if (this.authMode === 'webPassword') for (const cookie of res.headers['set-cookie'] || []) {
           const pair = cookie.split(';', 1)[0]; const separator = pair.indexOf('=');
@@ -91,12 +93,12 @@ class GerritApi {
     });
   }
   self() { return this.request('/accounts/self'); }
-  list(query, start = 0, { search = false } = {}) { return this.request(`/changes/?q=${enc(query)}&n=${this.pageSize}&S=${start}&o=DETAILED_LABELS&o=DETAILED_ACCOUNTS&o=REVIEWED${search ? '&o=ALL_REVISIONS&o=ALL_COMMITS&o=MESSAGES' : ''}`); }
+  list(query, start = 0, { search = false, signal } = {}) { return this.request(`/changes/?q=${enc(query)}&n=${this.pageSize}&S=${start}&o=DETAILED_LABELS&o=DETAILED_ACCOUNTS&o=REVIEWED${search ? '&o=ALL_REVISIONS&o=ALL_COMMITS&o=MESSAGES' : ''}`, 'GET', undefined, false, { signal }); }
   detail(id) { return this.request(`/changes/${enc(id)}/detail?o=ALL_REVISIONS&o=ALL_COMMITS&o=DETAILED_LABELS&o=DETAILED_ACCOUNTS&o=MESSAGES&o=CURRENT_ACTIONS&o=REVIEWED`); }
   revision(id, rev, path = '') { return `/changes/${enc(id)}/revisions/${enc(rev)}${path}`; }
   files(id, rev, base) { return this.request(this.revision(id, rev, `/files/?${base ? `base=${enc(base)}` : 'parent=1'}`)); }
   related(id, rev) { return this.request(this.revision(id, rev, '/related')); }
-  allComments(id) { return this.request(`/changes/${enc(id)}/comments`); }
+  allComments(id, { signal } = {}) { return this.request(`/changes/${enc(id)}/comments`, 'GET', undefined, false, { signal }); }
   async treeFiles(id, rev, query) {
     if (query) return this.request(this.revision(id, rev, `/files/?q=${enc(query)}`));
     const files = await this.files(id, rev);

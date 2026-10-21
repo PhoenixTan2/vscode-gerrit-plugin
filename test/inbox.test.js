@@ -48,3 +48,20 @@ test('stopped or failed comment scans never return apparently complete partial r
   cancelled = false; api.allComments = async () => { throw new Error('server failure'); };
   await assert.rejects(scanChanges(api, plan), /server failure/);
 });
+
+test('native matches stream before the remaining scan and cancellation reaches every request', async () => {
+  const plan = searchPlan('is:open', { message: 'needle' }), controller = new AbortController(), hits = [];
+  let release; const gate = new Promise(resolve => { release = resolve; });
+  const api = {
+    list: async (query, start, options) => {
+      assert.equal(options.signal, controller.signal);
+      if (query === plan.commitQuery) return [{ id: 'first', subject: 'needle' }];
+      await gate; return [{ id: 'second', subject: 'ordinary' }];
+    },
+    allComments: async (id, options) => { assert.equal(options.signal, controller.signal); return { a: [{ message: 'needle' }] }; }
+  };
+  const pending = scanChanges(api, plan, { signal: controller.signal, onMatch: row => hits.push(row.id) });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(hits, ['first']);
+  release(); assert.deepEqual((await pending).map(row => row.id).sort(), ['first', 'second']);
+});

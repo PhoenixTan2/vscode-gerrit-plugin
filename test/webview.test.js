@@ -117,7 +117,7 @@ test('sidebar places Commit immediately after timestamps and owns comparison con
   f.update({ connected: true, detail });
   assert.ok(f.app.innerHTML.indexOf('class="timestamps"') < f.app.innerHTML.indexOf('class="commit-info"'));
   assert.ok(f.app.innerHTML.indexOf('class="commit-info"') < f.app.innerHTML.indexOf('class="review-entry"'));
-  assert.ok(f.app.innerHTML.includes('id="compare"')); assert.ok(f.app.innerHTML.includes('data-action="showFiles"'));
+  assert.ok(f.app.innerHTML.includes('id="compare"')); assert.ok(!f.app.innerHTML.includes('data-action="showFiles"'));
   assert.ok(!f.app.innerHTML.includes('data-action="file"'));
   f.update({ connected: true, surface: 'discussion', detail });
   assert.ok(f.app.innerHTML.indexOf('class="ratings"') < f.app.innerHTML.indexOf('class="card composer"'));
@@ -175,4 +175,29 @@ test('friendly search submits four fields and background progress does not repla
   assert.equal(f.app.innerHTML,before); assert.ok(f.elements['search-status'].innerHTML.includes('已检查 100'));
   f.events.click({target:{closest:()=>({dataset:{action:'resetSearch'}})}});
   const reset=f.messages.at(-1); assert.equal(reset.message,'');assert.equal(reset.repo,'');assert.equal(reset.branch,'');assert.equal(reset.owner,'');
+});
+
+test('incremental cards preserve search form and stop works while another action is busy', () => {
+  const f = surfaceFixture();
+  f.update({ connected: true, query: 'is:open', changes: [], start: 0, pageSize: 50 });
+  assert.ok(f.app.innerHTML.includes('Abandoned')); assert.ok(!f.app.innerHTML.includes('待我评审'));
+  const form = f.app.innerHTML;
+  f.elements['inbox-results'] = { innerHTML: '' };
+  f.message({ type: 'inboxResults', changes: [{ id: 'first', subject: '<first>', status: 'NEW', work_in_progress: true }], start: 0, more: false });
+  assert.equal(f.app.innerHTML, form);
+  assert.ok(f.elements['inbox-results'].innerHTML.includes('&lt;first&gt;'));
+  assert.ok(f.elements['inbox-results'].innerHTML.includes('WIP'));
+  f.message({ type: 'busy', value: true });
+  f.events.click({ target: { closest: () => ({ dataset: { action: 'cancelSearch' } }) } });
+  assert.equal(f.messages.at(-1).type, 'cancelSearch');
+});
+
+test('single Patch selection loads files immediately and has no browse button', () => {
+  const f = surfaceFixture();
+  f.update({ connected: true, surface: 'discussion', detail: { id: 'change', current_revision: 'rev', revisions: { rev: { _number: 1 } }, patchView: { rev: 'rev', files: ['code.c'] } } });
+  f.events.click({ target: { closest: () => ({ dataset: { action: 'tabCode' } }) } });
+  assert.ok(!f.app.innerHTML.includes('浏览此 Patch'));
+  assert.ok(f.app.innerHTML.includes('code.c'));
+  f.events.change({ target: { id: 'patch-revision', value: 'older' } });
+  assert.equal(f.messages.at(-1).type, 'patch'); assert.equal(f.messages.at(-1).patchRev, 'older');
 });

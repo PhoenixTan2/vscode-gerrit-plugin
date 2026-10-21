@@ -28,7 +28,7 @@ function fixture() {
   const context = { subscriptions: [] };
   const module = { exports: {} };
   vm.runInNewContext(fs.readFileSync(require.resolve('../src/extension'), 'utf8'), {
-    module, Buffer, URL, require: name => name === 'vscode' ? api : name.startsWith('./') ? require('../src/' + name.slice(2)) : require(name)
+    module, Buffer, URL, AbortController, require: name => name === 'vscode' ? api : name.startsWith('./') ? require('../src/' + name.slice(2)) : require(name)
   });
   module.exports.activate(context);
   const app = context.subscriptions[0];
@@ -313,4 +313,61 @@ test('message searches release global busy state and old searches cannot replace
   assert.equal(first.status,'running');
   await app.handle({type:'search',query:'is:open',message:''}); release(); await first.promise;
   assert.equal(first.cancelled,true); assert.equal(app.model.message,''); assert.equal(app.searchResults,undefined);
+});
+
+test('partial searches survive detail navigation and stop bypasses global busy', async () => {
+  const { app } = fixture(); app.selected = null;
+  let release, entered; const gate = new Promise(resolve => { release = resolve; });
+  const scanning = new Promise(resolve => { entered = resolve; });
+  const messages = []; app.send = message => messages.push(message);
+  app.api.list = async (query, start, options) => {
+    if (!options?.search) return [{ id: 'one', subject: 'test2', updated: '2026-01-01' }];
+    entered(); await gate; return [{ id: 'two', subject: 'test3', updated: '2026-01-02' }];
+  };
+  await app.handle({ type: 'search', query: 'is:open', message: 'test' });
+  await scanning;
+  assert.equal(app.model.changes[0].id, 'one');
+  app.selected = { id: 'one' }; app.model.detail = { id: 'one' };
+  await app.handle({ type: 'back' });
+  assert.equal(app.searchJob.status, 'running');
+  assert.equal(app.model.changes[0].id, 'one');
+  app.busy = true;
+  app.receiveMessage({}, { type: 'cancelSearch' });
+  assert.equal(app.searchJob.status, 'cancelled');
+  assert.equal(app.searchJob.controller.signal.aborted, true);
+  assert.equal(app.searchResults.rows[0].id, 'one');
+  release(); await app.searchJob.promise;
+  assert.equal(app.model.changes.length, 1);
+  assert.ok(messages.some(message => message.type === 'inboxResults'));
+});
+
+test('returning from detail never requests cached ordinary results again', async () => {
+  const { app } = fixture(); let calls = 0;
+  app.api.list = async () => { calls++; return []; };
+  app.model.changes = [{ id: 'cached', subject: 'previous result' }];
+  app.model.detail = { id: 'cached' };
+  await app.handle({ type: 'back' });
+  assert.equal(calls, 0); assert.equal(app.model.changes[0].id, 'cached');
+});
+
+test('search finishes in background while detail remains open and cached pages require no server requests', async () => {
+  const { app } = fixture(); app.selected = null; app.model.pageSize = 1;
+  let release, entered, calls = 0; const gate = new Promise(resolve => { release = resolve; });
+  const scanning = new Promise(resolve => { entered = resolve; });
+  app.api.list = async (query, start, options) => {
+    calls++;
+    if (!options?.search) return [{ id: 'one', subject: 'test1', updated: '2026-01-01' }];
+    entered(); await gate; return [{ id: 'two', subject: 'test2', updated: '2026-01-02' }];
+  };
+  await app.handle({ type: 'search', query: 'is:open', message: 'test' }); await scanning;
+  app.selected = { id: 'one' }; app.model.detail = { id: 'one' };
+  let renders = 0; app.render = () => { renders++; };
+  release(); await app.searchJob.promise;
+  assert.equal(app.searchJob.status, 'completed');
+  assert.equal(app.model.detail.id, 'one'); assert.equal(renders, 0);
+  const requests = calls;
+  await app.handle({ type: 'back' }); assert.equal(calls, requests);
+  assert.equal(app.model.changes[0].id, 'two');
+  await app.handle({ type: 'page', next: true });
+  assert.equal(calls, requests); assert.equal(app.model.changes[0].id, 'one');
 });
