@@ -57,7 +57,7 @@ async function run() {
     const panel = vscode.window.createWebviewPanel('gerrit.smoke.review', 'Review UI smoke', vscode.ViewColumn.Active, { enableScripts: true, localResourceRoots: [extension.extensionUri] });
     const nonce = require('node:crypto').randomBytes(16).toString('hex');
     const media = name => panel.webview.asWebviewUri(vscode.Uri.joinPath(extension.extensionUri, 'media', name));
-    let fileAction, searchAction, patchAction, cancelAction, compareAction, navigationAction, metadataAction, relatedAction, parentAction, childAction;
+    let fileAction, searchAction, patchAction, cancelAction, compareAction, navigationAction, metadataAction, relatedAction, parentAction, childAction, patchSearchAction, singleAction;
     const reviewResult = new Promise((resolve, reject) => {
       const timeout = setTimeout(() => reject(new Error('Review Webview fixture did not render')), 15000);
       panel.webview.onDidReceiveMessage(message => {
@@ -70,6 +70,8 @@ async function run() {
         if (message.type === 'related') relatedAction = message;
         if (message.type === 'parentOpen') parentAction = message;
         if (message.type === 'returnChild') childAction = message;
+        if (message.type === 'patchSearch') patchSearchAction = message;
+        if (message.type === 'single') singleAction = message;
         if (message.type === 'cancelSearch') cancelAction = message;
         if (message.type === 'smokeResult') { clearTimeout(timeout); message.ok ? resolve() : reject(new Error(message.error)); }
         if (message.type === 'clientError') { clearTimeout(timeout); reject(new Error(message.message)); }
@@ -113,6 +115,11 @@ async function run() {
         document.querySelector('[data-action="tabCode"]').click();
         if (document.querySelector('#compare')) throw new Error('Discussion must not have comparison controls');
         if (!document.querySelector('[data-action="single"]') || !document.querySelector('[data-action="download"]')) throw new Error('Patch tools missing');
+        if (!document.getElementById('patch-search').textContent.includes('查找此版本中的文件')) throw new Error('File lookup label unclear');
+        document.getElementById('patch-search-text').value='unmodified.h';
+        document.getElementById('patch-search').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));
+        window.dispatchEvent(new MessageEvent('message',{data:{type:'patchView',id:'fixture',currentRevision:'a'.repeat(40),patchView:{rev:'a'.repeat(40),query:'unmodified.h',files:['Include/Unmodified.h']}}}));
+        document.querySelector('[data-action="single"]').click();
         if (document.getElementById('app').textContent.includes('浏览此 Patch')) throw new Error('Obsolete Patch browse button');
         document.getElementById('patch-revision').dispatchEvent(new Event('change', {bubbles:true}));
         document.querySelector('[data-action="tabDiscussion"]').click();
@@ -181,6 +188,8 @@ async function run() {
     await reviewResult;
     assert.equal(navigationAction?.direction, '-1'); assert.equal(navigationAction?.id, 'fixture');
     assert.equal(metadataAction?.kind, 'author'); assert.equal(relatedAction, undefined, 'Expansion must never issue a loading request');
+    assert.equal(patchSearchAction?.query, 'unmodified.h'); assert.equal(patchSearchAction?.patchRev, 'a'.repeat(40));
+    assert.equal(singleAction?.path, 'Include/Unmodified.h');
     assert.equal(parentAction?.sha, 'b'.repeat(40)); assert.equal(parentAction?.id, 'fixture');
     assert.equal(childAction?.id, 'parent-fixture');
     assert.equal(fileAction?.id, 'fixture'); assert.equal(fileAction?.rev, 'a'.repeat(40));

@@ -5,14 +5,16 @@ const { GerritApi, normalizeUrl } = require('./api');
 const { inboxQuery, searchPlan, scanChanges } = require('./inbox');
 const { classifyFile } = require('./files');
 const { NativeFiles } = require('./native-files');
+const { PathIndex } = require('./path-index');
 const { git, pushRef } = require('./git');
 const { comparisonPlan, comparisonFiles } = require('./comparison');
 const { Logger } = require('./log');
 const { BrowserGateway } = require('./browser');
-const { sshUrl, projectPath, downloadBranch, readPatchPaths } = require('./download');
+const { sshUrl, projectPath, downloadBranch } = require('./download');
 
+let activeWorkbench;
 function activate(context) {
-  const app = new Workbench(context);
+  const app = new Workbench(context); activeWorkbench = app;
   context.subscriptions.push(app,
     vscode.window.registerWebviewViewProvider('gerrit.dashboard', app),
     vscode.window.registerWebviewViewProvider('gerrit.changedFiles', { resolveWebviewView: view => app.resolveFilesView(view) }),
@@ -50,7 +52,7 @@ class Workbench {
     this.output = vscode.window.createOutputChannel('Gerrit Workbench');
     this.logger = new Logger(this.output);
     this.model = { connected: false, changes: [], query: this.setting('defaultQuery', 'is:open'), start: 0 };
-    this.parentTrail = []; this.inboxPages = new Map(); this.patchPathCache = new Map(); this.downloadJobs = new Map(); this.nativeFiles = new NativeFiles(vscode);
+    this.parentTrail = []; this.inboxPages = new Map(); this.patchPathCache = new Map(); this.downloadJobs = new Map(); this.nativeFiles = new NativeFiles(vscode); this.pathIndex = new PathIndex((...args) => this.runGit(...args));
     this.configure();
     this.documents = new Map(); this.threads = new Map(); this.selected = null; this.busy = false;
     this.commentDecoration = vscode.window.createTextEditorDecorationType({
@@ -80,7 +82,14 @@ class Workbench {
   }
   openSettings() { return vscode.commands.executeCommand('workbench.action.openSettings', '@ext:local-tools.gerrit-workbench'); }
   validInfo(info) { return !!(info && this.selected && info.id === this.selected.id && (this.selected.change.revisions ? this.selected.change.revisions[info.rev] : info.rev === this.selected.rev)); }
-  dispose() { this.disposed = true; this.contextController?.abort(); this.cancelSearch(); this.nativeFiles.dispose().catch(() => {}); this.gateway?.dispose(); this.discussion?.dispose(); this.clearThreads(); this.controller.dispose(); this.commentDecoration.dispose(); this.status.dispose(); this.output.dispose(); }
+  dispose() {
+    if (this.disposal) return this.disposal;
+    this.disposed = true; this.contextController?.abort(); this.cancelSearch();
+    this.disposal = Promise.allSettled([this.nativeFiles.dispose(), this.pathIndex.dispose()]);
+    this.gateway?.dispose(); this.discussion?.dispose(); this.clearThreads(); this.controller.dispose();
+    this.commentDecoration.dispose(); this.status.dispose(); this.output.dispose();
+    return this.disposal;
+  }
   clearThreads() { for (const thread of this.threads.keys()) thread.dispose(); this.threads.clear(); }
   async run(fn) {
     if (this.busy) return;
@@ -475,10 +484,8 @@ class Workbench {
     let pending = this.patchPathCache.get(cacheKey);
     if (!pending) {
       pending = (async () => {
-        const directory = await this.localRepository(s.change.project);
-        if (!directory) throw new Error('已取消选择本地仓库');
         const revision = s.change.revisions[rev];
-        return readPatchPaths({ directory, revision: rev, ref: revision.ref, url: revision.fetch?.ssh ? sshUrl(revision.fetch, this.user.username) : undefined }, (cwd, args, options) => this.runGit(cwd, args, options));
+        return this.pathIndex.read({ server: api.url, account: this.user._account_id ?? this.user.username, project: s.change.project, revision: rev, ref: revision.ref, url: sshUrl(revision.fetch, this.user.username) });
       })();
       this.patchPathCache.set(cacheKey, pending);
       pending.catch(() => { if (this.patchPathCache.get(cacheKey) === pending) this.patchPathCache.delete(cacheKey); });
@@ -599,6 +606,7 @@ class Workbench {
     if (m.type === 'cancelSearch') { this.cancelSearch(); this.render(); return; }
     if (m.type === 'disconnect') {
       this.cancelSearch(); this.contextController?.abort(); this.parentTrail = []; this.searchResults = undefined; this.patchPathCache.clear();
+      this.pathIndex.dispose().catch(() => {}); this.pathIndex = new PathIndex((...args) => this.runGit(...args));
       const saved = this.context.globalState.get('connection');
       if (saved) await this.context.secrets.delete(`gerrit:${saved.url}:${saved.username}`);
       await this.context.globalState.update('connection', undefined); this.gateway?.dispose(); this.gateway = undefined; this.api = null; this.selected = null; this.clearThreads(); this.documents.clear();
@@ -824,9 +832,9 @@ class Workbench {
   }
   async runGit(cwd, args, options) {
     const started = Date.now(); const operation = args[0] === '-c' ? args[2] : args[0];
-    this.logger.write('debug', `Git ${operation} 开始`);
-    try { const result = await git(cwd, args, options); this.logger.write('info', `Git ${operation} 成功 (${Date.now() - started} ms)`); return result; }
-    catch (error) { error.logMessage = `Git ${operation} 失败 (${Date.now() - started} ms)`; this.logger.write('error', error.logMessage); throw error; }
+    if (!this.disposed) this.logger.write('debug', `Git ${operation} 开始`);
+    try { const result = await git(cwd, args, options); if (!this.disposed) this.logger.write('info', `Git ${operation} 成功 (${Date.now() - started} ms)`); return result; }
+    catch (error) { error.logMessage = `Git ${operation} 失败 (${Date.now() - started} ms)`; if (!this.disposed) this.logger.write(options?.optional ? 'debug' : 'error', error.logMessage); throw error; }
   }
   async push() {
     if (!vscode.workspace.isTrusted) throw new Error('请先信任此工作区');
@@ -874,4 +882,4 @@ class Workbench {
     vscode.window.showInformationMessage('Gerrit 上传成功，请刷新查看最新提交');
   }
 }
-module.exports = { activate, deactivate() {} };
+module.exports = { activate, deactivate() { const app = activeWorkbench; activeWorkbench = undefined; return app?.dispose(); } };

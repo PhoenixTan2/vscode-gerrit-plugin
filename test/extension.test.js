@@ -374,11 +374,11 @@ test('search finishes in background while detail remains open and cached pages r
 
 test('Patch path search ignores case, reuses its index and does not hold global busy', async () => {
   const { app } = fixture(); const rev = 'a'.repeat(40);
-  app.selected.rev = rev; app.selected.change = { project: 'p', revisions: { [rev]: { _number: 1 } } };
+  app.selected.rev = rev; app.selected.change = { project: 'p', revisions: { [rev]: { _number: 1, ref: 'refs/changes/01/1/1', fetch: { ssh: { url: 'ssh://user@review.example/p' } } } } };
   app.model.detail = { id: app.selected.id, current_revision: rev };
-  app.user = { username: 'user' }; app.localRepository = async () => '/repo';
+  app.user = { username: 'user' }; app.localRepository = async () => { throw new Error('File lookup must not access workspace'); };
   let release, calls = 0; const gate = new Promise(resolve => { release = resolve; });
-  app.runGit = async () => { calls++; await gate; return 'Boot/DeVice.c\0Library/Init.c\0'; };
+  app.pathIndex.read = async info => { calls++; assert.equal(info.revision, rev); await gate; return ['Boot/DeVice.c', 'Library/Init.c']; };
   await app.run(() => app.selectPatch(rev, 'device'));
   assert.equal(app.busy, false); assert.equal(app.model.detail.patchView.loading, true);
   release(); await app.patchQueryJob.promise;
@@ -564,4 +564,20 @@ test('normal refresh follows new latest PS while explicit parent SHA remains pin
   await app.load('child');
   assert.equal(app.model.detail.viewRevision, childSha); assert.equal(app.model.detail.viewPinned, true);
   assert.equal(app.model.detail.comparison.right, childSha);
+});
+
+test('version file lookup opens an unchanged header from Gerrit with an unrelated workspace', async () => {
+  const { app, vscode } = fixture(); const rev = 'a'.repeat(40), id = app.selected.id;
+  app.selected.rev = rev; app.selected.change = { project: 'remote/project', revisions: { [rev]: { _number: 1, ref: 'refs/changes/01/1/1', fetch: { ssh: { url: 'ssh://user@review.example/project' } } } } };
+  app.user = { username: 'user' }; app.model.detail = { id, current_revision: rev };
+  vscode.workspace.workspaceFolders = [{ uri: { fsPath: 'D:/unrelated-project' } }];
+  app.localRepository = async () => { throw new Error('must not inspect workspace'); };
+  app.pathIndex.read = async () => ['Include/Unmodified.h', 'Source/Main.c'];
+  app.api.url = 'https://review.example.invalid';
+  const reads = []; app.api.bytes = async (...args) => { reads.push(args); return Buffer.from('#define HEADER 1\n'); };
+  vscode.workspace.openTextDocument = async uri => ({ uri });
+  vscode.window.showTextDocument = async document => ({ document }); app.attach = async () => {};
+  await app.selectPatch(rev, 'UNMODIFIED'); await app.patchQueryJob.promise;
+  await app.handle({ type: 'single', id, rev, patchRev: rev, path: 'Include/Unmodified.h' });
+  assert.deepEqual(reads[0].slice(0, 3), [id, rev, 'Include/Unmodified.h']);
 });

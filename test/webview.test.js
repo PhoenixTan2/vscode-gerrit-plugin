@@ -322,3 +322,13 @@ test('parent context replaces result navigation in both views and historical rev
   f.events.click({ target: { closest: selector => selector === '.markdown-preview' ? null : ({ dataset: { action: 'returnChild' } }) } });
   assert.equal(f.messages.at(-1).type, 'returnChild'); assert.equal(f.messages.at(-1).rev, 'new');
 });
+
+test('file lookup name describes the selected version and includes unchanged files without a workspace requirement', () => {
+  const f = surfaceFixture();
+  f.update({ connected: true, surface: 'discussion', detail: { id: 'c', current_revision: 'r', revisions: { r: { _number: 1 } }, patchView: { rev: 'r', files: [] } } });
+  f.events.click({ target: { closest: selector => selector === '.markdown-preview' ? null : ({ dataset: { action: 'tabCode' } }) } });
+  assert.ok(f.app.innerHTML.includes('查找此版本中的文件')); assert.ok(f.app.innerHTML.includes('无需打开本地仓库'));
+  f.elements['patch-browser'] = { innerHTML: '' };
+  f.message({ type: 'patchView', id: 'c', currentRevision: 'r', patchView: { rev: 'r', query: 'header', files: ['Include/Header.h'] } });
+  assert.ok(f.elements['patch-browser'].innerHTML.includes('含未修改文件'));
+});

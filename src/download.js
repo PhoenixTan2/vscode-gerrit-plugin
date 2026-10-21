@@ -34,17 +34,17 @@ async function downloadBranch({ directory, url, branch, ref, revision, stage = (
   return directory;
 }
 
-async function readPatchPaths({ directory, revision, ref, url }, run = git) {
+async function readPatchPaths({ directory, revision, ref, url, lightweight = false }, run = git) {
   if (!/^[a-f0-9]{40,64}$/.test(revision || '')) throw new Error('Patch set SHA 无效');
-  const read = () => run(directory, ['ls-tree', '-r', '--full-tree', '--name-only', '-z', revision, '--'], { raw: true });
+  const read = (optional = false) => run(directory, ['ls-tree', '-r', '--full-tree', '--name-only', '-z', revision, '--'], { raw: true, optional });
   let paths;
-  try { paths = await read(); }
+  try { paths = await read(true); }
   catch {
     if (!url) throw new Error('本地缺少此 Patch，且服务器未提供 SSH 地址');
     const remote = new URL(url);
     if (remote.protocol !== 'ssh:' || !remote.username || remote.password || remote.search || remote.hash || !/^refs\/changes\/\d{2}\/\d+\/\d+$/.test(ref || '')) throw new Error('Patch set SSH 引用无效');
     // Fetch objects only: leave the index, worktree, branches and FETCH_HEAD untouched.
-    await run(directory, ['fetch', '--quiet', '--no-tags', '--no-write-fetch-head', '--', remote.toString(), ref], { sshNonInteractive: true, timeout: 600000 });
+    await run(directory, ['fetch', '--quiet', ...(lightweight ? ['--depth=1', '--filter=blob:none'] : []), '--no-tags', '--no-write-fetch-head', '--', remote.toString(), ref], { sshNonInteractive: true, timeout: 600000 });
     paths = await read();
   }
   return paths.split('\0').filter(Boolean);
