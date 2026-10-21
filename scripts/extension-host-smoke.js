@@ -24,6 +24,46 @@ async function run() {
       await new Promise(resolve => setTimeout(resolve, 100));
     } while (Date.now() < deadline);
     assert.ok(health?.ready, 'Sidebar client script must execute and render content');
+
+    // Render a representative review with the shipped script inside a real Webview.
+    const fixture = {
+      connected: true, surface: 'discussion', commitInfoExpanded: true, user: 'Reviewer', server: 'https://review.example.invalid',
+      detail: { id: 'fixture', _number: 142, subject: 'Improve boot device initialization', status: 'NEW', project: 'team/firmware', branch: 'main',
+        owner: { name: 'Alex' }, current_revision: 'a'.repeat(40), change_id: 'Ifixture',
+        created: '2026-10-20 01:02:03', updated: '2026-10-21 07:08:09',
+        revisions: { ['a'.repeat(40)]: { _number: 3, commit: { message: 'Improve boot device initialization\n\nKeep initialization deterministic.', author: { name: 'Alex', email: 'alex@example.invalid' }, committer: { name: 'Alex' } } } },
+        labels: { 'Code-Review': { all: [{ name: 'Sam', value: 1 }] } }, permitted_labels: { 'Code-Review': ['-1', ' 0', '+1'] },
+        patchView: { rev: 'a'.repeat(40), files: ['Boot/Device.c'] }, files: { 'Boot/Device.c': { lines_inserted: 12, lines_deleted: 3 } },
+        comments: { 'Boot/Device.c': [{ id: 'root', patch_set: 3, line: 42, updated: '2026-10-21 06:30:01', unresolved: true, author: { name: 'Sam' }, message: 'Could we check the device state before initializing?' }] }, messages: []
+      }
+    };
+    const panel = vscode.window.createWebviewPanel('gerrit.smoke.review', 'Review UI smoke', vscode.ViewColumn.Active, { enableScripts: true, localResourceRoots: [extension.extensionUri] });
+    const nonce = require('node:crypto').randomBytes(16).toString('hex');
+    const media = name => panel.webview.asWebviewUri(vscode.Uri.joinPath(extension.extensionUri, 'media', name));
+    const reviewResult = new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('Review Webview fixture did not render')), 15000);
+      panel.webview.onDidReceiveMessage(message => {
+        if (message.type === 'smokeResult') { clearTimeout(timeout); message.ok ? resolve() : reject(new Error(message.error)); }
+        if (message.type === 'clientError') { clearTimeout(timeout); reject(new Error(message.message)); }
+      });
+    });
+    const fixtureScript = `
+      try {
+        window.dispatchEvent(new MessageEvent('message', {data:{type:'state',model:${JSON.stringify(fixture)}}}));
+        if (!document.querySelector('.discussion-layout') || !document.querySelector('#review') || !document.querySelector('.thread')) throw new Error('Review sections missing');
+        if (document.getElementById('app').textContent.includes('提交时间')) throw new Error('Obsolete timestamp');
+        document.querySelector('[data-action="tabCode"]').click();
+        if (!document.querySelector('[data-action="single"]') || !document.querySelector('[data-action="download"]')) throw new Error('Patch tools missing');
+        document.querySelector('[data-action="tabDiscussion"]').click();
+        const input = document.getElementById('review-message'); input.value='Unsent draft'; input.dispatchEvent(new Event('input',{bubbles:true}));
+        window.dispatchEvent(new MessageEvent('message',{data:{type:'downloadState',downloads:[]}}));
+        if (document.getElementById('review-message').value!=='Unsent draft') throw new Error('Draft replaced by download update');
+        post('smokeResult',{ok:true});
+      } catch(error) { post('smokeResult',{ok:false,error:error.stack}); }
+    `;
+    panel.webview.html = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${panel.webview.cspSource}; script-src 'nonce-${nonce}'"><link rel="stylesheet" href="${media('style.css')}"></head><body><header><div id="account"></div></header><div id="notice"></div><main id="app"></main><script nonce="${nonce}" src="${media('main.js')}"></script><script nonce="${nonce}">${fixtureScript}</script></body></html>`;
+    await reviewResult; panel.dispose();
+
     await vscode.commands.executeCommand('gerrit.logs');
     fs.writeFileSync(process.env.GERRIT_HOST_SMOKE_RESULT, JSON.stringify({ ok: true, vscode: vscode.version, extension: extension.packageJSON.version }));
     console.log('Real Extension Host activation and sidebar smoke test passed');

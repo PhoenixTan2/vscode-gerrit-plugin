@@ -18,11 +18,11 @@
 | 功能 | 使用方法 |
 | --- | --- |
 | 筛选变更 | Open、Merged、与我相关、我的提交、待我评审，以及 Gerrit 查询框；默认 Open，按最后更新时间从新到旧显示 |
-| 时间与 Commit 信息 | 提交卡片显示最后更新；详情和讨论页显示最后更新与提交时间。Commit 信息显示完整消息、SHA、Change-Id、作者和父提交 |
+| 时间与 Commit 信息 | 提交卡片显示最后更新；详情和讨论页依次显示创建时间、最后更新时间，统一为本地时区的 `YYYY-MM-DD HH:mm:ss`。Commit 信息显示完整消息、SHA、Change-Id、作者和父提交 |
 | 独立评审讨论 | 详情“打开评审讨论”，在当前编辑器组打开标签页，包含所有 Patch set 的讨论、评分和活动记录 |
 | 任意版本比较 | 在版本比较中选择左右 PS / Base，支持交换左右；Base 表示另一侧 PS 的第一父提交 |
 | 单个 Patch 单文件代码 | 在“单个 Patch”中选择 PS，点击“浏览此 Patch”，先展示此 PS 的改动文件，打开普通代码编辑器完整查看，不使用左右对比；服务器端路径搜索可查找其他文件，服务器可能限制每次结果数量，可缩小关键词 |
-| SSH 下载 | “下载到本地” → 下载目标分支，或将当前浏览的 PS 下载到独立本地分支。选择父目录和新目录名称，不覆盖已有目录 |
+| SSH 下载 | 评审页“代码与下载”选择 PS → “下载到本地”，在已打开的对应项目仓库中后台 fetch / checkout，不选择目录、不 clone |
 | 新建代码评论 | 打开代码或 diff，选中行 / 多行 → 右键“评论所选代码行”，展开行内输入框；也可点行号旁的 `+` 或编辑器评论按钮 |
 | 查找文件评论 | 橙色行号图标、行末评论数、滚动条标记；编辑器右上角提供“上一处评论”“下一处评论”“本文件评论位置” |
 | 评论悬停 / 定位 | 悬停代码预览评论；讨论页“定位到代码”直接打开对应 PS 的完整文件并定位行号 |
@@ -38,7 +38,9 @@
 
 下载读取 Gerrit 提供的 SSH URL（包括用户名、端口和项目路径），使用本机 OpenSSH 的配置、SSH key / agent，以 BatchMode 执行，避免后台等待密码。需要预先在 Gerrit 中添加 SSH 公钥，并在本机建立对应的 known_hosts 信任；插件不自动接受主机指纹，也不下载或保存私钥。
 
-下载目标分支时浅克隆该分支。下载指定 PS 时，在新目录浅克隆目标分支，再 fetch `refs/changes/...`，验证 SHA 后创建 `review/<变更号>-<PS>` 本地分支。失败时保留已建立的下载目录供检查，不删除用户文件。SSH 下载不使用 HTTP 密码或 HTTP Key。
+先在 VS Code 打开对应项目的本地 Git 仓库（remote 路径须匹配 Gerrit 项目）。评审页“代码与下载”选择 PS 后，后台执行 `git fetch <SSH URL> refs/changes/...`，验证 FETCH_HEAD 与所选 PS 的 SHA 一致，再执行 `git -c core.longpaths=true checkout -b change-<变更号> <SHA>`。无需选择父目录或新建目录；多个匹配仓库时只需选择仓库。
+
+下载前和 checkout 前检查未提交文件、未保存编辑器和已有分支。已有同名分支时会提示先重命名或删除，不自动覆盖、stash 或强制切换。同一仓库的插件下载 / 上传不会并发执行；其他浏览和评审操作可继续使用。下载阶段、结果及失败原因显示在代码页和输出频道，完成通知无需关闭即可继续使用插件。SSH 下载不使用 HTTP 密码或 HTTP Key。
 
 上传入口为侧边栏“上传本地提交”或源代码管理的云上传按钮。可提交已暂存内容后上传，也可只上传已有 HEAD；不自动暂存、不强推、不自动修改已有提交。先 fetch 目标分支、检查整组待上传 commit 的 Change-Id，再确认 remote 与 commit 清单。上传使用 `refs/for/<branch>`，支持 WIP；Gerrit submit 合入为独立操作。
 
@@ -84,6 +86,6 @@ python scripts/package.py
 
 打包脚本先生成并校验新包，再清理本项目旧版本 VSIX，工作区仅保留一版安装包。每批完成的修改创建一笔本地 Git commit，不自动推送；详见 AGENTS.md。
 
-测试覆盖认证会话、CSRF、浏览器桥接和跨站防护、版本比较、历史评论位置、完整 Patch 读取、SSH 下载引用与 SHA 校验、目录保护、Windows 长路径、评论导航、时间排序、输入草稿和日志脱敏。内网已验证网页与脚本资源返回 200、Patch 改动文件及任意路径搜索，以及 SSH 分支读取与指定 PS 克隆 / fetch / checkout。原生界面完整交互和发布操作仍需实际 Extension Host 验收。
+测试覆盖认证会话、CSRF、浏览器桥接和跨站防护、版本比较、历史评论位置、完整 Patch 读取、SSH 下载引用与 SHA 校验、本地修改和已有分支保护、后台任务完成与重试、Windows 长路径、评论导航、时间排序、输入草稿和日志脱敏。内网已验证网页与脚本资源返回 200、Patch 改动文件及任意路径搜索，以及 SSH 分支读取与指定 PS 克隆 / fetch / checkout。真实 Extension Host 检查侧栏脚本渲染，以及评审页讨论 / 代码页签、文件与下载入口和草稿保留；服务器写入操作仍需实际账号验收。
 
 API 依据：[Gerrit Changes REST API](https://gerrit-review.googlesource.com/Documentation/rest-api-changes.html)、[上传评审](https://gerrit-review.googlesource.com/Documentation/user-upload.html)、[VS Code API](https://code.visualstudio.com/api/references/vscode-api)。

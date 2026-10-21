@@ -29,15 +29,36 @@ function time(value) {
   if (!value) return '—';
   const iso = String(value).replace(' ', 'T').replace(/(\.\d{3})\d+/, '$1');
   const date = new Date(/(?:Z|[+-]\d\d:\d\d)$/.test(iso) ? iso : iso + 'Z');
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+  if (Number.isNaN(date.getTime())) return value;
+  const pad = n => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
 }
-function timestamps(d) { const commitDate = d.revisions?.[d.current_revision]?.commit?.committer?.date || d.created; return `<p class="muted timestamps">最后更新：${e(time(d.updated))}<br>提交时间：${e(time(commitDate))}<br>评审创建：${e(time(d.created))}</p>`; }
+function timestamps(d) { return `<dl class="timestamps"><div><dt>创建时间</dt><dd>${e(time(d.created))}</dd></div><div><dt>最后更新</dt><dd>${e(time(d.updated))}</dd></div></dl>`; }
+
+function icon(name) {
+  const paths = {
+    discussion: '<path d="M4 4h16v12H9l-5 4V4Z"/><path d="M8 8h8M8 12h5"/>',
+    download: '<path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5"/>',
+    code: '<path d="m8 6-6 6 6 6m8-12 6 6-6 6m-3-16-2 20"/>',
+    commit: '<circle cx="12" cy="12" r="4"/><path d="M2 12h6m8 0h6"/>'
+  };
+  return `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">${paths[name] || paths.commit}</svg>`;
+}
+function commitInfo(d) {
+  const commit = d.revisions?.[d.current_revision]?.commit || {};
+  return `<details class="commit-info" ${model.commitInfoExpanded ? 'open' : ''}><summary>${icon('commit')}Commit 信息<span class="muted">最新 PS · ${e(d.current_revision?.slice(0, 10))}</span></summary><pre>${e(commit.message || d.subject)}</pre><dl class="metadata"><dt>SHA</dt><dd class="mono">${e(d.current_revision)}</dd><dt>Change-Id</dt><dd class="mono">${e(d.change_id)}</dd><dt>作者</dt><dd>${e(commit.author?.name)} &lt;${e(commit.author?.email)}&gt;</dd><dt>提交者</dt><dd>${e(commit.committer?.name)}</dd><dt>父提交</dt><dd class="mono">${e((commit.parents || []).map(p => p.commit).join(', '))}</dd></dl></details>`;
+}
+function downloadStatus() {
+  const jobs = (model.downloads || []).filter(job => job.changeId === model.detail?.id);
+  return jobs.map(job => `<div class="download-task ${e(job.status)}" role="status"><div class="row">${icon('download')}<strong>${e(job.stage)}</strong><span class="badge">PS ${e(job.patch)}</span></div><div class="muted mono">${e(job.directory)} → ${e(job.branch)}</div><p class="muted">${job.status === 'running' ? '后台执行中，可继续浏览和评审。' : job.status === 'completed' ? '已在当前代码仓库切换到此分支。' : '本地任务已结束，请处理以上问题后重试。'}</p></div>`).join('');
+}
+function fileComparison(d) {
+  return `${comparison(d)}<h2>比较结果 · 文件</h2><p class="muted">选中代码 → 右键“评论所选代码行”；点击行号旁的评论图标查看已有讨论。</p>${Object.entries(d.files || {}).map(([path, f]) => button(`${f.status || 'M'}  ${path}  +${f.lines_inserted || 0} −${f.lines_deleted || 0}`, 'file', 'secondary file', `data-path="${e(path)}"`)).join('') || '<p class="empty">两个版本之间没有文件改动</p>'}`;
+}
 function patchBrowser(d) {
   const view = d.patchView; const rev = view?.rev || d.current_revision;
   const files = view?.files || [];
-  const search = view?.query || '';
-  const matched = files;
-  return `<h2>单个 Patch · 代码浏览</h2><form id="patch"><label for="patch-revision">选择 Patch set</label><select id="patch-revision">${Object.entries(d.revisions || {}).sort((a, b) => a[1]._number - b[1]._number).map(([sha, item]) => `<option value="${e(sha)}" ${sha === rev ? 'selected' : ''}>PS ${item._number} · ${sha.slice(0, 8)}</option>`).join('')}</select><div class="row"><button type="submit">浏览此 Patch</button>${button('下载到本地', 'download')}</div></form>${view ? `<p class="muted">上传时间：${e(time(d.revisions[rev]?.created))}</p><form id="patch-search"><input id="patch-search-text" aria-label="筛选 Patch 文件" placeholder="搜索此 PS 中的任意文件路径…" value="${e(search)}"><div class="row"><button type="submit">搜索文件</button>${button('返回版本比较', 'compareMode')}</div></form><p class="muted">${search ? `服务器返回 ${files.length} 个匹配文件（服务器可能限制数量，请缩小关键词继续搜索）` : `此 Patch 有 ${files.length} 个可查看的改动文件，可搜索其他文件`}</p>${matched.slice(0, 200).map(path => button(path, 'single', 'secondary file', `data-path="${e(path)}" data-patch-rev="${e(rev)}"`)).join('')}` : '<p class="muted">可单独打开此 Patch 的任意代码文件，单文件完整查看而无需左右对比。</p>'}`;
+  return `<div class="section-heading">${icon('code')}<h2>单个 Patch · 代码浏览</h2></div><form id="patch"><label for="patch-revision">选择 Patch set</label><select id="patch-revision">${Object.entries(d.revisions || {}).sort((a, b) => b[1]._number - a[1]._number).map(([sha, item]) => `<option value="${e(sha)}" ${sha === rev ? 'selected' : ''}>PS ${item._number} · ${sha.slice(0, 8)}</option>`).join('')}</select><div class="row"><button type="submit">浏览此 Patch</button>${button('下载到本地', 'download')}</div></form><p class="muted">使用 SSH 在已打开的本地代码仓库中 fetch 此 PS，并创建 change-${e(d._number)} 分支。请先保存文件并保持工作区干净。</p><div id="download-status">${downloadStatus()}</div>${view ? `<form id="patch-search"><input id="patch-search-text" aria-label="筛选 Patch 文件" placeholder="搜索此 PS 中的任意文件路径…" value="${e(view.query || '')}"><div class="row"><button type="submit">搜索文件</button></div></form><p class="muted">${view.query ? `服务器返回 ${files.length} 个匹配文件（结果可能受限，请缩小关键词）` : `此 Patch 有 ${files.length} 个可查看的改动文件，可搜索其他文件`}</p>${files.slice(0, 200).map(path => button(path, 'single', 'secondary file', `data-path="${e(path)}" data-patch-rev="${e(rev)}"`)).join('')}` : '<div class="empty">选择 Patch 后点击“浏览此 Patch”，即可单独打开完整代码，无需左右对比。</div>'}`;
 }
 function discussion(d) {
   const groups = [];
@@ -55,21 +76,23 @@ function discussion(d) {
       groups.push({ path, list });
     }
   }
-  return `<div class="row">${button('刷新', 'refresh')}${button('内置浏览器', 'browser')}</div><h1>#${e(d._number)} ${e(d.subject)}</h1>${timestamps(d)}<div class="discussion-layout"><section>${reviewForm(d)}<h2>代码讨论 · 所有 Patch set</h2><label class="row"><input id="unresolved-only" type="checkbox" ${state.unresolvedOnly ? 'checked' : ''}>仅显示未解决的讨论</label><label class="row"><input id="participated-only" type="checkbox" ${state.participatedOnly ? 'checked' : ''}>有我参与的讨论</label>${groups.map(({ path, list }) => {
+  const codeTab = state.tabs?.[d.id] === 'code';
+  const discussionBody = `<h2>代码讨论 <span class="muted">所有 Patch set · ${groups.length} 个线程</span></h2><div class="filters"><label class="row"><input id="unresolved-only" type="checkbox" ${state.unresolvedOnly ? 'checked' : ''}>仅显示未解决的讨论</label><label class="row"><input id="participated-only" type="checkbox" ${state.participatedOnly ? 'checked' : ''}>有我参与的讨论</label></div>${groups.map(({ path, list }) => {
     const root = list[0]; const last = list.at(-1);
     const replyKey = `${key()}::${last.id}`;
-    return `<article class="card thread"><div class="comment-head"><b>${e(path)}${root.line ? `:${e(root.line)}` : ' · 文件评论'}</b><span class="badge">${last.unresolved ? '未解决' : '已解决'}</span></div><p class="muted">PS ${e(root.patch_set || '?')} · ${root.side === 'PARENT' ? 'Base' : 'Patch'} ${root.range ? `· 行 ${root.range.start_line}–${root.range.end_line}` : ''}</p>${list.map(c => `<div class="thread-message"><b>${e(who(c.author))}</b> <small class="muted">${e(c.updated)}</small><p class="message">${e(c.message)}</p></div>`).join('')}<div class="row">${button('定位到代码', 'locate', 'secondary', `data-path="${e(path)}" data-comment="${e(root.id)}"`)}</div><form data-form="reply" data-path="${e(path)}" data-comment="${e(last.id)}"><textarea data-reply-key="${e(replyKey)}" aria-label="回复 ${e(path)} 的讨论" placeholder="回复这条讨论…">${e(state.replies?.[replyKey] || '')}</textarea><div class="row"><button type="submit">发布回复</button></div></form></article>`;
-  }).join('') || '<p class="muted">暂无符合筛选的代码讨论</p>'}<h2>活动记录</h2>${(d.messages || []).slice().reverse().map(m => `<details class="card"><summary>${e(who(m.author))} · PS ${e(m._revision_number)} · ${e(m.date)}</summary><div class="message">${e(m.message)}</div></details>`).join('') || '<p class="muted">暂无活动</p>'}</section><aside><h2>当前评分</h2>${votes(d.labels) || '<p class="muted">暂无评分标签</p>'}</aside></div>`;
+    return `<article class="card thread"><div class="comment-head"><b>${e(path)}${root.line ? `:${e(root.line)}` : ' · 文件评论'}</b><span class="badge">${last.unresolved ? '未解决' : '已解决'}</span></div><p class="muted">PS ${e(root.patch_set || '?')} · ${root.side === 'PARENT' ? 'Base' : 'Patch'} ${root.range ? `· 行 ${root.range.start_line}–${root.range.end_line}` : ''}</p>${list.map(c => `<div class="thread-message"><div class="message-byline"><span class="avatar">${e(who(c.author).slice(0, 1))}</span><b>${e(who(c.author))}</b><time>${e(time(c.updated))}</time></div><p class="message">${e(c.message)}</p></div>`).join('')}<div class="row">${button('定位到代码', 'locate', 'secondary', `data-path="${e(path)}" data-comment="${e(root.id)}"`)}</div><form data-form="reply" data-path="${e(path)}" data-comment="${e(last.id)}"><textarea data-reply-key="${e(replyKey)}" aria-label="回复 ${e(path)} 的讨论" placeholder="回复这条讨论…">${e(state.replies?.[replyKey] || '')}</textarea><div class="row"><button type="submit">发布回复</button></div></form></article>`;
+  }).join('') || '<div class="empty">暂无符合筛选的代码讨论</div>'}<h2>活动记录</h2>${(d.messages || []).slice().reverse().map(m => `<details class="card activity"><summary><b>${e(who(m.author))}</b><span class="badge">PS ${e(m._revision_number)}</span><time>${e(time(m.date))}</time></summary><div class="message">${e(m.message)}</div></details>`).join('') || '<p class="muted">暂无活动</p>'}`;
+  return `<div class="review-shell"><div class="hero"><div class="hero-top"><span class="eyebrow">CHANGE #${e(d._number)}</span><span class="badge status">${e(d.status)}</span><div class="hero-actions">${button('刷新', 'refresh')}${button('内置浏览器', 'browser')}</div></div><h1>${e(d.subject)}</h1><p class="muted">${e(d.project)} <span class="separator">/</span> ${e(d.branch)} <span class="separator">·</span> ${e(who(d.owner))} <span class="badge">最新 PS ${e(d.revisions?.[d.current_revision]?._number)}</span></p>${timestamps(d)}</div>${commitInfo(d)}<div class="discussion-layout"><section><nav class="tabs" aria-label="评审视图">${button('讨论', 'tabDiscussion', codeTab ? 'tab' : 'tab active')}${button('代码与下载', 'tabCode', codeTab ? 'tab active' : 'tab')}</nav>${codeTab ? `<div class="card code-panel">${patchBrowser(d)}</div><div class="card">${fileComparison(d)}</div>` : discussionBody}</section><aside><div class="card composer">${reviewForm(d)}</div><h2>当前评分</h2>${votes(d.labels) || '<p class="muted">暂无评分标签</p>'}</aside></div></div>`;
 }
 function sidebarDetail(d) {
-  const rev = d.revisions?.[d.current_revision]; const commit = rev?.commit || {}; const actions = d.actions || {};
+  const rev = d.revisions?.[d.current_revision]; const actions = d.actions || {};
   const commentCount = Object.values(d.comments || {}).flat().length;
-  return `<div class="row">${button('← 返回列表', 'back')}${button('刷新', 'refresh')}${button('内置浏览器', 'browser')}</div><p><span class="badge">#${e(d._number)}</span><span class="badge">${e(d.status)}</span>${d.work_in_progress ? '<span class="badge">WIP</span>' : ''}</p><h1>${e(d.subject)}</h1><p class="muted">${e(d.project)} → ${e(d.branch)}<br>${e(who(d.owner))} · 最新 PS ${e(rev?._number)}</p><div class="row">${d.mine && actions.ready?.enabled ? button('发布为待评审', 'ready', '') : ''}${d.mine && actions.abandon?.enabled ? button('废弃', 'abandon', 'secondary danger') : ''}${actions.submit?.enabled ? button('合入分支', 'submit') : ''}</div>${button(`打开评审讨论（${commentCount} 条代码评论）`, 'discussion', 'wide')}<p class="muted">在独立标签页中查看讨论、回复、发布评审和评分。</p><details ${model.commitInfoExpanded ? 'open' : ''}><summary>Commit 信息（最新 PS）</summary><pre>${e(commit.message)}</pre><p class="muted">SHA: ${e(d.current_revision)}<br>Change-Id: ${e(d.change_id)}<br>作者: ${e(commit.author?.name)} &lt;${e(commit.author?.email)}&gt;<br>时间: ${e(commit.author?.date)}<br>提交者: ${e(commit.committer?.name)}<br>父提交: ${e((commit.parents || []).map(p => p.commit).join(', '))}</p></details>${timestamps(d)}${patchBrowser(d)}${d.patchView ? '' : `${comparison(d)}<h2>比较结果 · 文件</h2><p class="muted">打开 diff 后，选中代码 → 右键“评论所选代码行”可展开行内输入框，也可点击行号旁的 +。已有评论显示为行号旁图标，悬停代码可预览。</p>${Object.entries(d.files || {}).map(([path, f]) => button(`${f.status || 'M'}  ${path}  +${f.lines_inserted || 0} −${f.lines_deleted || 0}`, 'file', 'secondary file', `data-path="${e(path)}"`)).join('') || '<p class="muted">两个版本之间没有文件改动</p>'}`}`;
+  return `<div class="row">${button('← 返回列表', 'back')}${button('刷新', 'refresh')}${button('内置浏览器', 'browser')}</div><p><span class="badge">#${e(d._number)}</span><span class="badge status">${e(d.status)}</span>${d.work_in_progress ? '<span class="badge">WIP</span>' : ''}</p><h1>${e(d.subject)}</h1><p class="muted">${e(d.project)} → ${e(d.branch)}<br>${e(who(d.owner))} · 最新 PS ${e(rev?._number)}</p>${timestamps(d)}<div class="review-entry">${icon('discussion')}${button(`打开评审讨论（${commentCount} 条代码评论）`, 'discussion', 'wide')}<p class="muted">讨论与评分、Commit 信息、单个 Patch 代码和本地下载。</p></div><div class="row">${d.mine && actions.ready?.enabled ? button('发布为待评审', 'ready', '') : ''}${d.mine && actions.abandon?.enabled ? button('废弃', 'abandon', 'secondary danger') : ''}${actions.submit?.enabled ? button('合入分支', 'submit') : ''}</div>${commitInfo(d)}${fileComparison(d)}`;
 }
 function render() {
   document.getElementById('account').textContent = model.connected ? `${model.user} · ${model.server}` : '提交 · 评审 · 讨论';
   if (!model.connected) {
-    app.innerHTML = `<h1>代码评审，触手可及。</h1><p class="muted">连接 Gerrit 后，在这里处理提交和文件比较。讨论在独立窗口中展开。</p><div class="row">${button('连接服务器', 'connect', '')}</div><p class="muted">支持 HTTP Key 和 HTTP 反向代理网页登录密码。凭据存入 VS Code 安全存储。</p>${button('上传本地提交', 'push')}`;
+    app.innerHTML = `<h1>代码评审，触手可及。</h1><p class="muted">连接 Gerrit 后，在这里处理提交和文件比较。讨论在当前编辑器组的评审页中展开。</p><div class="row">${button('连接服务器', 'connect', '')}</div><p class="muted">支持 HTTP Key 和 HTTP 反向代理网页登录密码。凭据存入 VS Code 安全存储。</p>${button('上传本地提交', 'push')}`;
   } else if (model.detail) {
     app.innerHTML = model.surface === 'discussion' ? discussion(model.detail) : sidebarDetail(model.detail);
   } else if (model.surface === 'discussion') {
@@ -82,11 +105,13 @@ function render() {
   setBusy();
   post('rendered', { surface: model.surface || 'sidebar' });
 }
-function setBusy() { app.querySelectorAll('button,select').forEach(el => { el.disabled = busy; }); app.setAttribute('aria-busy', String(busy)); }
+function setBusy() { app.querySelectorAll('button,select').forEach(el => { el.disabled = busy || (el.dataset?.action === 'download' && (model.downloads || []).some(job => job.changeId === model.detail?.id && job.status === 'running')); }); app.setAttribute('aria-busy', String(busy)); }
 function payload() { return { id: model.detail?.id, rev: model.detail?.current_revision, compareLeft: model.detail?.comparison?.left, compareRight: model.detail?.comparison?.right }; }
 app.addEventListener('click', event => {
   const b = event.target.closest('button[data-action]'); if (!b || busy) return;
   const action = b.dataset.action;
+  if (action === 'tabCode' || action === 'tabDiscussion') { state.tabs ||= {}; state.tabs[model.detail.id] = action === 'tabCode' ? 'code' : 'discussion'; save(); render(); return; }
+  if (action === 'download') { post('download', { ...payload(), patchRev: document.getElementById('patch-revision').value }); return; }
   if (action === 'swap') {
     const left = document.getElementById('compare-left'); const right = document.getElementById('compare-right');
     [left.value, right.value] = [right.value, left.value]; return;
@@ -122,6 +147,7 @@ app.addEventListener('submit', event => {
 });
 window.addEventListener('message', ({ data }) => {
   if (data.type === 'state') { model = data.model; render(); }
+  if (data.type === 'downloadState') { model.downloads = data.downloads; const region = document.getElementById('download-status'); if (region) region.innerHTML = downloadStatus(); setBusy(); }
   if (data.type === 'busy') { busy = data.value; if (busy) notice.textContent = '处理中…'; else if (notice.textContent === '处理中…') notice.textContent = ''; setBusy(); }
   if (data.type === 'error') notice.textContent = data.message;
   if (data.type === 'reviewSent') { if (state.drafts) delete state.drafts[key()]; save(); }

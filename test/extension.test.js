@@ -194,3 +194,46 @@ test('changes are displayed newest update first and Commit expansion follows set
   settings['commitInfo.defaultExpanded'] = true;
   await app.refresh(); assert.equal(app.model.changes[0].id, 'new'); assert.equal(app.model.commitInfoExpanded, true);
 });
+
+test('background download releases global busy state, pins target and completes without awaiting notification', async () => {
+  const { app, vscode } = fixture(); let finishFetch;
+  const fetchGate = new Promise(resolve => { finishFetch = resolve; }); const calls = [];
+  const sha = 'a'.repeat(40);
+  app.selected.change = { _number: 142, project: 'team/project', revisions: { abc: { _number: 3, ref: 'refs/changes/42/142/3', fetch: { ssh: { url: 'ssh://alice@example/team/project' } } } } };
+  app.selected.rev = sha; app.selected.change.revisions[sha] = app.selected.change.revisions.abc;
+  app.model.detail = {}; app.user = { username: 'alice' }; app.localRepository = async () => '/repo';
+  vscode.ProgressLocation = { Notification: 15 };
+  vscode.window.withProgress = (_, fn) => fn({ report() {} });
+  vscode.window.showInformationMessage = () => new Promise(() => {});
+  vscode.window.showOpenDialog = () => { throw new Error('Must not choose a new folder'); };
+  vscode.window.showErrorMessage = () => {};
+  app.runGit = async (_, args) => { calls.push(args); if (args[0] === 'fetch') await fetchGate; return args[0] === 'rev-parse' ? sha : ''; };
+  await app.run(() => app.download());
+  assert.equal(app.busy, false);
+  const job = [...app.downloadJobs.values()][0]; assert.equal(job.status, 'running');
+  await assert.rejects(app.download(), /已有下载/);
+  app.selected = null; // Navigating away must not change the task target.
+  finishFetch(); await job.promise;
+  assert.equal(job.status, 'completed'); assert.equal(job.branch, 'change-142');
+  assert.ok(calls.at(-1).includes(sha));
+  assert.equal(app.model.downloads[0].status, 'completed');
+});
+test('background failures settle the task and allow retry', async () => {
+  const { app, vscode } = fixture(); const sha = 'a'.repeat(40);
+  app.selected.rev = sha; app.selected.change = { _number: 1, project: 'p', revisions: { [sha]: { _number: 1, ref: 'refs/changes/01/1/1', fetch: { ssh: { url: 'ssh://u@example/p' } } } } };
+  app.model.detail = {}; app.user = {}; app.localRepository = async () => '/repo';
+  vscode.ProgressLocation = { Notification: 15 }; vscode.window.withProgress = (_, fn) => fn({ report() {} }); vscode.window.showErrorMessage = () => {};
+  app.runGit = async () => { throw new Error('test failure'); };
+  await app.download(); const first = [...app.downloadJobs.values()][0]; await first.promise;
+  assert.equal(first.status, 'failed'); assert.equal(first.stage, 'test failure');
+  await app.download(); const second = [...app.downloadJobs.values()][0]; await second.promise;
+  assert.notEqual(second.id, first.id);
+});
+test('local repository selection discovers Git roots and only matches the Gerrit project', async () => {
+  const { app, vscode } = fixture();
+  vscode.workspace.isTrusted = true;
+  vscode.extensions = { getExtension: () => ({ isActive: true, exports: { getAPI: () => ({ repositories: [{ rootUri: { fsPath: '/other' } }, { rootUri: { fsPath: '/repo' } }] }) } }) };
+  app.runGit = async (cwd, args) => args[0] === 'rev-parse' ? cwd : args[0] === 'remote' && args.length === 1 ? 'origin' : cwd === '/repo' ? 'user@host:team/project.git' : 'https://host/other';
+  assert.equal(await app.localRepository('team/project'), '/repo');
+  await assert.rejects(app.localRepository('missing'), /请先在 VS Code/);
+});

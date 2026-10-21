@@ -6,7 +6,7 @@ const { git, pushRef } = require('./git');
 const { comparisonPlan, comparisonFiles } = require('./comparison');
 const { Logger } = require('./log');
 const { BrowserGateway } = require('./browser');
-const { sshUrl, downloadBranch } = require('./download');
+const { sshUrl, projectPath, downloadBranch } = require('./download');
 
 function activate(context) {
   const app = new Workbench(context);
@@ -45,6 +45,7 @@ class Workbench {
     this.output = vscode.window.createOutputChannel('Gerrit Workbench');
     this.logger = new Logger(this.output);
     this.model = { connected: false, changes: [], query: this.setting('defaultQuery', 'is:open'), start: 0 };
+    this.downloadJobs = new Map();
     this.configure();
     this.documents = new Map(); this.threads = new Map(); this.selected = null; this.busy = false;
     this.commentDecoration = vscode.window.createTextEditorDecorationType({
@@ -73,7 +74,7 @@ class Workbench {
   }
   openSettings() { return vscode.commands.executeCommand('workbench.action.openSettings', '@ext:local-tools.gerrit-workbench'); }
   validInfo(info) { return !!(info && this.selected && info.id === this.selected.id && (this.selected.change.revisions ? this.selected.change.revisions[info.rev] : info.rev === this.selected.rev)); }
-  dispose() { this.gateway?.dispose(); this.discussion?.dispose(); this.clearThreads(); this.controller.dispose(); this.commentDecoration.dispose(); this.status.dispose(); this.output.dispose(); }
+  dispose() { this.disposed = true; this.gateway?.dispose(); this.discussion?.dispose(); this.clearThreads(); this.controller.dispose(); this.commentDecoration.dispose(); this.status.dispose(); this.output.dispose(); }
   clearThreads() { for (const thread of this.threads.keys()) thread.dispose(); this.threads.clear(); }
   async run(fn) {
     if (this.busy) return;
@@ -84,6 +85,7 @@ class Workbench {
   send(message) { this.view?.webview.postMessage(message); this.discussion?.webview.postMessage(message); }
   render() {
     this.model.commitInfoExpanded = this.setting('commitInfo.defaultExpanded', false);
+    this.model.downloads = [...(this.downloadJobs?.values() || [])].map(({ promise, ...item }) => item);
     this.model.accountId = this.user?._account_id;
     this.model.username = this.user?.username;
     this.updateDecorations();
@@ -245,28 +247,70 @@ class Workbench {
     const editor = await vscode.window.showTextDocument(document, { viewColumn: vscode.ViewColumn.Active, preview: false });
     await this.attach(uri, this.documents.get(uri.toString())); return editor;
   }
-  async download() {
-    const s = this.selected; const rev = this.model.detail.patchView?.rev || s.rev; const revision = s.change.revisions[rev];
-    const choice = await vscode.window.showQuickPick([
-      { label: `下载 PS ${revision._number} 到本地独立分支`, patch: true },
-      { label: `下载目标分支 ${s.change.branch}`, patch: false }
-    ], { title: 'SSH 下载（使用本机 SSH key / agent）', ignoreFocusOut: true });
-    if (!choice) return;
-    const folders = await vscode.window.showOpenDialog({ title: '选择下载目录的父文件夹', canSelectFolders: true, canSelectFiles: false, canSelectMany: false });
-    if (!folders?.length) return;
-    const basename = s.change.project.split('/').at(-1).replace(/[^a-zA-Z0-9._-]/g, '_');
-    const name = await vscode.window.showInputBox({ title: '新建下载目录名称', value: `${basename}-${choice.patch ? `change-${s.change._number}-ps${revision._number}` : s.change.branch.replace(/[^a-zA-Z0-9._-]/g, '_')}`, ignoreFocusOut: true });
-    if (!name) return;
-    const url = sshUrl(revision.fetch, this.user.username);
-    let directory;
-    try {
-      directory = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'SSH 下载代码…' }, () => downloadBranch({ parent: folders[0].fsPath, name, url, branch: s.change.branch, ref: choice.patch ? revision.ref : undefined, revision: rev }, (cwd, args, options) => this.runGit(cwd, args, options)));
-    } catch (error) {
-      if (/Permission denied|publickey|Host key verification failed|Could not resolve hostname|Connection refused|Could not read from remote repository/i.test(error.message)) throw new Error('SSH 下载失败：请检查本机 SSH key / agent、公钥是否已添加到 Gerrit、SSH 端口及 known_hosts。可先在终端连接 Gerrit SSH 确认主机指纹后重试。');
-      throw error;
+  async localRepository(project) {
+    if (!vscode.workspace.isTrusted) throw new Error('请先信任此工作区');
+    const extension = vscode.extensions?.getExtension('vscode.git');
+    let gitApi;
+    try { gitApi = extension ? (extension.isActive ? extension.exports : await extension.activate()).getAPI(1) : undefined; } catch { /* Git CLI also works when VS Code's Git integration is disabled. */ }
+    const roots = [...(gitApi?.repositories || []).map(repo => repo.rootUri.fsPath), ...(vscode.workspace.workspaceFolders || []).map(folder => folder.uri.fsPath)];
+    const candidates = [];
+    for (const root of [...new Set(roots)]) {
+      try {
+        const directory = await this.runGit(root, ['rev-parse', '--show-toplevel']);
+        if (candidates.some(item => item.directory === directory)) continue;
+        const remotes = (await this.runGit(directory, ['remote'])).split('\n').filter(Boolean);
+        for (const name of remotes) {
+          const remote = await this.runGit(directory, ['remote', 'get-url', name]);
+          if (projectPath(remote) === project) { candidates.push({ label: directory, directory }); break; }
+        }
+      } catch { /* A workspace folder can be outside a Git repository. */ }
     }
-    const open = await vscode.window.showInformationMessage(`代码已下载到 ${directory}`, '在新窗口打开');
-    if (open) await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(directory), true);
+    if (!candidates.length) throw new Error(`请先在 VS Code 中打开 ${project} 的本地 Git 仓库，并配置指向该项目的 remote`);
+    return candidates.length === 1 ? candidates[0].directory : (await vscode.window.showQuickPick(candidates, { title: '选择本地代码仓库', ignoreFocusOut: true }))?.directory;
+  }
+  downloadState() {
+    this.model.downloads = [...this.downloadJobs.values()].map(({ promise, ...item }) => item);
+    if (!this.disposed) this.send({ type: 'downloadState', downloads: this.model.downloads });
+  }
+  async download(patchRev) {
+    const s = this.selected; const rev = patchRev || this.model.detail.patchView?.rev || s.rev;
+    const revision = s.change.revisions[rev];
+    if (!revision) throw new Error('Patch set 不存在，请刷新后重试');
+    const url = sshUrl(revision.fetch, this.user.username);
+    const directory = await this.localRepository(s.change.project);
+    if (!directory) return;
+    const repoKey = require('node:path').resolve(directory).toLowerCase();
+    if ([...this.downloadJobs.values()].some(job => job.repoKey === repoKey && job.status === 'running')) throw new Error('此仓库已有下载任务，请等待完成');
+    const id = crypto.randomBytes(8).toString('hex');
+    const job = { id, changeId: s.id, number: s.change._number, patch: revision._number, directory, repoKey, branch: `change-${s.change._number}`, status: 'running', stage: '准备下载' };
+    // Keep the current job per repository; completed states remain visible until the next download.
+    for (const [key, previous] of this.downloadJobs) if (previous.repoKey === repoKey) this.downloadJobs.delete(key);
+    this.downloadJobs.set(id, job); this.downloadState();
+    job.promise = Promise.resolve().then(() => vscode.window.withProgress({
+      location: vscode.ProgressLocation.Notification, title: `Gerrit #${job.number} · PS ${job.patch} 下载到本地`
+    }, progress => downloadBranch({ directory, url, branch: job.branch, ref: revision.ref, revision: rev, checkWorkspace: () => {
+      const path = require('node:path');
+      if ((vscode.workspace.textDocuments || []).some(doc => {
+        if (!doc.isDirty || doc.uri.scheme !== 'file') return false;
+        const relative = path.relative(directory, doc.uri.fsPath);
+        return !path.isAbsolute(relative) && relative !== '..' && !relative.startsWith('..' + path.sep);
+      })) throw new Error('本地仓库有未保存的编辑器内容，请先保存并处理修改后重试下载');
+    }, stage: stage => {
+      job.stage = stage; progress.report({ message: stage }); this.downloadState();
+    } }, (cwd, args, options) => this.runGit(cwd, args, options))))
+      .then(() => {
+        job.status = 'completed'; job.stage = '下载完成';
+        this.logger.write('info', `下载任务完成：#${job.number} PS ${job.patch} → ${job.branch}`);
+        if (!this.disposed) vscode.window.showInformationMessage(`Gerrit #${job.number} 已切换到本地分支 ${job.branch}`);
+      }).catch(error => {
+        job.status = 'failed';
+        job.stage = /Permission denied|publickey|Host key verification failed|Could not resolve hostname|Connection refused|Could not read from remote repository/i.test(error.message)
+          ? 'SSH 下载失败：请检查本机 SSH key / agent、Gerrit 公钥、端口和 known_hosts'
+          : error.message;
+        this.logger.write('error', `下载任务失败：${job.stage}`);
+        if (!this.disposed) vscode.window.showErrorMessage(`Gerrit: ${job.stage}`);
+      }).finally(() => this.downloadState());
+    // Deliberately do not await the job or the completion notification.
   }
   async handle(m) {
     if (!m || typeof m.type !== 'string') return;
@@ -299,7 +343,7 @@ class Workbench {
       if (this.model.detail.patchView?.rev !== m.patchRev || !this.model.detail.patchView.files.includes(m.path)) throw new Error('文件版本已更新，请重新选择');
       return this.openSingle(String(m.path), String(m.patchRev));
     }
-    if (m.type === 'download') return this.download();
+    if (m.type === 'download') return this.download(m.patchRev);
     if (m.type === 'compare') return this.compare(String(m.left), String(m.right));
     if (m.type === 'discussion') return this.openDiscussion();
     if (m.type === 'browser') return this.openBrowser();
@@ -470,7 +514,7 @@ class Workbench {
     await this.api.review(s.id, revision, { comments: { [info.path]: [c] } });
   }
   async runGit(cwd, args, options) {
-    const started = Date.now(); const operation = args[0];
+    const started = Date.now(); const operation = args[0] === '-c' ? args[2] : args[0];
     this.logger.write('debug', `Git ${operation} 开始`);
     try { const result = await git(cwd, args, options); this.logger.write('info', `Git ${operation} 成功 (${Date.now() - started} ms)`); return result; }
     catch (error) { error.logMessage = `Git ${operation} 失败 (${Date.now() - started} ms)`; this.logger.write('error', error.logMessage); throw error; }
@@ -482,7 +526,9 @@ class Workbench {
     const folder = folders.length === 1 ? folders[0] : (await vscode.window.showQuickPick(folders.map(f => ({ label: f.name, folder: f })), { title: '选择要提交的仓库' }))?.folder;
     if (!folder) return;
     const cwd = folder.uri.fsPath;
-    await this.runGit(cwd, ['rev-parse', '--show-toplevel']);
+    const root = await this.runGit(cwd, ['rev-parse', '--show-toplevel']);
+    const repoKey = require('node:path').resolve(root).toLowerCase();
+    if ([...this.downloadJobs.values()].some(job => job.repoKey === repoKey && job.status === 'running')) throw new Error('此仓库正在下载，请完成后再上传');
     if (await this.runGit(cwd, ['status', '--porcelain'])) {
       const choice = await vscode.window.showQuickPick([
         { label: '提交已暂存文件，再推送 HEAD', commit: true },

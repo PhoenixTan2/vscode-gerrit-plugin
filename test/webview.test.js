@@ -28,7 +28,7 @@ function surfaceFixture() {
     acquireVsCodeApi: () => ({ postMessage: m => messages.push(m), getState: () => ({}), setState() {} }),
     document: { getElementById: id => elements[id] }, window: { addEventListener: (_, fn) => { onMessage = fn; } }
   });
-  return { app, events, elements, messages, update: model => onMessage({ data: { type: 'state', model } }) };
+  return { app, events, elements, messages, message: data => onMessage({ data }), update: model => onMessage({ data: { type: 'state', model } }) };
 }
 test('sidebar exposes presets and page size without duplicate settings/log buttons', () => {
   const f = surfaceFixture(); f.update({ connected: true, query: 'is:open', changes: [], pageSize: 25, start: 25 });
@@ -64,15 +64,37 @@ test('compare form and reply form retain current change identity and exact targe
   f.events.submit({ preventDefault() {}, target: { dataset: { form: 'reply', path: 'a.js', comment: 'root' }, querySelector: () => ({ value: 'reply on old patch' }) } });
   assert.equal(f.messages.at(-1).type, 'reply'); assert.equal(f.messages.at(-1).comment, 'root'); assert.equal(f.messages.at(-1).message, 'reply on old patch');
 });
-test('Commit expansion, update/submission timestamps and single patch file actions are visible', () => {
-  const f = surfaceFixture(); const detail = { id: 'change', current_revision: 'rev', subject: 'test', created: '2026-01-01 00:00:00', updated: '2026-02-01 00:00:00', revisions: { rev: { _number: 2, created: '2026-01-02 00:00:00' } }, patchView: { rev: 'rev', files: ['src/a.js'] } };
+test('review hub aligns creation/update dates and hosts Commit, single Patch and download controls', () => {
+  const f = surfaceFixture(); const detail = { id: 'change', _number: 42, current_revision: 'rev', subject: 'test', created: '2026-01-01 00:00:00', updated: '2026-02-01 00:00:00', revisions: { rev: { _number: 2, commit: { message: 'Commit body', committer: { date: '2026-01-02' } } } }, patchView: { rev: 'rev', files: ['src/a.js'] } };
   f.update({ connected: true, commitInfoExpanded: true, detail });
-  assert.ok(f.app.innerHTML.includes('<details open><summary>Commit 信息'));
-  for (const text of ['最后更新：', '提交时间：', '上传时间：', 'data-action="single"', 'data-patch-rev="rev"', '下载到本地']) assert.ok(f.app.innerHTML.includes(text));
-  assert.ok(!f.app.innerHTML.includes('比较结果 · 文件'));
-  f.update({ connected: true, commitInfoExpanded: false, detail });
-  assert.ok(!f.app.innerHTML.includes('<details open><summary>Commit 信息'));
+  assert.ok(f.app.innerHTML.includes('class="commit-info" open'));
+  assert.ok(!f.app.innerHTML.includes('data-action="download"'));
+  assert.ok(!f.app.innerHTML.includes('data-action="single"'));
+  f.update({ connected: true, surface: 'discussion', commitInfoExpanded: true, detail });
+  assert.ok(f.app.innerHTML.includes('Commit body'));
+  assert.ok(f.app.innerHTML.includes('class="timestamps"'));
+  assert.ok(f.app.innerHTML.indexOf('创建时间') < f.app.innerHTML.indexOf('最后更新'));
+  assert.ok(/\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(f.app.innerHTML));
+  for (const text of ['提交时间', '上传时间', '2026-01-02']) assert.ok(!f.app.innerHTML.includes(text));
+  f.events.click({ target: { closest: () => ({ dataset: { action: 'tabCode' } }) } });
+  for (const text of ['data-action="single"', 'data-patch-rev="rev"', '下载到本地', 'SSH', 'change-42']) assert.ok(f.app.innerHTML.includes(text));
+  f.elements['patch-revision'] = { value: 'rev' };
+  f.events.click({ target: { closest: () => ({ dataset: { action: 'download' } }) } });
+  assert.equal(f.messages.at(-1).patchRev, 'rev');
+  f.update({ connected: true, surface: 'discussion', commitInfoExpanded: false, detail });
+  assert.ok(!f.app.innerHTML.includes('class="commit-info" open'));
 });
+test('download progress updates only task region and preserves review input', () => {
+  const f = surfaceFixture();
+  f.update({ connected: true, surface: 'discussion', detail: { id: 'change', current_revision: 'rev' } });
+  f.elements['download-status'] = { innerHTML: '' };
+  const before = f.app.innerHTML;
+  f.message({ type: 'downloadState', downloads: [{ changeId: 'change', status: 'completed', stage: '下载完成', patch: 2, directory: '<local>', branch: 'change-42' }] });
+  assert.equal(f.app.innerHTML, before);
+  assert.ok(f.elements['download-status'].innerHTML.includes('下载完成'));
+  assert.ok(f.elements['download-status'].innerHTML.includes('&lt;local&gt;'));
+});
+
 test('participated filter keeps complete threads where the current account wrote any message', () => {
   const f = surfaceFixture();
   const detail = { id: 'change', current_revision: 'rev', revisions: { rev: { _number: 1 } }, comments: {
