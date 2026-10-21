@@ -2,7 +2,7 @@
   "name": "gerrit-workbench",
   "displayName": "Gerrit Workbench",
   "description": "在侧边栏完成 Gerrit 提交、代码评审、评论、评分与变更管理",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "publisher": "local-tools",
   "license": "MIT",
   "engines": {

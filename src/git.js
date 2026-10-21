@@ -1,8 +1,8 @@
 'use strict';
 const { execFile } = require('node:child_process');
-function git(cwd, args, { sshNonInteractive = false, timeout = 120000 } = {}) {
+function git(cwd, args, { sshNonInteractive = false, timeout = 120000, raw = false } = {}) {
   return new Promise((resolve, reject) => execFile('git', args, { cwd, windowsHide: true, timeout, maxBuffer: 4 * 1024 * 1024, env: { ...process.env, GIT_TERMINAL_PROMPT: '0', ...(sshNonInteractive ? { GIT_SSH_COMMAND: 'ssh -o BatchMode=yes -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=4', GIT_SSH_VARIANT: 'ssh' } : {}) } }, (error, stdout, stderr) => {
-    if (error) reject(new Error((stderr || error.message).trim())); else resolve(stdout.trim());
+    if (error) reject(new Error((stderr || error.message).trim())); else resolve(raw ? stdout : stdout.trim());
   }));
 }
 function pushRef(branch, wip) {

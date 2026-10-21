@@ -9,7 +9,7 @@ const { git, pushRef } = require('./git');
 const { comparisonPlan, comparisonFiles } = require('./comparison');
 const { Logger } = require('./log');
 const { BrowserGateway } = require('./browser');
-const { sshUrl, projectPath, downloadBranch } = require('./download');
+const { sshUrl, projectPath, downloadBranch, readPatchPaths } = require('./download');
 
 function activate(context) {
   const app = new Workbench(context);
@@ -50,7 +50,7 @@ class Workbench {
     this.output = vscode.window.createOutputChannel('Gerrit Workbench');
     this.logger = new Logger(this.output);
     this.model = { connected: false, changes: [], query: this.setting('defaultQuery', 'is:open'), start: 0 };
-    this.downloadJobs = new Map(); this.nativeFiles = new NativeFiles(vscode);
+    this.patchPathCache = new Map(); this.downloadJobs = new Map(); this.nativeFiles = new NativeFiles(vscode);
     this.configure();
     this.documents = new Map(); this.threads = new Map(); this.selected = null; this.busy = false;
     this.commentDecoration = vscode.window.createTextEditorDecorationType({
@@ -149,6 +149,7 @@ class Workbench {
     webview.html = fs.readFileSync(vscode.Uri.joinPath(root, 'index.html').fsPath, 'utf8')
       .replaceAll('{{csp}}', webview.cspSource).replaceAll('{{nonce}}', nonce)
       .replace('{{css}}', webview.asWebviewUri(vscode.Uri.joinPath(root, 'style.css')).toString())
+      .replace('{{markdown}}', webview.asWebviewUri(vscode.Uri.joinPath(root, 'vendor', 'markdown-it.min.js')).toString())
       .replace('{{js}}', webview.asWebviewUri(vscode.Uri.joinPath(root, 'main.js')).toString());
   }
   openDiscussion() {
@@ -297,6 +298,7 @@ class Workbench {
     const [rawFiles, comments] = await Promise.all([this.api.files(id, plan.revision, plan.base), this.api.allComments(id)]);
     const files = comparisonFiles(rawFiles, plan.reverse);
     let patchView = this.selected?.id === change.id ? this.model.detail?.patchView : undefined;
+    if (patchView?.loading && this.selected?.rev !== rev) patchView = undefined;
     if (!patchView || !change.revisions[patchView.rev]) {
       const patchFiles = plan.left === 'base' && plan.right === rev ? rawFiles : await this.api.files(id, rev);
       patchView = { rev, query: '', files: Object.entries(patchFiles).filter(([, file]) => file.status !== 'D').map(([path]) => path).sort() };
@@ -316,12 +318,45 @@ class Workbench {
     s.files = files; s.comparison = plan;
     this.model.detail.files = files; this.model.detail.comparison = plan; this.render(); await this.showFiles();
   }
+  async patchPaths(s, rev, api) {
+    const cacheKey = JSON.stringify([api.url, this.user._account_id, s.id, rev]);
+    let pending = this.patchPathCache.get(cacheKey);
+    if (!pending) {
+      pending = (async () => {
+        const directory = await this.localRepository(s.change.project);
+        if (!directory) throw new Error('已取消选择本地仓库');
+        const revision = s.change.revisions[rev];
+        return readPatchPaths({ directory, revision: rev, ref: revision.ref, url: revision.fetch?.ssh ? sshUrl(revision.fetch, this.user.username) : undefined }, (cwd, args, options) => this.runGit(cwd, args, options));
+      })();
+      this.patchPathCache.set(cacheKey, pending);
+      pending.catch(() => { if (this.patchPathCache.get(cacheKey) === pending) this.patchPathCache.delete(cacheKey); });
+    }
+    return pending;
+  }
   async selectPatch(rev, query = '') {
     const s = this.selected;
     if (!s.change.revisions[rev]) throw new Error('Patch set 不存在');
-    const files = await this.api.treeFiles(s.id, rev, query);
-    if (!Array.isArray(files)) throw new Error('服务器未返回此 Patch set 的文件清单');
-    this.model.detail.patchView = { rev, query, files: files.filter(p => typeof p === 'string').sort() }; this.render();
+    this.patchQueryJob = undefined;
+    if (!query) {
+      const files = await this.api.treeFiles(s.id, rev);
+      if (!Array.isArray(files)) throw new Error('服务器未返回此 Patch set 的文件清单');
+      this.model.detail.patchView = { rev, query, files: files.filter(p => typeof p === 'string').sort() }; this.render(); return;
+    }
+    const api = this.api, job = {};
+    this.patchQueryJob = job;
+    this.model.detail.patchView = { rev, query, files: [], loading: true };
+    const publish = () => this.send({ type: 'patchView', id: s.id, currentRevision: s.rev, patchView: this.model.detail.patchView });
+    const active = () => this.patchQueryJob === job && this.selected?.id === s.id && this.selected?.rev === s.rev && this.model.detail?.patchView?.rev === rev && this.model.detail?.patchView?.query === query && this.api === api && !this.disposed;
+    publish();
+    job.promise = this.patchPaths(s, rev, api).then(paths => {
+      if (!active()) return;
+      this.model.detail.patchView = { rev, query, files: paths.filter(path => path.toLowerCase().includes(query.toLowerCase())).sort() };
+      publish();
+    }).catch(error => {
+      if (!active()) return;
+      this.model.detail.patchView = { rev, query, files: [], error: this.logger.redact(error.message) };
+      this.logger.write('error', 'Patch 路径检索失败：' + error.message); publish();
+    });
   }
   async openSingle(path, rev, side = 'REVISION') {
     const s = this.selected;
@@ -411,7 +446,7 @@ class Workbench {
     if (m.type === 'logs') return this.output.show(true);
     if (m.type === 'cancelSearch') { this.cancelSearch(); this.render(); return; }
     if (m.type === 'disconnect') {
-      this.cancelSearch(); this.searchResults = undefined;
+      this.cancelSearch(); this.searchResults = undefined; this.patchPathCache.clear();
       const saved = this.context.globalState.get('connection');
       if (saved) await this.context.secrets.delete(`gerrit:${saved.url}:${saved.username}`);
       await this.context.globalState.update('connection', undefined); this.gateway?.dispose(); this.gateway = undefined; this.api = null; this.selected = null; this.clearThreads(); this.documents.clear();

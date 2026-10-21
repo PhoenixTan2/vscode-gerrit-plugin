@@ -11,19 +11,48 @@ const who = account => account?.name || account?.username || account?.email || `
 const key = () => `${model.server || ''}::${model.accountId ?? model.username ?? ''}::${model.detail?.id}::${model.detail?.current_revision}`;
 const save = () => vscode.setState(state);
 const draft = () => state.drafts?.[key()] || {};
+
+const markdown = markdownit({ html: false, linkify: true, breaks: true });
+markdown.validateLink = url => /^(https?:|mailto:)/i.test(url);
+markdown.renderer.rules.image = (tokens, index) => e(tokens[index].content || '图片');
+const md = text => markdown.render(String(text || ''));
+const firstLine = text => String(text || '').split(/\r?\n/).find(line => line.trim()) || '（空评论）';
+function markdownEditor(value, { id = '', replyKey = '', label, placeholder }) {
+  return `<div class="markdown-editor"><div class="markdown-preview markdown-body" role="button" tabindex="0" aria-label="${e(label)}，点击编辑">${value ? md(value) : `<span class="muted">${e(placeholder)} · 点击编辑 Markdown</span>`}</div><textarea ${id ? `id="${e(id)}"` : ''} ${replyKey ? `data-reply-key="${e(replyKey)}"` : ''} aria-label="${e(label)}" placeholder="${e(placeholder)}" hidden>${e(value)}</textarea><small class="muted markdown-hint" hidden>Markdown · 点击外部预览，发布后才发送</small></div>`;
+}
+function startMarkdownEdit(preview) {
+  const editor = preview.closest('.markdown-editor'), input = editor.querySelector('textarea');
+  preview.hidden = true; input.hidden = false; editor.querySelector('.markdown-hint').hidden = false;
+  input.focus();
+}
+function previewMarkdown(input) {
+  const editor = input.closest('.markdown-editor'); if (!editor) return;
+  const preview = editor.querySelector('.markdown-preview');
+  preview.innerHTML = input.value ? md(input.value) : '<span class="muted">点击编辑 Markdown…</span>';
+  input.hidden = true; preview.hidden = false; editor.querySelector('.markdown-hint').hidden = true;
+}
+function compareOptions(d, side, selected, other) {
+  const options = [['base', 'Base（另一侧 PS 的第一父提交）'], ...Object.entries(d.revisions || {}).sort((a, b) => a[1]._number - b[1]._number).map(([sha, rev]) => [sha, `PS ${rev._number} · ${sha.slice(0, 8)}`])];
+  return options.filter(([id]) => id !== other).map(([id, label]) => `<option value="${e(id)}" ${id === selected ? 'selected' : ''}>${e(label)}</option>`).join('');
+}
+function autoCompare(left, right, send = true) {
+  document.getElementById('compare-left').innerHTML = compareOptions(model.detail, 'left', left, right);
+  document.getElementById('compare-right').innerHTML = compareOptions(model.detail, 'right', right, left);
+  if (send) post('compare', { ...payload(), left, right });
+}
+
 function button(text, action, cls = 'secondary', attrs = '') { return `<button type="button" class="${cls}" data-action="${action}" ${attrs}>${e(text)}</button>`; }
 function votes(labels) {
   return Object.entries(labels || {}).map(([name, label]) => `<div class="card"><b>${e(name)}</b>${(label.all || []).map(v => `<div class="vote"><span>${e(who(v))}</span><strong class="${v.value > 0 ? 'positive' : v.value < 0 ? 'negative' : ''}">${v.value > 0 ? '+' : ''}${e(v.value ?? 0)}</strong></div>`).join('') || '<p class="muted">暂无评分</p>'}</div>`).join('');
 }
 function comparison(d) {
   const plan = d.comparison || { left: 'base', right: d.current_revision };
-  const options = [['base', 'Base（另一侧 PS 的第一父提交）'], ...Object.entries(d.revisions || {}).sort((a, b) => a[1]._number - b[1]._number).map(([sha, rev]) => [sha, `PS ${rev._number} · ${sha.slice(0, 8)}`])];
-  const select = side => `<select id="compare-${side}" aria-label="${side === 'left' ? '左侧版本' : '右侧版本'}">${options.map(([id, label]) => `<option value="${e(id)}" ${id === plan[side] ? 'selected' : ''}>${e(label)}</option>`).join('')}</select>`;
-  return `<h2>版本比较</h2><form id="compare"><label for="compare-left">左侧</label>${select('left')}<label for="compare-right">右侧</label>${select('right')}<div class="row"><button type="submit">比较</button>${button('交换左右', 'swap')}</div></form><p class="muted">可比较任意两个 PS，或 PS 与其 Base。代码评论绑定实际版本。</p>`;
+  const select = side => `<select id="compare-${side}" aria-label="${side === 'left' ? '左侧版本' : '右侧版本'}">${compareOptions(d, side, plan[side], plan[side === 'left' ? 'right' : 'left'])}</select>`;
+  return `<h2>版本比较</h2><form id="compare"><label for="compare-left">左侧</label>${select('left')}<label for="compare-right">右侧</label>${select('right')}<div class="row">${button('交换左右', 'swap')}</div></form><p class="muted">可比较任意两个 PS，或 PS 与其 Base。代码评论绑定实际版本。</p>`;
 }
 function reviewForm(d) {
   const saved = draft();
-  return `<h2>发布评审 · 最新 PS ${e(d.revisions?.[d.current_revision]?._number)}</h2><form id="review"><textarea id="review-message" aria-label="评审评论" placeholder="写下整体评审意见…">${e(saved.message || '')}</textarea>${Object.entries(d.permitted_labels || {}).map(([name, values], i) => `<label for="label-${i}">${e(name)}</label><select id="label-${i}" data-label="${e(name)}"><option value="">不修改评分</option>${values.map(v => `<option value="${e(Number(v))}" ${String(saved.labels?.[name]) === String(Number(v)) ? 'selected' : ''}>${e(v.trim())} ${e(d.labels?.[name]?.values?.[v] || '')}</option>`).join('')}</select>`).join('')}<div class="row"><button type="submit">发布评审</button><span class="muted">整体评论与评分立即发布；下方代码回复发到原评论所在 PS。</span></div></form>`;
+  return `<h2>发布评审 · 最新 PS ${e(d.revisions?.[d.current_revision]?._number)}</h2><form id="review">${markdownEditor(saved.message || '', { id: 'review-message', label: '评审评论', placeholder: '写下整体评审意见…' })}${Object.entries(d.permitted_labels || {}).map(([name, values], i) => `<label for="label-${i}">${e(name)}</label><select id="label-${i}" data-label="${e(name)}"><option value="">不修改评分</option>${values.map(v => `<option value="${e(Number(v))}" ${String(saved.labels?.[name]) === String(Number(v)) ? 'selected' : ''}>${e(v.trim())} ${e(d.labels?.[name]?.values?.[v] || '')}</option>`).join('')}</select>`).join('')}<div class="row"><button type="submit">发布评审</button><span class="muted">整体评论与评分立即发布；下方代码回复发到原评论所在 PS。</span></div></form>`;
 }
 function time(value) {
   if (!value) return '—';
@@ -55,7 +84,7 @@ function downloadStatus() {
 
 const statusText = value => ({ NEW: '评审中', MERGED: '已合入', ABANDONED: '已废弃' }[value] || value || '—');
 function relationChain(d) {
-  if (!d.related) return `<div class="row">${button('关系链 · Relation chain', 'related')}</div>`;
+  if (!d.related) return `<div class="relation-chain relation-unloaded">${button('关系链 · Relation chain', 'related', 'secondary wide')}</div>`;
   const nodes = d.related.changes;
   return `<details class="relation-chain" open><summary>关系链 · Relation chain <span class="muted">${nodes.length} 个节点</span></summary><p class="muted">最新 PS 的相关提交，上新下旧；点击变更打开其最新 PS。</p><div class="chain">${nodes.map(node => {
     const current = node.commit?.commit === d.current_revision;
@@ -85,7 +114,7 @@ function filesPanel() {
 function patchBrowser(d) {
   const view = d.patchView; const rev = view?.rev || d.current_revision;
   const files = view?.files || [];
-  return `<div class="section-heading">${icon('code')}<h2>单个 Patch · 代码浏览</h2></div><form id="patch"><label for="patch-revision">选择 Patch set</label><select id="patch-revision">${Object.entries(d.revisions || {}).sort((a, b) => b[1]._number - a[1]._number).map(([sha, item]) => `<option value="${e(sha)}" ${sha === rev ? 'selected' : ''}>PS ${item._number} · ${sha.slice(0, 8)}</option>`).join('')}</select><div class="row">${button('下载到本地', 'download')}</div></form><p class="muted">使用 SSH 在已打开的本地代码仓库中 fetch 此 PS，并创建 change-${e(d._number)} 分支。请先保存文件并保持工作区干净。</p><div id="download-status">${downloadStatus()}</div>${view ? `<form id="patch-search"><input id="patch-search-text" aria-label="筛选 Patch 文件" placeholder="搜索此 PS 中的任意文件路径…" value="${e(view.query || '')}"><div class="row"><button type="submit">搜索文件</button></div></form><p class="muted">${view.query ? `服务器返回 ${files.length} 个匹配文件（结果可能受限，请缩小关键词）` : `此 Patch 有 ${files.length} 个可查看的改动文件，可搜索其他文件`}</p>${files.slice(0, 200).map(path => button(path, 'single', 'secondary file', `data-path="${e(path)}" data-patch-rev="${e(rev)}"`)).join('')}` : '<div class="empty">正在加载 Patch 文件…</div>'}`;
+  return `<div class="section-heading">${icon('code')}<h2>单个 Patch · 代码浏览</h2></div><form id="patch"><label for="patch-revision">选择 Patch set</label><select id="patch-revision">${Object.entries(d.revisions || {}).sort((a, b) => b[1]._number - a[1]._number).map(([sha, item]) => `<option value="${e(sha)}" ${sha === rev ? 'selected' : ''}>PS ${item._number} · ${sha.slice(0, 8)}</option>`).join('')}</select><div class="row">${button('下载到本地', 'download')}</div></form><p class="muted">使用 SSH 在已打开的本地代码仓库中 fetch 此 PS，并创建 change-${e(d._number)} 分支。请先保存文件并保持工作区干净。</p><div id="download-status">${downloadStatus()}</div>${view ? `<form id="patch-search"><input id="patch-search-text" aria-label="筛选 Patch 文件" placeholder="搜索此 PS 文件路径（忽略大小写）…" value="${e(view.query || '')}"><div class="row"><button type="submit">搜索文件</button></div></form><p class="muted">${view.loading ? `正在后台读取完整路径清单，可继续评审…` : view.error ? `检索失败：${e(view.error)}` : view.query ? `找到 ${files.length} 个匹配文件（忽略大小写）` : `此 Patch 有 ${files.length} 个可查看的改动文件；搜索全部路径时会读取本地仓库，缺少版本则通过 SSH 获取`}</p>${files.map(path => button(path, 'single', 'secondary file', `data-path="${e(path)}" data-patch-rev="${e(rev)}"`)).join('')}` : '<div class="empty">正在加载 Patch 文件…</div>'}`;
 }
 function discussion(d) {
   const groups = [];
@@ -107,9 +136,9 @@ function discussion(d) {
   const discussionBody = `<h2>代码讨论 <span class="muted">所有 Patch set · ${groups.length} 个线程</span></h2><div class="filters"><label class="row"><input id="unresolved-only" type="checkbox" ${state.unresolvedOnly ? 'checked' : ''}>仅显示未解决的讨论</label><label class="row"><input id="participated-only" type="checkbox" ${state.participatedOnly ? 'checked' : ''}>有我参与的讨论</label></div>${groups.map(({ path, list }) => {
     const root = list[0]; const last = list.at(-1);
     const replyKey = `${key()}::${last.id}`;
-    return `<article class="card thread"><div class="comment-head"><b>${e(path)}${root.line ? `:${e(root.line)}` : ' · 文件评论'}</b><span class="badge">${last.unresolved ? '未解决' : '已解决'}</span></div><p class="muted">PS ${e(root.patch_set || '?')} · ${root.side === 'PARENT' ? 'Base' : 'Patch'} ${root.range ? `· 行 ${root.range.start_line}–${root.range.end_line}` : ''}</p>${list.map(c => `<div class="thread-message"><div class="message-byline"><span class="avatar">${e(who(c.author).slice(0, 1))}</span><b>${e(who(c.author))}</b><time>${e(time(c.updated))}</time></div><p class="message">${e(c.message)}</p></div>`).join('')}<div class="row">${button('定位到代码', 'locate', 'secondary', `data-path="${e(path)}" data-comment="${e(root.id)}"`)}</div><form data-form="reply" data-path="${e(path)}" data-comment="${e(last.id)}"><textarea data-reply-key="${e(replyKey)}" aria-label="回复 ${e(path)} 的讨论" placeholder="回复这条讨论…">${e(state.replies?.[replyKey] || '')}</textarea><div class="row"><button type="submit">发布回复</button></div></form></article>`;
-  }).join('') || '<div class="empty">暂无符合筛选的代码讨论</div>'}<h2>活动记录</h2>${(d.messages || []).slice().reverse().map(m => `<details class="card activity"><summary><b>${e(who(m.author))}</b><span class="badge">PS ${e(m._revision_number)}</span><time>${e(time(m.date))}</time></summary><div class="message">${e(m.message)}</div></details>`).join('') || '<p class="muted">暂无活动</p>'}`;
-  return `<div class="review-shell"><div class="hero"><div class="hero-top"><span class="eyebrow">CHANGE #${e(d._number)}</span><span class="badge status">${e(statusText(d.status))}</span><div class="hero-actions">${button('刷新', 'refresh')}${button('内置浏览器', 'browser')}</div></div><h1>${e(d.subject)}</h1><p class="muted">${e(d.project)} <span class="separator">/</span> ${e(d.branch)} <span class="separator">·</span> ${e(who(d.owner))} <span class="badge">最新 PS ${e(d.revisions?.[d.current_revision]?._number)}</span></p>${timestamps(d)}</div>${commitInfo(d)}${relationChain(d)}<div class="discussion-layout"><section><nav class="tabs" aria-label="评审视图">${button('讨论', 'tabDiscussion', codeTab ? 'tab' : 'tab active')}${button('代码与下载', 'tabCode', codeTab ? 'tab active' : 'tab')}</nav>${codeTab ? `<div class="card code-panel">${patchBrowser(d)}</div>` : discussionBody}</section><aside><div class="ratings"><h2>当前评分</h2>${votes(d.labels) || '<p class="muted">暂无评分标签</p>'}</div><div class="card composer">${reviewForm(d)}</div></aside></div></div>`;
+    return `<details class="card thread" data-thread-key="${e(`${key()}::${root.id}`)}" ${state.threadCollapsed?.[`${key()}::${root.id}`] ? '' : 'open'}><summary class="thread-summary"><b title="${e(path)}">${e(path)}${root.line ? `:${e(root.line)}` : ' · 文件评论'}</b><span class="thread-snippet" title="${e(firstLine(root.message))}">${markdown.renderInline(firstLine(root.message))}</span><span class="badge">${last.unresolved ? '未解决' : '已解决'}</span></summary><p class="muted">PS ${e(root.patch_set || '?')} · ${root.side === 'PARENT' ? 'Base' : 'Patch'} ${root.range ? `· 行 ${root.range.start_line}–${root.range.end_line}` : ''}</p>${list.map(c => `<div class="thread-message"><div class="message-byline"><span class="avatar">${e(who(c.author).slice(0, 1))}</span><b>${e(who(c.author))}</b><time>${e(time(c.updated))}</time></div><div class="message markdown-body">${md(c.message)}</div></div>`).join('')}<div class="row">${button('定位到代码', 'locate', 'secondary', `data-path="${e(path)}" data-comment="${e(root.id)}"`)}</div><form data-form="reply" data-path="${e(path)}" data-comment="${e(last.id)}">${markdownEditor(state.replies?.[replyKey] || '', { replyKey, label: `回复 ${path} 的讨论`, placeholder: '回复这条讨论…' })}<div class="row"><button type="submit">发布回复</button></div></form></details>`;
+  }).join('') || '<div class="empty">暂无符合筛选的代码讨论</div>'}<h2>活动记录</h2>${(d.messages || []).slice().reverse().map(m => `<details class="card activity"><summary><b>${e(who(m.author))}</b><span class="badge">PS ${e(m._revision_number)}</span><span class="activity-snippet" title="${e(firstLine(m.message))}">${markdown.renderInline(firstLine(m.message))}</span><time>${e(time(m.date))}</time></summary><div class="message markdown-body">${md(m.message)}</div></details>`).join('') || '<p class="muted">暂无活动</p>'}`;
+  return `<div class="review-shell"><div class="hero"><div class="hero-top"><span class="eyebrow">CHANGE #${e(d._number)}</span><span class="badge status">${e(statusText(d.status))}</span><div class="hero-actions">${button('刷新', 'refresh')}${button('内置浏览器', 'browser')}</div></div><h1>${e(d.subject)}</h1><p class="muted">${e(d.project)} <span class="separator">/</span> ${e(d.branch)} <span class="separator">·</span> ${e(who(d.owner))} <span class="badge">最新 PS ${e(d.revisions?.[d.current_revision]?._number)}</span></p>${timestamps(d)}</div>${commitInfo(d)}${relationChain(d)}<div class="discussion-layout"><section><nav class="tabs" aria-label="评审视图">${button('讨论', 'tabDiscussion', codeTab ? 'tab' : 'tab active')}${button('代码与下载', 'tabCode', codeTab ? 'tab active' : 'tab')}</nav>${codeTab ? `<div class="card code-panel" id="patch-browser">${patchBrowser(d)}</div>` : discussionBody}</section><aside><div class="ratings"><h2>当前评分</h2>${votes(d.labels) || '<p class="muted">暂无评分标签</p>'}</div><div class="card composer">${reviewForm(d)}</div></aside></div></div>`;
 }
 function sidebarDetail(d) {
   const rev = d.revisions?.[d.current_revision]; const actions = d.actions || {};
@@ -147,7 +176,7 @@ function searchControls() {
 }
 function inboxResults() {
   const pageSize = model.pageSize || 50;
-  return `${(model.changes || []).map(c => `<button type="button" class="change" data-action="open" data-id="${e(c.id)}"><span class="muted">#${e(c._number)} · ${e(statusText(c.status))}${c.work_in_progress ? ' · WIP' : ''}</span>${c.status === 'NEW' ? `<span class="review-mark ${c.reviewed ? 'done' : 'pending'}" title="你在作者最近一次更新后发布过评论或评分，即显示已评审">${c.reviewed ? '✓ 我已评审' : '○ 我未评审'}</span>` : ''}<span class="subject">${e(c.subject)}</span><span class="muted">${e(c.project)} → ${e(c.branch)}<span class="card-byline">${e(who(c.owner))} · 更新 ${e(time(c.updated))}</span></span><div class="row card-votes">${Object.entries(c.labels || {}).map(([name, l]) => `<span class="badge">${e(name)} ${e(l.approved ? '✓' : l.rejected ? '✕' : (l.all || []).map(v => v.value > 0 ? `+${v.value}` : v.value).join(' / ') || '—')}</span>`).join('')}</div></button>`).join('') || '<div class="card muted">没有匹配的变更。可切换 Open 或修改查询。</div>'}<div class="row">${model.start ? button('上一页', 'prev') : ''}${model.more ? button('下一页', 'next') : ''}<span class="muted">第 ${Math.floor((model.start || 0) / pageSize) + 1} 页</span></div>`;
+  return `${(model.changes || []).map(c => `<button type="button" class="change state-${c.status === 'MERGED' ? 'merged' : c.status === 'ABANDONED' ? 'abandoned' : c.work_in_progress ? 'wip' : 'open'}" data-action="open" data-id="${e(c.id)}"><span class="muted">#${e(c._number)} · ${e(statusText(c.status))}${c.work_in_progress ? ' · WIP' : ''}</span>${c.status === 'NEW' ? `<span class="review-mark ${c.reviewed ? 'done' : 'pending'}" title="你在作者最近一次更新后发布过评论或评分，即显示已评审">${c.reviewed ? '✓ 我已评审' : '○ 我未评审'}</span>` : ''}<span class="subject">${e(c.subject)}</span><span class="muted">${e(c.project)} → ${e(c.branch)}<span class="card-byline">${e(who(c.owner))} · 更新 ${e(time(c.updated))}</span></span><div class="row card-votes">${Object.entries(c.labels || {}).map(([name, l]) => `<span class="badge">${e(name)} ${e(l.approved ? '✓' : l.rejected ? '✕' : (l.all || []).map(v => v.value > 0 ? `+${v.value}` : v.value).join(' / ') || '—')}</span>`).join('')}</div></button>`).join('') || '<div class="card muted">没有匹配的变更。可切换 Open 或修改查询。</div>'}<div class="row">${model.start ? button('上一页', 'prev') : ''}${model.more ? button('下一页', 'next') : ''}<span class="muted">第 ${Math.floor((model.start || 0) / pageSize) + 1} 页</span></div>`;
 }
 function render() {
   document.getElementById('account').textContent = model.connected ? `${model.user} · ${model.server}` : '提交 · 评审 · 讨论';
@@ -169,6 +198,8 @@ function render() {
 function setBusy() { app.querySelectorAll('button,select').forEach(el => { el.disabled = (busy && el.dataset?.action !== 'cancelSearch') || (el.dataset?.action === 'download' && (model.downloads || []).some(job => job.changeId === model.detail?.id && job.status === 'running')); }); app.setAttribute('aria-busy', String(busy)); }
 function payload() { return { id: model.detail?.id, rev: model.detail?.current_revision, compareLeft: model.detail?.comparison?.left, compareRight: model.detail?.comparison?.right }; }
 app.addEventListener('click', event => {
+  const preview = event.target.closest('.markdown-preview');
+  if (preview && !event.target.closest('a')) { startMarkdownEdit(preview); return; }
   const b = event.target.closest('button[data-action]'); if (!b) return;
   const action = b.dataset.action;
   if (action === 'cancelSearch') { post('cancelSearch'); return; }
@@ -177,7 +208,7 @@ app.addEventListener('click', event => {
   if (action === 'download') { post('download', { ...payload(), patchRev: document.getElementById('patch-revision').value }); return; }
   if (action === 'swap') {
     const left = document.getElementById('compare-left'); const right = document.getElementById('compare-right');
-    [left.value, right.value] = [right.value, left.value]; return;
+    autoCompare(right.value, left.value); return;
   }
   if (action === 'compareMode') { post('compare', { ...payload(), left: 'base', right: model.detail.current_revision }); return; }
   if (action === 'resetSearch') { submitSearch({ message: '', repo: '', branch: '', owner: '', query: 'is:open', unreviewed: false }); return; }
@@ -201,6 +232,7 @@ app.addEventListener('input', event => {
   if (event.target.dataset?.replyKey) { state.replies ||= {}; state.replies[event.target.dataset.replyKey] = event.target.value; save(); }
 });
 app.addEventListener('change', event => {
+  if ((event.target.id === 'compare-left' || event.target.id === 'compare-right') && !busy) autoCompare(document.getElementById('compare-left').value, document.getElementById('compare-right').value);
   if (event.target.id === 'patch-revision' && !busy) post('patch', { ...payload(), patchRev: event.target.value });
   if (event.target.id === 'unreviewed-only') submitSearch({ unreviewed: event.target.checked });
   if (event.target.id === 'unresolved-only') { state.unresolvedOnly = event.target.checked; save(); render(); }
@@ -210,11 +242,24 @@ app.addEventListener('change', event => {
 app.addEventListener('submit', event => {
   event.preventDefault(); if (busy) return;
   if (event.target.id === 'search') submitSearch();
-  if (event.target.id === 'compare') post('compare', { ...payload(), left: document.getElementById('compare-left').value, right: document.getElementById('compare-right').value });
   if (event.target.id === 'patch-search') post('patchSearch', { ...payload(), patchRev: model.detail.patchView.rev, query: document.getElementById('patch-search-text').value });
   if (event.target.id === 'review') { saveReview(); post('review', { ...payload(), ...draft() }); }
   if (event.target.dataset?.form === 'reply') post('reply', { ...payload(), path: event.target.dataset.path, comment: event.target.dataset.comment, message: event.target.querySelector('textarea').value });
 });
+app.addEventListener('focusout', event => {
+  // Publishing must keep its click target stable while focus leaves the textarea.
+  if (event.relatedTarget?.matches?.('button[type="submit"]')) return;
+  if (event.target.matches?.('.markdown-editor textarea')) previewMarkdown(event.target);
+});
+app.addEventListener('keydown', event => {
+  if ((event.key === 'Enter' || event.key === ' ') && event.target.matches?.('.markdown-preview')) {
+    event.preventDefault(); startMarkdownEdit(event.target);
+  }
+});
+app.addEventListener('toggle', event => {
+  if (!event.target.dataset?.threadKey) return;
+  state.threadCollapsed ||= {}; state.threadCollapsed[event.target.dataset.threadKey] = !event.target.open; save();
+}, true);
 window.addEventListener('message', ({ data }) => {
   if (data.type === 'state') { model = data.model; render(); }
   if (data.type === 'inboxResults') {
@@ -222,10 +267,20 @@ window.addEventListener('message', ({ data }) => {
     const region = document.getElementById('inbox-results');
     if (region && !model.detail && model.surface !== 'discussion' && model.surface !== 'files') { region.innerHTML = inboxResults(); setBusy(); }
   }
+  if (data.type === 'patchView' && model.detail?.id === data.id && model.detail?.current_revision === data.currentRevision) {
+    model.detail.patchView = data.patchView;
+    const region = document.getElementById('patch-browser'); if (region) { region.innerHTML = patchBrowser(model.detail); setBusy(); }
+  }
   if (data.type === 'downloadState') { model.downloads = data.downloads; const region = document.getElementById('download-status'); if (region) region.innerHTML = downloadStatus(); setBusy(); }
   if (data.type === 'searchProgress') { model.searchStatus = data.searchStatus; const region = document.getElementById('search-status'); if (region) region.innerHTML = searchStatus(); setBusy(); }
   if (data.type === 'busy') { busy = data.value; if (busy) notice.textContent = '处理中…'; else if (notice.textContent === '处理中…') notice.textContent = ''; setBusy(); }
-  if (data.type === 'error') notice.textContent = data.message;
+  if (data.type === 'error') {
+    notice.textContent = data.message;
+    if (model.detail && document.getElementById('compare-left')) {
+      const plan = model.detail.comparison || { left: 'base', right: model.detail.current_revision };
+      autoCompare(plan.left, plan.right, false);
+    }
+  }
   if (data.type === 'reviewSent') { if (state.drafts) delete state.drafts[key()]; save(); }
   if (data.type === 'replySent') { if (state.replies) delete state.replies[`${key()}::${data.comment}`]; save(); }
 });

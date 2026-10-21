@@ -59,6 +59,13 @@ test('real Git downloads into an existing repository, preserves dirty files and 
     await git(source, ['update-ref', options.ref, revision]);
     const run = (cwd, args, opts) => git(cwd, args.map(arg => arg === options.url ? source : arg), opts);
     const settings = { ...options, directory: local, revision };
+    const originalHead = await git(local, ['rev-parse', 'HEAD']);
+    const fetchHead = await fs.readFile(path.join(local, '.git', 'FETCH_HEAD'), 'utf8').catch(() => undefined);
+    const indexPaths = await readPatchPaths({ directory: local, revision, ref: options.ref, url: options.url }, run);
+    assert.ok(indexPaths.includes('code.txt'));
+    assert.equal(await git(local, ['rev-parse', 'HEAD']), originalHead);
+    assert.equal(await git(local, ['branch', '--show-current']), 'main');
+    assert.equal(await fs.readFile(path.join(local, '.git', 'FETCH_HEAD'), 'utf8').catch(() => undefined), fetchHead);
     await fs.writeFile(path.join(local, 'code.txt'), 'my edits\n');
     await assert.rejects(downloadBranch(settings, run), /未提交/);
     assert.equal(await fs.readFile(path.join(local, 'code.txt'), 'utf8'), 'my edits\n');
@@ -82,4 +89,28 @@ test('unsaved editor changes made during fetch prevent checkout', async () => {
   }), /unsaved editor/);
   assert.ok(calls.some(args => args[0] === 'fetch'));
   assert.ok(!calls.some(args => args.includes('checkout')));
+});
+
+const { readPatchPaths } = require('../src/download');
+test('Patch path index reads exact NUL-separated names locally without fetch when objects exist', async () => {
+  const calls = [];
+  const paths = await readPatchPaths({ directory: '/repo', revision: 'a'.repeat(40) }, async (cwd, args, options) => {
+    calls.push({ cwd, args, options }); return 'src/MixedCase.c\0 space file.txt\0line\nbreak.txt\0';
+  });
+  assert.deepEqual(paths, ['src/MixedCase.c', ' space file.txt', 'line\nbreak.txt']);
+  assert.equal(calls.length, 1); assert.equal(calls[0].options.raw, true);
+  await assert.rejects(readPatchPaths({ revision: '--bad' }), /SHA/);
+});
+
+test('missing Patch path index fetches only objects over SSH without checkout or changing FETCH_HEAD', async () => {
+  const calls = []; let reads = 0;
+  const paths = await readPatchPaths({ directory: '/repo', revision: 'b'.repeat(40), ref: 'refs/changes/22/322/10', url: 'ssh://user@review.example/project' }, async (cwd, args) => {
+    calls.push(args);
+    if (args[0] === 'ls-tree' && reads++ === 0) throw new Error('missing object');
+    return args[0] === 'ls-tree' ? 'Boot/Device.c\0' : '';
+  });
+  assert.deepEqual(paths, ['Boot/Device.c']);
+  assert.ok(calls[1].includes('--no-write-fetch-head'));
+  assert.ok(!calls.some(args => args.includes('checkout') || args.includes('reset')));
+  await assert.rejects(readPatchPaths({ directory: '/repo', revision: 'b'.repeat(40), ref: 'refs/heads/main', url: 'http://review.example/p' }, async () => { throw new Error('missing'); }), /SSH/);
 });

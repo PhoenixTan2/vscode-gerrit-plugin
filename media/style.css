@@ -55,3 +55,47 @@ body:has(.file-panel){padding:4px 8px}
 .file-path{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .file-path small{margin-top:1px;overflow:hidden;text-overflow:ellipsis}
 .code-panel .file{padding:5px 8px;margin:1px 0}
+
+/* Explicit outlines remain visible in themes without panel borders. */
+:root{--border:var(--vscode-panel-border,var(--vscode-contrastBorder,#80808070));--button-outline:var(--vscode-button-border,var(--vscode-descriptionForeground,#808080))}
+button:not(.change){border:1px solid var(--button-outline)}
+button:hover{border-color:var(--accent)}
+button.danger{border-color:var(--vscode-errorForeground)}
+.change.state-open{border-left-color:var(--vscode-charts-blue,#3794ff)}
+.change.state-wip{border-left-color:var(--vscode-charts-orange,#d89a35)}
+.change.state-merged{border-left-color:var(--vscode-testing-iconPassed,#73c991)}
+.change.state-abandoned{border-left-color:var(--vscode-testing-iconFailed,#f48771)}
+.relation-chain{border-color:var(--vscode-widget-border,var(--vscode-descriptionForeground,#808080));margin:8px 0;padding:9px 10px}
+.relation-unloaded{padding:6px 8px}
+.review-entry{display:grid;grid-template-columns:19px minmax(0,1fr);align-items:center;gap:4px 7px;padding:8px;margin:8px 0;border-radius:6px}
+.review-entry>.icon{width:18px;height:18px;margin:0}
+.review-entry>p{grid-column:2;margin:0;font-size:11px;line-height:1.4}
+.review-entry>button{padding:5px 8px!important}
+.markdown-body{white-space:normal;line-height:1.6;overflow-wrap:anywhere}
+.markdown-body>:first-child{margin-top:0}.markdown-body>:last-child{margin-bottom:0}
+.markdown-body p{line-height:1.6;margin:8px 0}
+.markdown-body h1,.markdown-body h2,.markdown-body h3{font-size:1.15em;margin:12px 0 6px}
+.markdown-body pre{white-space:pre;overflow:auto;padding:9px;margin:8px 0}
+.markdown-body code{font-family:var(--vscode-editor-font-family);font-size:.95em;background:var(--vscode-textCodeBlock-background);padding:1px 3px}
+.markdown-body pre code{padding:0;background:none}
+.markdown-body blockquote{margin:8px 0;padding:2px 12px;border-left:3px solid var(--accent);color:var(--vscode-descriptionForeground)}
+.markdown-body table{display:block;overflow:auto;border-collapse:collapse;max-width:100%}
+.markdown-body td,.markdown-body th{border:1px solid var(--border);padding:4px 8px}
+.markdown-body ul,.markdown-body ol{padding-left:22px;margin:8px 0}
+.markdown-editor{margin:8px 0}
+.markdown-preview{border:1px solid var(--vscode-input-border,var(--vscode-descriptionForeground));border-radius:5px;padding:9px;min-height:70px;cursor:text;background:var(--vscode-input-background)}
+.markdown-preview:focus-visible{outline:2px solid var(--vscode-focusBorder)}
+.markdown-editor textarea[hidden],.markdown-preview[hidden],.markdown-hint[hidden]{display:none}
+.markdown-hint{display:block;margin-top:4px;font-size:11px}
+.thread-summary{display:flex;align-items:center;gap:8px;padding:9px 12px;list-style:none;min-width:0}
+.thread-summary::-webkit-details-marker{display:none}
+.thread-summary:before{content:'›';font-size:18px;color:var(--accent)}
+.thread[open]>.thread-summary:before{content:'⌄'}
+.thread-summary b{font-family:var(--vscode-editor-font-family);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:45%;flex-shrink:0}
+.thread-summary .badge{margin-left:auto;white-space:nowrap;flex-shrink:0}
+.thread-snippet,.activity-snippet{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;color:var(--vscode-descriptionForeground);font-size:12px;flex:1}
+.thread[open]>.thread-summary .thread-snippet,.activity[open] .activity-snippet{display:none}
+.thread:not([open])>.thread-summary{white-space:nowrap}
+.activity summary{flex-wrap:nowrap;min-width:0}
+.activity summary>b,.activity summary>.badge,.activity summary>time{flex-shrink:0}
+.thread>.thread-summary~p{margin:4px 12px 8px}

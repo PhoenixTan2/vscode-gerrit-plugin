@@ -50,19 +50,20 @@ async function run() {
         comparison: { left: 'base', right: 'a'.repeat(40) },
         related: { rev: 'a'.repeat(40), changes: [{ _change_number: 141, _revision_number: 1, _current_revision_number: 2, status: 'NEW', commit: { commit: 'b'.repeat(40), subject: 'Dependency', parents: [] } }] },
         patchView: { rev: 'a'.repeat(40), files: ['Boot/Device.c'] }, files: { 'Boot/Device.c': { lines_inserted: 12, lines_deleted: 3 }, 'Library/Init.c': { lines_inserted: 3 } },
-        comments: { 'Boot/Device.c': [{ id: 'root', patch_set: 3, line: 42, updated: '2026-10-21 06:30:01', unresolved: true, author: { name: 'Sam' }, message: 'Could we check the device state before initializing?' }] }, messages: []
+        comments: { 'Boot/Device.c': [{ id: 'root', patch_set: 3, line: 42, updated: '2026-10-21 06:30:01', unresolved: true, author: { name: 'Sam' }, message: '**Could we check** the device state before initializing?\nSecond line of discussion' }] }, messages: [{ author: { name: 'Sam' }, _revision_number: 3, message: 'Activity first line\nActivity second line' }]
       }
     };
     const panel = vscode.window.createWebviewPanel('gerrit.smoke.review', 'Review UI smoke', vscode.ViewColumn.Active, { enableScripts: true, localResourceRoots: [extension.extensionUri] });
     const nonce = require('node:crypto').randomBytes(16).toString('hex');
     const media = name => panel.webview.asWebviewUri(vscode.Uri.joinPath(extension.extensionUri, 'media', name));
-    let fileAction, searchAction, patchAction, cancelAction;
+    let fileAction, searchAction, patchAction, cancelAction, compareAction;
     const reviewResult = new Promise((resolve, reject) => {
       const timeout = setTimeout(() => reject(new Error('Review Webview fixture did not render')), 15000);
       panel.webview.onDidReceiveMessage(message => {
         if (message.type === 'file') fileAction = message;
         if (message.type === 'search') searchAction = message;
         if (message.type === 'patch') patchAction = message;
+        if (message.type === 'compare') compareAction = message;
         if (message.type === 'cancelSearch') cancelAction = message;
         if (message.type === 'smokeResult') { clearTimeout(timeout); message.ok ? resolve() : reject(new Error(message.error)); }
         if (message.type === 'clientError') { clearTimeout(timeout); reject(new Error(message.message)); }
@@ -73,6 +74,19 @@ async function run() {
         window.dispatchEvent(new MessageEvent('message', {data:{type:'state',model:${JSON.stringify(fixture)}}}));
         if (!document.querySelector('.discussion-layout') || !document.querySelector('#review') || !document.querySelector('.thread')) throw new Error('Review sections missing');
         if (document.getElementById('app').textContent.includes('提交时间')) throw new Error('Obsolete timestamp');
+        const thread = document.querySelector('.thread');
+        if (!thread.querySelector('.markdown-body strong')) throw new Error('Markdown not rendered');
+        thread.open = false;
+        if (!thread.querySelector('.thread-snippet').textContent.includes('Could we check') || thread.getBoundingClientRect().height > 55) throw new Error('Collapsed discussion is not one line');
+        thread.open = true;
+        const activity = document.querySelector('.activity');
+        if (!activity.querySelector('.activity-snippet').textContent.includes('Activity first line')) throw new Error('Activity first line missing');
+        const replyPreview = thread.querySelector('.markdown-preview'); replyPreview.click();
+        const replyInput = thread.querySelector('textarea');
+        if (replyInput.hidden) throw new Error('Reply editor did not open');
+        replyInput.value='**Reply preview**'; replyInput.dispatchEvent(new Event('input',{bubbles:true}));
+        replyInput.dispatchEvent(new FocusEvent('focusout',{bubbles:true}));
+        if (!replyInput.hidden || !replyPreview.querySelector('strong')) throw new Error('Reply blur preview failed');
 
         const ratings = document.querySelector('.ratings'); const composer = document.querySelector('.composer');
         if (getComputedStyle(composer).position !== 'static' || ratings.getBoundingClientRect().bottom > composer.getBoundingClientRect().top) throw new Error('Composer overlaps current votes');
@@ -86,6 +100,7 @@ async function run() {
         if (document.getElementById('app').textContent.includes('浏览此 Patch')) throw new Error('Obsolete Patch browse button');
         document.getElementById('patch-revision').dispatchEvent(new Event('change', {bubbles:true}));
         document.querySelector('[data-action="tabDiscussion"]').click();
+        document.querySelector('#review .markdown-preview').click();
         const input = document.getElementById('review-message'); input.value='Unsent draft'; input.dispatchEvent(new Event('input',{bubbles:true}));
         window.dispatchEvent(new MessageEvent('message',{data:{type:'downloadState',downloads:[]}}));
         if (document.getElementById('review-message').value!=='Unsent draft') throw new Error('Draft replaced by download update');
@@ -93,6 +108,14 @@ async function run() {
         window.dispatchEvent(new MessageEvent('message',{data:{type:'state',model:{...model,surface:'sidebar'}}}));
         if (!document.querySelector('.timestamps').nextElementSibling.matches('.commit-info')) throw new Error('Commit ordering');
         if (!document.querySelector('#compare') || document.querySelector('[data-action="file"]')) throw new Error('Sidebar comparison/file placement');
+        if (document.querySelector('#compare button[type="submit"]')) throw new Error('Manual comparison button remains');
+        const leftVersion=document.getElementById('compare-left'), rightVersion=document.getElementById('compare-right');
+        if ([...leftVersion.options].some(option=>option.value===rightVersion.value) || [...rightVersion.options].some(option=>option.value===leftVersion.value)) throw new Error('Duplicate Patch selection allowed');
+        leftVersion.dispatchEvent(new Event('change',{bubbles:true}));
+        if (document.querySelector('.review-entry').getBoundingClientRect().height > 95) throw new Error('Review entry still too large');
+        window.dispatchEvent(new MessageEvent('message',{data:{type:'state',model:{...model,detail:{...model.detail,related:undefined}}}}));
+        const relation=document.querySelector('.relation-unloaded');
+        if (!relation || getComputedStyle(relation).borderTopStyle==='none') throw new Error('Unloaded relation outline missing');
         window.dispatchEvent(new MessageEvent('message',{data:{type:'state',model:{...model,surface:'files'}}}));
         if (document.querySelector('.file-row').getBoundingClientRect().height > 30) throw new Error('File rows are not compact');
         const filter=document.getElementById('file-filter');
@@ -111,6 +134,7 @@ async function run() {
         window.dispatchEvent(new MessageEvent('message',{data:{type:'inboxResults',changes:[{id:'hit',subject:'Streaming test',status:'NEW',work_in_progress:true,owner:{name:'Sam'},project:'team/firmware',branch:'main',updated:'2026-10-21 06:30:00'}],start:0,more:false}}));
         if (document.getElementById('message-filter') !== searchInput || searchInput.value !== 'test') throw new Error('Search form replaced by incremental result');
         const card = document.querySelector('.change');
+        if (!card?.classList.contains('state-wip') || getComputedStyle(document.querySelector('[data-action="push"]')).borderTopStyle === 'none') throw new Error('Status color or button outline missing');
         if (!card || card.getBoundingClientRect().height > 125 || !card.textContent.includes('WIP')) throw new Error('Streaming card missing or not compact');
         window.dispatchEvent(new MessageEvent('message',{data:{type:'searchProgress',searchStatus:{status:'running',scanned:1,matches:1}}}));
         window.dispatchEvent(new MessageEvent('message',{data:{type:'busy',value:true}}));
@@ -122,11 +146,12 @@ async function run() {
         post('smokeResult',{ok:true});
       } catch(error) { post('smokeResult',{ok:false,error:error.stack}); }
     `;
-    panel.webview.html = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${panel.webview.cspSource}; script-src 'nonce-${nonce}'"><link rel="stylesheet" href="${media('style.css')}"></head><body><header><div id="account"></div></header><div id="notice"></div><main id="app"></main><script nonce="${nonce}" src="${media('main.js')}"></script><script nonce="${nonce}">${fixtureScript}</script></body></html>`;
+    panel.webview.html = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${panel.webview.cspSource}; script-src 'nonce-${nonce}'"><link rel="stylesheet" href="${media('style.css')}"></head><body><header><div id="account"></div></header><div id="notice"></div><main id="app"></main><script nonce="${nonce}" src="${media('vendor/markdown-it.min.js')}"></script><script nonce="${nonce}" src="${media('main.js')}"></script><script nonce="${nonce}">${fixtureScript}</script></body></html>`;
     await reviewResult;
     assert.equal(fileAction?.id, 'fixture'); assert.equal(fileAction?.rev, 'a'.repeat(40));
     assert.equal(fileAction?.compareLeft, 'base'); assert.equal(fileAction?.compareRight, 'a'.repeat(40));
     assert.equal(fileAction?.path, 'Boot/Device.c');
+    assert.equal(compareAction?.left, 'base'); assert.equal(compareAction?.right, 'a'.repeat(40));
     assert.equal(patchAction?.patchRev, 'a'.repeat(40)); assert.equal(cancelAction?.type, 'cancelSearch');
     assert.equal(searchAction?.message, 'test'); assert.equal(searchAction?.repo, 'team/firmware');
     assert.equal(searchAction?.branch, 'main'); assert.equal(searchAction?.owner, 'self'); panel.dispose();

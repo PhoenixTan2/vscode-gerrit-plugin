@@ -371,3 +371,22 @@ test('search finishes in background while detail remains open and cached pages r
   await app.handle({ type: 'page', next: true });
   assert.equal(calls, requests); assert.equal(app.model.changes[0].id, 'one');
 });
+
+test('Patch path search ignores case, reuses its index and does not hold global busy', async () => {
+  const { app } = fixture(); const rev = 'a'.repeat(40);
+  app.selected.rev = rev; app.selected.change = { project: 'p', revisions: { [rev]: { _number: 1 } } };
+  app.model.detail = { id: app.selected.id, current_revision: rev };
+  app.user = { username: 'user' }; app.localRepository = async () => '/repo';
+  let release, calls = 0; const gate = new Promise(resolve => { release = resolve; });
+  app.runGit = async () => { calls++; await gate; return 'Boot/DeVice.c\0Library/Init.c\0'; };
+  await app.run(() => app.selectPatch(rev, 'device'));
+  assert.equal(app.busy, false); assert.equal(app.model.detail.patchView.loading, true);
+  release(); await app.patchQueryJob.promise;
+  assert.deepEqual(Array.from(app.model.detail.patchView.files), ['Boot/DeVice.c']);
+  await app.selectPatch(rev, 'DEVICE'); await app.patchQueryJob.promise;
+  assert.equal(calls, 1); assert.equal(app.model.detail.patchView.files[0], 'Boot/DeVice.c');
+  let finish; app.patchPaths = () => new Promise(resolve => { finish = resolve; });
+  await app.selectPatch(rev, 'init'); const job = app.patchQueryJob;
+  app.selected = null; app.model.detail = { id: 'different' }; finish(['Library/Init.c']); await job.promise;
+  assert.equal(app.model.detail.id, 'different'); assert.equal(app.model.detail.patchView, undefined);
+});

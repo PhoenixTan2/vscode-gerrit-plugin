@@ -4,7 +4,7 @@
 
 ## 安装与连接
 
-在扩展面板 `…` → **从 VSIX 安装**，选择 `gerrit-workbench-0.7.0.vsix`。点击左侧 Gerrit Workbench 图标连接服务器。该入口与其他 Gerrit 插件相互独立；若活动栏未显示，可右键活动栏勾选 Gerrit Workbench，或点击状态栏 Gerrit 打开。支持服务器根地址、`/gerrit` 部署前缀及直接粘贴 `/dashboard/self` 地址。
+在扩展面板 `…` → **从 VSIX 安装**，选择 `gerrit-workbench-0.8.0.vsix`。点击左侧 Gerrit Workbench 图标连接服务器。该入口与其他 Gerrit 插件相互独立；若活动栏未显示，可右键活动栏勾选 Gerrit Workbench，或点击状态栏 Gerrit 打开。支持服务器根地址、`/gerrit` 部署前缀及直接粘贴 `/dashboard/self` 地址。
 
 认证方式：
 
@@ -21,18 +21,19 @@
 | 友好搜索 | Message、Repo、Branch、Owner 四个输入框自动组合查询。Repo / Branch 按名称限定范围，Owner 支持用户名、邮箱或 self；保留“仅我未评审”开关 |
 | Message 模糊匹配 | 输入普通关键词，自动转为忽略大小写的包含正则，无需手写语法；匹配标题、历史 Commit 信息、整体评论、所有 PS 的行内评论、Change-Id / 提交号 / SHA。例如 test 可找到 TEST 和 test2 |
 | 搜索进度与高级条件 | Message 搜索在后台跨分页执行，显示检查 / 命中数并可停止；边检索边显示卡片，进入评审后后台继续；返回列表使用缓存，点击搜索、重置或刷新才重新检索。失败和停止会保留部分结果并标明未完成。“高级条件与生成的 Gerrit 查询”中可查看原生范围及提交说明查询，或编辑原始条件 |
-| 状态与评审标记 | `NEW` 显示为“评审中”，表示尚未关闭或合入；Open 卡片分别标出“我已评审”“我未评审”，与是否已合入是两个维度 |
+| 状态与评审标记 | `NEW` 显示为“评审中”，表示尚未关闭或合入；Open 卡片分别标出“我已评审”“我未评审”，与是否已合入是两个维度；左边框用蓝色表示评审中、橙色表示 WIP、绿色表示已合入、红色表示已废弃 |
 | 时间与 Commit 信息 | 提交卡片显示最后更新；详情和讨论页依次显示创建时间、最后更新时间，统一为本地时区的 `YYYY-MM-DD HH:mm:ss`。Commit 信息紧跟最后更新时间，显示完整消息、SHA、Change-Id、作者和父提交 |
-| 独立评审讨论 | 详情“打开评审讨论”，在当前编辑器组打开标签页，包含所有 Patch set 的讨论、评分和活动记录 |
-| 任意版本比较 | 仅在左侧工作台选择左右 PS / Base，支持交换左右；Base 表示另一侧 PS 的第一父提交。改动文件统一在下方面板查看 |
-| 修改文件面板 | 打开变更或执行比较后，下方“Gerrit 文件”面板列出全部修改文件；支持路径筛选、增删行数和各 PS 评论总数，点击文件在编辑器中打开对应 diff。也可点击工作台“查看修改文件”重新展开面板 |
+| 独立评审讨论 | 详情“打开评审讨论”，在当前编辑器组打开标签页，包含所有 Patch set 的讨论、评分和活动记录；代码讨论可折叠并记住状态，收起时单行显示评论首行，活动记录收起时也显示首行 |
+| 任意版本比较 | 仅在左侧工作台选择左右 PS / Base，左右选项排除另一侧已选版本，选择变化后自动比较，支持立即交换左右；Base 表示另一侧 PS 的第一父提交。改动文件统一在下方面板查看 |
+| 修改文件面板 | 打开变更或执行比较后，下方“Gerrit 文件”面板列出全部修改文件；支持路径筛选、增删行数和各 PS 评论总数，点击文件在编辑器中打开对应 diff。可点击底部“Gerrit 文件”页签展开面板 |
 | Relation chain | 工作台和评审页点击“关系链”按需加载最新 PS 的依赖 / 后继提交，显示状态、SHA、PS 及父提交；提示旧 PS，点击有变更编号的节点打开该变更最新 PS。无变更编号的 Git 提交仅展示 |
 | 非文本文件 | 先读取原始字节并尝试 UTF-8 / UTF-16 解码，不因 Gerrit 的 binary 标记直接拒绝。能解码为文本则使用原生 diff；其他格式仅缓存只读原文件，再由 VS Code 在旧版 / 新版两个编辑器组尝试打开，具体预览能力取决于已安装的文件扩展。新增 / 删除侧显示不存在提示 |
-| 单个 Patch 单文件代码 | 在“单个 Patch”中选择 PS 后自动展示此 PS 的改动文件，打开普通代码编辑器完整查看，不使用左右对比；服务器端路径搜索可查找其他文件，服务器可能限制每次结果数量，可缩小关键词 |
+| 单个 Patch 单文件代码 | 在“单个 Patch”中选择 PS 后自动展示此 PS 的改动文件，打开普通代码编辑器完整查看，不使用左右对比；路径搜索忽略大小写，在已打开的对应仓库中读取所选 PS 的完整 Git 路径并缓存；本地缺少该版本时通过 SSH 后台 fetch 对象，不切换分支，也不改动文件和 FETCH_HEAD。首次搜索需要对应项目的本地仓库；无需先执行下载 |
 | SSH 下载 | 评审页“代码与下载”选择 PS → “下载到本地”，在已打开的对应项目仓库中后台 fetch / checkout，不选择目录、不 clone |
 | 新建代码评论 | 打开代码或 diff，选中行 / 多行 → 右键“评论所选代码行”，展开行内输入框；也可点行号旁的 `+` 或编辑器评论按钮 |
 | 查找文件评论 | 橙色行号图标、行末评论数、滚动条标记；编辑器右上角提供“上一处评论”“下一处评论”“本文件评论位置” |
 | 评论悬停 / 定位 | 悬停代码预览评论；讨论页“定位到代码”直接打开对应 PS 的完整文件并定位行号 |
+| Markdown 讨论与回复 | 讨论和活动记录支持 Markdown 标题、列表、代码块、表格和链接。整体评审与回复草稿点击进入编辑，移开焦点显示预览；点击发布才发送原始文本 |
 | 评论筛选 | 讨论页支持“仅显示未解决”和“有我参与”，后者保留自己曾回复过的完整线程，可组合筛选 |
 | 发布评审与打分 | 在讨论页填写整体意见，选择实际有权限的标签分数，点击“发布评审”；未选的评分不修改；当前评分位于发布表单上方，随页面正常滚动 |
 | 回复 | 在代码线程中发布回复，或在讨论页线程下的多行文本框回复 |
@@ -106,3 +107,5 @@ python scripts/package.py
 评审标记与关系链依据：[Gerrit 3.8.5 REVIEWED](https://gerrit-documentation.storage.googleapis.com/Documentation/3.8.5/rest-api-changes.html#reviewed)、[Related Changes](https://gerrit-documentation.storage.googleapis.com/Documentation/3.8.5/rest-api-changes.html#get-related-changes)。
 
 API 依据：[Gerrit Changes REST API](https://gerrit-review.googlesource.com/Documentation/rest-api-changes.html)、[上传评审](https://gerrit-review.googlesource.com/Documentation/user-upload.html)、[VS Code API](https://code.visualstudio.com/api/references/vscode-api)。
+
+Markdown 渲染使用离线打包的 markdown-it 15.0.3（MIT），许可证位于 media/vendor/markdown-it.LICENSE。

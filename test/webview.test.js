@@ -7,13 +7,13 @@ test('webview escapes server content and sends pinned change/revision with actio
   const events = {}; const messages = [];
   const app = { innerHTML: '', querySelectorAll: () => [], setAttribute() {}, addEventListener(name, fn) { events[name] = fn; } };
   const elements = { app, notice: {}, account: {} }; let onMessage;
-  const sandbox = { acquireVsCodeApi: () => ({ postMessage: m => messages.push(m), getState: () => ({}), setState() {} }), document: { getElementById: id => elements[id] }, window: { addEventListener: (_, fn) => { onMessage = fn; } } };
+  const sandbox = { markdownit: require('../media/vendor/markdown-it.min.js'), acquireVsCodeApi: () => ({ postMessage: m => messages.push(m), getState: () => ({}), setState() {} }), document: { getElementById: id => elements[id] }, window: { addEventListener: (_, fn) => { onMessage = fn; } } };
   vm.runInNewContext(fs.readFileSync(require.resolve('../media/main.js'), 'utf8'), sandbox);
   assert.equal(messages[0].type, 'init');
   onMessage({ data: { type: 'state', model: { connected: true, detail: { id: 'p~main~Iabc', subject: '<script>alert(1)</script>', current_revision: 'abc123', revisions: { abc123: { _number: 3 } }, labels: {}, files: {}, comments: {} } } } });
   assert.ok(!app.innerHTML.includes('<script>alert'));
   assert.ok(app.innerHTML.includes('&lt;script&gt;alert(1)&lt;/script&gt;'));
-  events.click({ target: { closest: () => ({ dataset: { action: 'file', path: 'src/a.js' } }) } });
+  events.click({ target: { closest: selector => selector === '.markdown-preview' ? null : ({ dataset: { action: 'file', path: 'src/a.js' } }) } });
   assert.equal(messages.at(-1).id, 'p~main~Iabc');
   assert.equal(messages.at(-1).rev, 'abc123');
   assert.equal(messages.at(-1).path, 'src/a.js');
@@ -25,7 +25,7 @@ function surfaceFixture() {
   const app = { innerHTML: '', querySelectorAll: () => [], setAttribute() {}, addEventListener: (name, fn) => { events[name] = fn; } };
   elements.app = app;
   vm.runInNewContext(fs.readFileSync(require.resolve('../media/main.js'), 'utf8'), {
-    acquireVsCodeApi: () => ({ postMessage: m => messages.push(m), getState: () => ({}), setState() {} }),
+    markdownit: require('../media/vendor/markdown-it.min.js'), acquireVsCodeApi: () => ({ postMessage: m => messages.push(m), getState: () => ({}), setState() {} }),
     document: { getElementById: id => elements[id] }, window: { addEventListener: (_, fn) => { onMessage = fn; } }
   });
   return { app, events, elements, messages, message: data => onMessage({ data }), update: model => onMessage({ data: { type: 'state', model } }) };
@@ -34,7 +34,7 @@ test('sidebar exposes presets and page size without duplicate settings/log butto
   const f = surfaceFixture(); f.update({ connected: true, query: 'is:open', changes: [], pageSize: 25, start: 25 });
   for (const text of ['Open', 'Merged', '与我相关', '每页最多 25 条', '第 2 页']) assert.ok(f.app.innerHTML.includes(text));
   for (const text of ['data-action="settings"', 'data-action="logs"']) assert.ok(!f.app.innerHTML.includes(text));
-  f.events.click({ target: { closest: () => ({ dataset: { action: 'preset', query: 'is:merged' } }) } });
+  f.events.click({ target: { closest: selector => selector === '.markdown-preview' ? null : ({ dataset: { action: 'preset', query: 'is:merged' } }) } });
   assert.equal(f.messages.at(-1).query, 'is:merged');
   assert.equal(f.messages.at(-1).unreviewed, false);
 });
@@ -60,7 +60,7 @@ test('compare form and reply form retain current change identity and exact targe
   const f = surfaceFixture();
   f.update({ connected: true, detail: { id: 'change', current_revision: 'latest', revisions: { latest: { _number: 3 } } } });
   f.elements['compare-left'] = { value: 'old' }; f.elements['compare-right'] = { value: 'latest' };
-  f.events.submit({ preventDefault() {}, target: { id: 'compare' } });
+  f.events.change({ target: { id: 'compare-left' } });
   assert.equal(f.messages.at(-1).left, 'old'); assert.equal(f.messages.at(-1).right, 'latest'); assert.equal(f.messages.at(-1).id, 'change');
   f.events.submit({ preventDefault() {}, target: { dataset: { form: 'reply', path: 'a.js', comment: 'root' }, querySelector: () => ({ value: 'reply on old patch' }) } });
   assert.equal(f.messages.at(-1).type, 'reply'); assert.equal(f.messages.at(-1).comment, 'root'); assert.equal(f.messages.at(-1).message, 'reply on old patch');
@@ -77,10 +77,10 @@ test('review hub aligns creation/update dates and hosts Commit, single Patch and
   assert.ok(f.app.innerHTML.indexOf('创建时间') < f.app.innerHTML.indexOf('最后更新'));
   assert.ok(/\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(f.app.innerHTML));
   for (const text of ['提交时间', '上传时间', '2026-01-02']) assert.ok(!f.app.innerHTML.includes(text));
-  f.events.click({ target: { closest: () => ({ dataset: { action: 'tabCode' } }) } });
+  f.events.click({ target: { closest: selector => selector === '.markdown-preview' ? null : ({ dataset: { action: 'tabCode' } }) } });
   for (const text of ['data-action="single"', 'data-patch-rev="rev"', '下载到本地', 'SSH', 'change-42']) assert.ok(f.app.innerHTML.includes(text));
   f.elements['patch-revision'] = { value: 'rev' };
-  f.events.click({ target: { closest: () => ({ dataset: { action: 'download' } }) } });
+  f.events.click({ target: { closest: selector => selector === '.markdown-preview' ? null : ({ dataset: { action: 'download' } }) } });
   assert.equal(f.messages.at(-1).patchRev, 'rev');
   f.update({ connected: true, surface: 'discussion', commitInfoExpanded: false, detail });
   assert.ok(!f.app.innerHTML.includes('class="commit-info" open'));
@@ -121,7 +121,7 @@ test('sidebar places Commit immediately after timestamps and owns comparison con
   assert.ok(!f.app.innerHTML.includes('data-action="file"'));
   f.update({ connected: true, surface: 'discussion', detail });
   assert.ok(f.app.innerHTML.indexOf('class="ratings"') < f.app.innerHTML.indexOf('class="card composer"'));
-  f.events.click({ target: { closest: () => ({ dataset: { action: 'tabCode' } }) } });
+  f.events.click({ target: { closest: selector => selector === '.markdown-preview' ? null : ({ dataset: { action: 'tabCode' } }) } });
   assert.ok(!f.app.innerHTML.includes('id="compare"'));
 });
 test('file panel lists every changed file, filters literal paths and retains exact diff identity', () => {
@@ -136,7 +136,7 @@ test('file panel lists every changed file, filters literal paths and retains exa
   f.elements['file-results'] = { innerHTML: '' };
   f.events.input({ target: { id: 'file-filter', value: 'FILE-349' } });
   assert.equal((f.elements['file-results'].innerHTML.match(/data-action="file"/g) || []).length, 1);
-  f.events.click({ target: { closest: () => ({ dataset: { action: 'file', path: 'src/file-349.c' } }) } });
+  f.events.click({ target: { closest: selector => selector === '.markdown-preview' ? null : ({ dataset: { action: 'file', path: 'src/file-349.c' } }) } });
   assert.equal(f.messages.at(-1).compareLeft, 'old'); assert.equal(f.messages.at(-1).compareRight, 'new');
   f.update({ connected: true, surface: 'files', detail: { ...detail, id: 'other' } });
   assert.equal((f.app.innerHTML.match(/data-action="file"/g) || []).length, 351);
@@ -188,16 +188,70 @@ test('incremental cards preserve search form and stop works while another action
   assert.ok(f.elements['inbox-results'].innerHTML.includes('&lt;first&gt;'));
   assert.ok(f.elements['inbox-results'].innerHTML.includes('WIP'));
   f.message({ type: 'busy', value: true });
-  f.events.click({ target: { closest: () => ({ dataset: { action: 'cancelSearch' } }) } });
+  f.events.click({ target: { closest: selector => selector === '.markdown-preview' ? null : ({ dataset: { action: 'cancelSearch' } }) } });
   assert.equal(f.messages.at(-1).type, 'cancelSearch');
 });
 
 test('single Patch selection loads files immediately and has no browse button', () => {
   const f = surfaceFixture();
   f.update({ connected: true, surface: 'discussion', detail: { id: 'change', current_revision: 'rev', revisions: { rev: { _number: 1 } }, patchView: { rev: 'rev', files: ['code.c'] } } });
-  f.events.click({ target: { closest: () => ({ dataset: { action: 'tabCode' } }) } });
+  f.events.click({ target: { closest: selector => selector === '.markdown-preview' ? null : ({ dataset: { action: 'tabCode' } }) } });
   assert.ok(!f.app.innerHTML.includes('浏览此 Patch'));
   assert.ok(f.app.innerHTML.includes('code.c'));
   f.events.change({ target: { id: 'patch-revision', value: 'older' } });
   assert.equal(f.messages.at(-1).type, 'patch'); assert.equal(f.messages.at(-1).patchRev, 'older');
+});
+
+test('comparison selectors exclude the opposite selection and changes automatically request diff', () => {
+  const f = surfaceFixture();
+  f.update({ connected: true, detail: { id: 'c', current_revision: 'new', revisions: { old: { _number: 1 }, new: { _number: 2 } }, comparison: { left: 'base', right: 'new' } } });
+  const leftHtml = f.app.innerHTML.match(/id="compare-left"[^>]*>(.*?)<\/select>/s)[1];
+  const rightHtml = f.app.innerHTML.match(/id="compare-right"[^>]*>(.*?)<\/select>/s)[1];
+  assert.ok(!leftHtml.includes('value="new"')); assert.ok(!rightHtml.includes('value="base"'));
+  assert.ok(!f.app.innerHTML.includes('type="submit">比较'));
+  f.elements['compare-left'] = { value: 'old' }; f.elements['compare-right'] = { value: 'new' };
+  f.events.change({ target: { id: 'compare-left' } });
+  assert.equal(f.messages.at(-1).type, 'compare'); assert.equal(f.messages.at(-1).left, 'old');
+  assert.ok(!f.elements['compare-right'].innerHTML.includes('value="old"'));
+  f.events.click({ target: { closest: selector => selector === '.markdown-preview' ? null : ({ dataset: { action: 'swap' } }) } });
+  assert.equal(f.messages.at(-1).left, 'new'); assert.equal(f.messages.at(-1).right, 'old');
+});
+
+test('comments render Markdown without raw HTML, unsafe links or remote image requests and fold to first lines', () => {
+  const f = surfaceFixture();
+  f.update({ connected: true, surface: 'discussion', detail: { id: 'c', current_revision: 'r', revisions: { r: { _number: 1 } }, comments: {
+    'a.c': [{ id: 'first', message: '**First line**\n\n- one\n- two\n\n`code`\n\n[bad](javascript:alert(1))\n\n<img src=x onerror=alert(1)>\n\n![image](https://example.invalid/x.png)' }]
+  }, messages: [{ message: 'Activity first\nActivity second' }] } });
+  assert.ok(f.app.innerHTML.includes('<strong>First line</strong>'));
+  assert.ok(f.app.innerHTML.includes('<ul>')); assert.ok(f.app.innerHTML.includes('<code>code</code>'));
+  assert.ok(!f.app.innerHTML.includes('<img')); assert.ok(!f.app.innerHTML.includes('href="javascript:'));
+  assert.ok(f.app.innerHTML.includes('class="thread-summary"')); assert.ok(f.app.innerHTML.includes('class="activity-snippet" title="Activity first"'));
+  assert.ok(f.app.innerHTML.includes('markdown-preview'));
+  f.events.toggle({ target: { dataset: { threadKey: 'thread-one' }, open: false } });
+});
+
+test('Markdown editor switches to text on focus and preview on blur without losing draft value', () => {
+  const f = surfaceFixture(); f.update({ connected: true });
+  const hint = {}, input = { value: '**draft**', hidden: true, focus() { this.focused = true; } };
+  const preview = { hidden: false, closest: () => editor };
+  const editor = { querySelector: selector => selector === 'textarea' ? input : selector === '.markdown-preview' ? preview : hint };
+  input.closest = () => editor; input.matches = () => true;
+  f.events.click({ target: { closest: selector => selector === '.markdown-preview' ? preview : null } });
+  assert.equal(input.hidden, false); assert.equal(input.focused, true); assert.equal(preview.hidden, true);
+  f.events.focusout({ target: input });
+  assert.equal(input.hidden, true); assert.equal(preview.hidden, false); assert.ok(preview.innerHTML.includes('<strong>draft</strong>'));
+  assert.equal(input.value, '**draft**');
+});
+
+test('collapsed thread state survives a page redraw and publishing does not shift its click target', () => {
+  const f = surfaceFixture();
+  const model = { connected: true, surface: 'discussion', detail: { id: 'c', current_revision: 'r', comments: { 'a.c': [{ id: 'root', message: 'First line\nSecond line' }] } } };
+  f.update(model);
+  const threadKey = f.app.innerHTML.match(/data-thread-key="([^"]+)"/)[1];
+  f.events.toggle({ target: { dataset: { threadKey }, open: false } });
+  f.update(model);
+  assert.ok(!new RegExp('data-thread-key="' + threadKey + '" open').test(f.app.innerHTML));
+  let touched = false;
+  f.events.focusout({ relatedTarget: { matches: () => true }, target: { matches: () => true, closest: () => { touched = true; } } });
+  assert.equal(touched, false);
 });
