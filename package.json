@@ -2,7 +2,7 @@
   "name": "gerrit-workbench",
   "displayName": "Gerrit Workbench",
   "description": "在侧边栏完成 Gerrit 提交、代码评审、评论、评分与变更管理",
-  "version": "0.12.0",
+  "version": "0.13.0",
   "publisher": "local-tools",
   "license": "MIT",
   "engines": {
@@ -39,7 +39,7 @@
       "panel": [
         {
           "id": "gerritChanges",
-          "title": "Gerrit 文件",
+          "title": "Gerrit 对比差异",
           "icon": "media/gerrit.svg"
         }
       ]
@@ -56,7 +56,7 @@
         {
           "type": "webview",
           "id": "gerrit.changedFiles",
-          "name": "修改文件"
+          "name": "Gerrit 对比差异"
         }
       ]
     },
@@ -228,13 +228,13 @@
         },
         "gerrit.comments.expandThreads": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "description": "打开 diff 时自动展开代码中的已有评论；默认显示行号旁的评论图标，可点击或悬停查看。"
         },
         "gerrit.diff.openBeside": {
           "type": "boolean",
           "default": false,
-          "description": "在旁边的编辑器组中打开文件 diff。"
+          "description": "在右侧分屏打开文件对比（Open Beside）。关闭时使用当前编辑器区域；开启时在旁边新建或复用一个独立编辑器区域。"
         },
         "gerrit.logLevel": {
           "type": "string",
@@ -249,12 +249,12 @@
         },
         "gerrit.commitInfo.defaultExpanded": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "description": "进入变更详情时默认展开 Commit 信息。"
         },
         "gerrit.relationChain.defaultExpanded": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "description": "进入变更详情或评审讨论时默认展开关系链；内容始终提前后台加载，当前变更内保留手动展开/收起状态。"
         }
       }

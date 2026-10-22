@@ -4,12 +4,17 @@ function field(value, name, limit = 255) {
   if (/[\r\n\x00]/.test(text) || text.length > limit) throw new Error(`请输入有效的 ${name}（最多 ${limit} 字符）`);
   return text;
 }
-function inboxQuery(query, { repo = '', branch = '', owner = '', unreviewed = false } = {}) {
+function inboxQuery(query, { repo = '', branch = '', owner = '', changeNumber = '', file = '', unreviewed = false } = {}) {
   const base = String(query || 'is:open').trim() || 'is:open';
   const filters = [];
   for (const [operator, value, label] of [['project', repo, 'repo'], ['branch', branch, '分支'], ['owner', owner, 'Owner']]) {
     const text = field(value, label); if (text) filters.push(operator + ':' + JSON.stringify(text));
   }
+  const number = field(changeNumber, 'Gerrit 号').replace(/^#/, '');
+  if (number && !/^[1-9][0-9]*$/.test(number)) throw new Error('Gerrit 号请输入数字，例如 322');
+  if (number) filters.push('change:' + number);
+  const path = field(file, '文件', 200);
+  if (path) filters.push('file:' + JSON.stringify(fuzzyPattern(path)));
   if (unreviewed) filters.push('is:open -reviewedby:self');
   return filters.length ? `(${base}) ${filters.join(' ')}` : base;
 }

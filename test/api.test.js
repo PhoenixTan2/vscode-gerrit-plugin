@@ -178,3 +178,13 @@ test('aborting a search destroys its in-flight HTTP request without waiting for 
     await assert.rejects(api.allComments('id', { signal: controller.signal }), { name: 'AbortError' });
   } finally { slow.closeAllConnections(); await new Promise(resolve => slow.close(resolve)); }
 });
+
+
+test('oversized advertised responses fail before downloading their bodies', async () => {
+  const server = http.createServer((req,res) => { res.writeHead(200, {'Content-Length':33 * 1024 * 1024}); res.flushHeaders(); });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const api = new GerritApi('http://127.0.0.1:'+server.address().port,'user','test-only');
+    await assert.rejects(api.bytes('id','rev','huge.bin'),/32MB/);
+  } finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }
+});

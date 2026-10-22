@@ -65,3 +65,13 @@ test('native matches stream before the remaining scan and cancellation reaches e
   assert.deepEqual(hits, ['first']);
   release(); assert.deepEqual((await pending).map(row => row.id).sort(), ['first', 'second']);
 });
+
+
+test('change number is exact and file filter uses literal case-insensitive containment', () => {
+  const plan = searchPlan('is:open', { changeNumber: '#322', file: 'Include/A+B.h', message: 'fix' });
+  assert.ok(plan.scope.includes('change:322')); assert.ok(plan.commitQuery.includes('change:322'));
+  const value = JSON.parse(plan.scope.slice(plan.scope.indexOf('file:') + 5));
+  assert.ok(new RegExp(value).test('prefix/include/a+b.H'));
+  assert.ok(!new RegExp(value).test('Include/AAAB.h'));
+  for (const changeNumber of ['322 OR is:merged','0','-1']) assert.throws(() => searchPlan('is:open', { changeNumber }), /Gerrit 号/);
+});

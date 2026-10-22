@@ -169,3 +169,7 @@ body:has(.review-shell)>header{padding-bottom:7px;margin-bottom:8px}
 .file-item-head>span{font-size:10px}
 .file-changed{font-family:var(--vscode-font-family);font-size:10px;color:var(--vscode-charts-orange,#d89a35);margin-left:7px}
 .file-count button{padding:2px 5px;font-size:11px}
+
+.change.state-ready{border-left-color:#e779b4}
+.file-blocked .file-row{opacity:.45;cursor:not-allowed}
+.unscored{margin-top:8px}.unscored summary{cursor:pointer;color:var(--vscode-descriptionForeground)}

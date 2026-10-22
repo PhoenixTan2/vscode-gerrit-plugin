@@ -469,7 +469,7 @@ function familyFixture() {
   return { ...f, changes, queries, childSha, oldChild, parentSha, latestParent, grandSha };
 }
 test('context preloads while collapsed without holding busy and ignores superseded responses', async () => {
-  const { app } = familyFixture(); let finish;
+  const { app, settings } = familyFixture(); settings['relationChain.defaultExpanded'] = false; let finish;
   const gate = new Promise(resolve => { finish = resolve; });
   app.api.related = async (id, rev) => { if (id === 'child') await gate; return { changes: [{ commit: { commit: rev } }] }; };
   const messages = []; app.send = message => messages.push(message);
@@ -634,4 +634,38 @@ test('new PS resets changed file reads, carries unchanged reads and persists man
   await app.handle({type:'fileRead',id:'child',rev:childSha,fileRev:childSha,path:'code.c',read:true}); await app.progressPromise;
   assert.ok(app.model.detail.fileProgress.read.includes('code.c'));
   await assert.rejects(app.markFileRead('other.h',childSha,true),/文件或比较版本/);
+});
+
+
+test('connection defaults to web password, documents exclusive modes and skips HTTP confirmation', async () => {
+  const { app, vscode } = fixture(), inputs = [], picks = [];
+  const values = ['http://192.0.2.10', 'tester', 'test-only-password'];
+  app.context.globalState = { get: () => ({}), update: async () => {} };
+  app.context.secrets = { store: async () => {} }; app.refresh = async () => {};
+  app.confirm = async () => { throw new Error('unexpected HTTP warning'); };
+  vscode.window.showInputBox = async options => { inputs.push(options); return values.shift(); };
+  vscode.window.showQuickPick = async (modes, options) => { picks.push({ modes, options }); return modes[0]; };
+  let chosen; app.createApi = (url, user, secret, mode) => { chosen = mode; return { self: async () => ({ username: user }) }; };
+  await app.connect();
+  assert.equal(chosen, 'webPassword'); assert.ok(inputs[0].prompt.includes('http://192.168.1.10'));
+  assert.ok(picks[0].options.title.includes('二选一')); assert.equal(app.model.commitInfoExpanded, true); assert.equal(app.model.relationChainExpanded, true);
+});
+
+test('oversized comparisons reject before content fetch and return-to-comparison focuses the sidebar', async () => {
+  const { app, executed } = fixture(); let fetched = false; const sent = [];
+  app.selected.files = { 'huge.bin': { size: 25 * 1024 * 1024, size_delta: 0 } };
+  app.api.bytes = async () => { fetched = true; }; app.view = { webview: { postMessage: data => sent.push(data) } };
+  await assert.rejects(app.openDiff('huge.bin'), /32MB/); assert.equal(fetched, false);
+  await app.handle({ type: 'returnComparison', id: app.selected.id, rev: app.selected.rev });
+  assert.equal(executed.at(-1)[0], 'gerrit.dashboard.focus'); assert.equal(sent.at(-1).type, 'focusComparison');
+});
+
+test('number and file filters persist across paging and metadata navigation clears both', async () => {
+  const { app } = familyFixture(), queries = [];
+  app.selected = null; app.api.list = async query => { queries.push(query); return []; };
+  await app.handle({ type: 'search', query: 'is:open', changeNumber: '#322', file: 'Header.H' });
+  assert.ok(queries[0].includes('change:322')); assert.ok(queries[0].includes('file:'));
+  await app.handle({ type: 'page', next: true }); assert.equal(queries[1], queries[0]);
+  await app.load('child'); await app.searchMetadata('repo', '');
+  assert.equal(app.model.changeNumber, ''); assert.equal(app.model.file, '');
 });

@@ -3,6 +3,7 @@ const vscode = require('vscode');
 const crypto = require('node:crypto');
 const { GerritApi, normalizeUrl } = require('./api');
 const { inboxQuery, searchPlan, scanChanges } = require('./inbox');
+const { fileLimitReason } = require('./limits');
 const { classifyFile } = require('./files');
 const { NativeFiles } = require('./native-files');
 const { PathIndex } = require('./path-index');
@@ -40,7 +41,7 @@ function activate(context) {
       app.configure();
       if (event.affectsConfiguration('gerrit.defaultQuery')) app.model.query = app.setting('defaultQuery', 'is:open');
       if (event.affectsConfiguration('gerrit.comments.expandThreads')) for (const [thread] of app.threads) {
-        if (thread.comments.length) thread.collapsibleState = app.setting('comments.expandThreads', false) ? vscode.CommentThreadCollapsibleState.Expanded : vscode.CommentThreadCollapsibleState.Collapsed;
+        if (thread.comments.length) thread.collapsibleState = app.setting('comments.expandThreads', true) ? vscode.CommentThreadCollapsibleState.Expanded : vscode.CommentThreadCollapsibleState.Collapsed;
       }
       if (event.affectsConfiguration('gerrit.pageSize') || event.affectsConfiguration('gerrit.defaultQuery')) {
         app.model.start = 0; if (app.api) await app.refresh();
@@ -73,8 +74,8 @@ class Workbench {
   configure() {
     this.logger.level = this.setting('logLevel', 'info');
     this.model.pageSize = this.setting('pageSize', 50);
-    this.model.commitInfoExpanded = this.setting('commitInfo.defaultExpanded', false);
-    this.model.relationChainExpanded = this.setting('relationChain.defaultExpanded', false);
+    this.model.commitInfoExpanded = this.setting('commitInfo.defaultExpanded', true);
+    this.model.relationChainExpanded = this.setting('relationChain.defaultExpanded', true);
     if (this.api) { this.api.pageSize = this.model.pageSize; this.api.timeout = this.setting('requestTimeout', 30000); }
     this.render();
   }
@@ -103,8 +104,8 @@ class Workbench {
   }
   send(message) { this.view?.webview.postMessage(message); this.discussion?.webview.postMessage(message); this.filesView?.webview.postMessage(message); this.tasksView?.webview.postMessage(message); }
   render() {
-    this.model.commitInfoExpanded = this.setting('commitInfo.defaultExpanded', false);
-    this.model.relationChainExpanded = this.setting('relationChain.defaultExpanded', false);
+    this.model.commitInfoExpanded = this.setting('commitInfo.defaultExpanded', true);
+    this.model.relationChainExpanded = this.setting('relationChain.defaultExpanded', true);
     this.model.downloads = this.downloadSnapshot();
     this.model.backgroundTasks = this.taskSnapshot();
     this.model.breadcrumbs = this.parentTrail.map((item, index) => ({ index, number: item.number }));
@@ -135,7 +136,7 @@ class Workbench {
 
   async searchMetadata(kind, value) {
     const change = this.selected.change, commit = change.revisions?.[this.model.detail?.viewRevision || this.selected.rev]?.commit || {};
-    const filters = { query: 'is:visible', message: '', repo: '', branch: '', owner: '', unreviewed: false };
+    const filters = { query: 'is:visible', message: '', repo: '', branch: '', owner: '', changeNumber: '', file: '', unreviewed: false };
     if (kind === 'repo') filters.repo = change.project;
     else if (kind === 'branch') { filters.repo = change.project; filters.branch = change.branch; }
     else if (kind === 'owner') filters.owner = String(change.owner?.username || change.owner?.email || change.owner?._account_id || '');
@@ -316,16 +317,15 @@ class Workbench {
   }
   async connect() {
     const old = this.context.globalState.get('connection', {});
-    const urlInput = await vscode.window.showInputBox({ title: '连接 Gerrit · 1/4', prompt: '服务器地址（支持 /gerrit 子路径，也可粘贴 /dashboard/self 网页地址）', value: old.url || 'https://', ignoreFocusOut: true, validateInput: text => { try { normalizeUrl(text); } catch (e) { return e.message; } } });
+    const urlInput = await vscode.window.showInputBox({ title: '连接 Gerrit · 1/4', prompt: '输入服务器根地址，例如 http://192.168.1.10 或 https://review.example.com:8443；无需添加 /gerrit 或 /dashboard/self', value: old.url || 'https://', ignoreFocusOut: true, validateInput: text => { try { normalizeUrl(text); } catch (e) { return e.message; } } });
     if (!urlInput) return;
     const url = normalizeUrl(urlInput);
-    if (url.startsWith('http:') && !await this.confirm('HTTP 连接会以明文传输凭据。仍要连接此服务器？', '继续连接')) return;
     const modes = [
-      { label: 'HTTP Key / HTTP 密码', description: '使用 Gerrit 生成的 Key，通过 /a/ API 认证', authMode: 'httpKey' },
-      { label: '网页登录密码（HTTP 反向代理）', description: '使用 /login/ 建立会话，通过不带 /a/ 的 API 访问', authMode: 'webPassword' }
+      { label: '网页登录密码', description: '默认推荐；使用平时网页登录的密码，适用于 HTTP 反向代理登录', authMode: 'webPassword' },
+      { label: 'HTTP Key / HTTP 密码', description: '使用 Gerrit 生成的 Key，通过 /a/ API 认证', authMode: 'httpKey' }
     ];
-    if (old.authMode === 'webPassword') modes.reverse();
-    const mode = await vscode.window.showQuickPick(modes, { title: '连接 Gerrit · 2/4：选择认证方式', ignoreFocusOut: true });
+    if (old.authMode === 'httpKey') modes.reverse();
+    const mode = await vscode.window.showQuickPick(modes, { title: '连接 Gerrit · 2/4：认证方式二选一，不同时使用', placeHolder: '取决于服务器支持方式；网页登录密码与 HTTP Key 不可混用', ignoreFocusOut: true });
     if (!mode) return;
     const username = await vscode.window.showInputBox({ title: '连接 Gerrit · 3/4', prompt: 'Gerrit 用户名', value: old.username, ignoreFocusOut: true, validateInput: s => !s.trim() || s.includes(':') ? '请输入有效用户名' : undefined });
     if (!username) return;
@@ -371,7 +371,7 @@ class Workbench {
   startTextSearch(plan) {
     this.cancelSearch();
     const api = this.api, job = { status: 'running', scanned: 0, matches: 0, controller: new AbortController() };
-    const fields = Object.fromEntries(['query','message','repo','branch','owner','unreviewed'].map(name => [name, this.model[name]]));
+    const fields = Object.fromEntries(['query','message','repo','branch','owner','changeNumber','file','unreviewed'].map(name => [name, this.model[name]]));
     const cache = { key: JSON.stringify(plan), rows: [], pending: new Map(), locked: false };
     this.searchJob = job; this.searchResults = cache;
     this.registerTask('search', 'Message 检索 · ' + plan.message.slice(0, 60), job, () => this.retrySearch(fields));
@@ -477,11 +477,12 @@ class Workbench {
     if (patchView?.loading && this.selected?.rev !== rev) patchView = undefined;
     if (!patchView || !change.revisions[patchView.rev]) {
       const patchFiles = plan.left === 'base' && plan.right === focus ? rawFiles : await this.api.files(id, focus);
+      change.revisions[focus].files ||= patchFiles;
       patchView = { rev: focus, query: '', files: Object.entries(patchFiles).filter(([, file]) => file.status !== 'D').map(([path]) => path).sort() };
     }
     this.clearThreads(); this.selected = { id: change.id, rev, change, files, comments, comparison: plan };
     const related = this.model.detail?.id === change.id && this.model.detail.related?.rev === focus ? this.model.detail.related : undefined;
-    const update = item => item.id === change.id ? { ...item, reviewed: !!change.reviewed, status: change.status, updated: change.updated } : item;
+    const update = item => item.id === change.id ? { ...item, reviewed: !!change.reviewed, status: change.status, work_in_progress: change.work_in_progress, submittable: change.submittable, updated: change.updated } : item;
     this.model.changes = this.model.changes.map(update);
     for (const page of this.inboxPages.values()) page.rows = page.rows.map(update);
     if (this.searchResults) this.searchResults.rows = this.searchResults.rows.map(update);
@@ -553,6 +554,8 @@ class Workbench {
   async openSingle(path, rev, side = 'REVISION') {
     const s = this.selected;
     if (!s.change.revisions[rev]) throw new Error('Patch set 不存在');
+    const metadata = s.change.revisions[rev].files?.[path];
+    const blocked = fileLimitReason(metadata, side === 'PARENT'); if (blocked) throw new Error(blocked);
     let contentPath = path;
     if (side === 'PARENT') contentPath = (await this.api.files(s.id, rev))[path]?.old_path || path;
     const bytes = await this.api.bytes(s.id, rev, contentPath, side === 'PARENT');
@@ -750,7 +753,7 @@ class Workbench {
     this.needConnection();
     if (m.type === 'filters' || m.type === 'search') {
       const values = {};
-      for (const name of ['message', 'repo', 'branch', 'owner']) values[name] = m[name] === undefined ? this.model[name] : String(m[name]).trim();
+      for (const name of ['message', 'repo', 'branch', 'owner', 'changeNumber', 'file']) values[name] = m[name] === undefined ? this.model[name] : String(m[name]).trim();
       values.unreviewed = m.unreviewed === undefined ? this.model.unreviewed : !!m.unreviewed;
       values.query = m.type === 'search' ? String(m.query || 'is:open') : this.model.query;
       searchPlan(values.query, values);
@@ -776,6 +779,10 @@ class Workbench {
     if (m.type === 'file') {
       if (m.compareLeft && (m.compareLeft !== s.comparison?.left || m.compareRight !== s.comparison?.right)) throw new Error('比较版本已更新，请重新点击文件');
       return this.openDiff(String(m.path));
+    }
+    if (m.type === 'returnComparison') {
+      await vscode.commands.executeCommand('gerrit.dashboard.focus');
+      this.view?.webview.postMessage({ type: 'focusComparison' }); return;
     }
     if (m.type === 'showFiles') return this.showFiles();
     if (m.type === 'related') return this.loadRelated();
@@ -828,6 +835,7 @@ class Workbench {
   provideTextDocumentContent(uri) { const doc = this.documents.get(uri.toString()); if (!doc) throw new Error('此 Gerrit 快照已失效，请从工作台重新打开文件'); return doc.content; }
   async openDiff(path) {
     const s = this.selected; const file = s.files[path]; if (!file) throw new Error('文件不存在');
+    const blocked = file.blockedReason || fileLimitReason(file); if (blocked) throw new Error(blocked);
     const plan = s.comparison || comparisonPlan(s.change.revisions, 'base', s.rev);
     const sides = [plan.left, plan.right].map((value, index) => {
       const rev = value === 'base' ? plan.revision : value;
@@ -892,7 +900,7 @@ class Workbench {
       const range = c.range ? new vscode.Range(c.range.start_line - 1, c.range.start_character, c.range.end_line - 1, c.range.end_character) : c.line ? new vscode.Range(c.line - 1, 0, c.line - 1, 0) : undefined;
       const thread = this.controller.createCommentThread(uri, range, group.map(item => ({ body: item.message, mode: vscode.CommentMode.Preview, author: { name: item.author?.name || item.author?.username || 'Gerrit 用户' } })));
       thread.label = `${info.label || info.side} · 回复将立即发布`;
-      thread.collapsibleState = this.setting('comments.expandThreads', false) ? vscode.CommentThreadCollapsibleState.Expanded : vscode.CommentThreadCollapsibleState.Collapsed;
+      thread.collapsibleState = this.setting('comments.expandThreads', true) ? vscode.CommentThreadCollapsibleState.Expanded : vscode.CommentThreadCollapsibleState.Collapsed;
       thread.state = group.at(-1).unresolved ? vscode.CommentThreadState.Unresolved : vscode.CommentThreadState.Resolved;
       this.threads.set(thread, { ...info, parent: group.at(-1), commentIds: group.map(item => item.id) });
     }

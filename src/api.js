@@ -1,6 +1,7 @@
 'use strict';
 const https = require('node:https');
 const http = require('node:http');
+const { RESPONSE_LIMIT } = require('./limits');
 function normalizeUrl(value) {
   const u = new URL(value.trim());
   if (!['https:', 'http:'].includes(u.protocol) || u.username || u.password || u.search || u.hash) throw new Error('请输入不包含账号、查询参数的 HTTP(S) 服务器地址');
@@ -71,8 +72,9 @@ class GerritApi {
           }
         }
         let size = 0; const chunks = [];
-        res.on('data', chunk => { size += chunk.length; if (size > 32 * 1024 * 1024) { res.destroy(new Error('响应超过 32MB 限制')); return; } chunks.push(chunk); });
+        res.on('data', chunk => { size += chunk.length; if (size > RESPONSE_LIMIT) { res.destroy(new Error('响应超过 32MB 限制')); return; } chunks.push(chunk); });
         res.on('error', reject);
+        if (Number(res.headers['content-length']) > RESPONSE_LIMIT) { res.destroy(new Error('响应超过 32MB 限制')); return; }
         res.on('end', () => {
           const text = Buffer.concat(chunks).toString('utf8');
           this.log(res.statusCode >= 400 ? 'error' : 'info', `${method} ${url.pathname} → HTTP ${res.statusCode} (${Date.now() - started} ms)`);
@@ -93,8 +95,8 @@ class GerritApi {
     });
   }
   self() { return this.request('/accounts/self'); }
-  list(query, start = 0, { search = false, signal } = {}) { return this.request(`/changes/?q=${enc(query)}&n=${this.pageSize}&S=${start}&o=DETAILED_LABELS&o=DETAILED_ACCOUNTS&o=REVIEWED${search ? '&o=ALL_REVISIONS&o=ALL_COMMITS&o=MESSAGES' : ''}`, 'GET', undefined, false, { signal }); }
-  detail(id) { return this.request(`/changes/${enc(id)}/detail?o=ALL_REVISIONS&o=ALL_COMMITS&o=DETAILED_LABELS&o=DETAILED_ACCOUNTS&o=MESSAGES&o=CURRENT_ACTIONS&o=REVIEWED`); }
+  list(query, start = 0, { search = false, signal } = {}) { return this.request(`/changes/?q=${enc(query)}&n=${this.pageSize}&S=${start}&o=DETAILED_LABELS&o=DETAILED_ACCOUNTS&o=REVIEWED&o=SUBMITTABLE${search ? '&o=ALL_REVISIONS&o=ALL_COMMITS&o=MESSAGES' : ''}`, 'GET', undefined, false, { signal }); }
+  detail(id) { return this.request(`/changes/${enc(id)}/detail?o=ALL_REVISIONS&o=ALL_COMMITS&o=DETAILED_LABELS&o=DETAILED_ACCOUNTS&o=MESSAGES&o=CURRENT_ACTIONS&o=REVIEWED&o=SUBMITTABLE&o=ALL_FILES`); }
   revision(id, rev, path = '') { return `/changes/${enc(id)}/revisions/${enc(rev)}${path}`; }
   files(id, rev, base, { signal } = {}) { return this.request(this.revision(id, rev, `/files/?${base ? `base=${enc(base)}` : 'parent=1'}`), 'GET', undefined, false, { signal }); }
   related(id, rev, { signal } = {}) { return this.request(this.revision(id, rev, '/related'), 'GET', undefined, false, { signal }); }

@@ -332,3 +332,22 @@ test('file lookup name describes the selected version and includes unchanged fil
   f.message({ type: 'patchView', id: 'c', currentRevision: 'r', patchView: { rev: 'r', query: 'header', files: ['Include/Header.h'] } });
   assert.ok(f.elements['patch-browser'].innerHTML.includes('含未修改文件'));
 });
+
+
+test('ready cards require server approval and exclude WIP, merged and abandoned changes', () => {
+  const f=surfaceFixture(); f.update({connected:true,changes:[
+    {id:'ready',status:'NEW',submittable:true,subject:'Ready'},
+    {id:'wip',status:'NEW',work_in_progress:true,submittable:true,subject:'Wip'},
+    {id:'closed',status:'MERGED',submittable:true,subject:'Closed'}]});
+  assert.equal((f.app.innerHTML.match(/state-ready/g)||[]).length,1); assert.ok(f.app.innerHTML.includes('可发布'));
+});
+
+test('empty patch labels, unscored disclosure and unavailable files render independently', () => {
+  const f=surfaceFixture(), detail={id:'c',current_revision:'r',subject:'Example',revisions:{r:{_number:2,files:{'/COMMIT_MSG':{}}},old:{_number:1}},
+    patchView:{rev:'r',files:[]},comparison:{left:'base',right:'r'},files:{'huge.bin':{blockedReason:'超过 32MB 限制'}},
+    labels:{'Code-Review':{all:[{name:'Scored',value:1},{name:'Waiting',value:0},{name:'Pending'}]}}};
+  f.update({connected:true,surface:'discussion',detail});
+  assert.ok(f.app.innerHTML.includes('<details class="unscored">')); assert.ok(f.app.innerHTML.includes('未打分 / 0 分（2 人）'));
+  f.update({connected:true,surface:'files',detail}); assert.match(f.app.innerHTML,/data-unavailable="true" disabled/); assert.ok(f.app.innerHTML.includes('返回版本比较'));
+  f.update({connected:true,surface:'sidebar',detail}); assert.ok(f.app.innerHTML.includes('无改动文件'));
+});
