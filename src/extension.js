@@ -20,6 +20,9 @@ function activate(context) {
   context.subscriptions.push(app,
     vscode.window.registerWebviewViewProvider('gerrit.dashboard', app),
     vscode.window.registerWebviewViewProvider('gerrit.changedFiles', { resolveWebviewView: view => app.resolveFilesView(view) }),
+    vscode.commands.registerCommand('gerrit.openLeftFile', () => app.run(() => app.openDiffSide('left'))),
+    vscode.commands.registerCommand('gerrit.openRightFile', () => app.run(() => app.openDiffSide('right'))),
+    vscode.commands.registerCommand('gerrit.openThisFile', uri => app.run(() => app.openSnapshot(uri || vscode.window.activeTextEditor?.document.uri))),
     vscode.commands.registerCommand('gerrit.showFiles', () => app.showFiles()),
     vscode.workspace.registerTextDocumentContentProvider('gerrit', app),
     vscode.commands.registerCommand('gerrit.connect', () => app.run(() => app.connect())),
@@ -55,7 +58,7 @@ class Workbench {
     this.output = vscode.window.createOutputChannel('Gerrit Workbench');
     this.logger = new Logger(this.output);
     this.model = { connected: false, changes: [], query: this.setting('defaultQuery', 'is:open'), start: 0 };
-    this.backgroundJobs = new Map(); this.reviewProgress = new ReviewProgress(context.globalState); this.parentTrail = []; this.inboxPages = new Map(); this.patchPathCache = new Map(); this.downloadJobs = new Map(); this.nativeFiles = new NativeFiles(vscode); this.pathIndex = new PathIndex((...args) => this.runGit(...args));
+    this.patchDeltaCache = new Map(); this.backgroundJobs = new Map(); this.reviewProgress = new ReviewProgress(context.globalState); this.parentTrail = []; this.inboxPages = new Map(); this.patchPathCache = new Map(); this.downloadJobs = new Map(); this.nativeFiles = new NativeFiles(vscode); this.pathIndex = new PathIndex((...args) => this.runGit(...args));
     this.configure();
     this.documents = new Map(); this.threads = new Map(); this.selected = null; this.busy = false;
     this.commentDecoration = vscode.window.createTextEditorDecorationType({
@@ -209,6 +212,31 @@ class Workbench {
     }
     this.contextJob = Promise.allSettled(work);
   }
+  preloadPatchChanges() {
+    const s = this.selected, detail = this.model.detail, api = this.api, signal = this.contextController?.signal;
+    const versions = Object.entries(s.change.revisions).sort((a,b) => a[1]._number - b[1]._number);
+    const active = () => this.selected === s && this.model.detail === detail && this.api === api && !signal?.aborted && !this.disposed;
+    let next = 1;
+    this.patchChangesJob = Promise.allSettled(Array.from({ length: Math.min(3, versions.length - 1) }, async () => {
+      while (next < versions.length && active()) {
+        const index = next++, [rev, item] = versions[index], [previous, older] = versions[index - 1];
+        const key = JSON.stringify([api.url, this.user?._account_id ?? this.user?.username, s.id, previous, rev]);
+        try {
+          let unchanged = this.patchDeltaCache.get(key);
+          if (unchanged === undefined) {
+            const files = await api.files(s.id, rev, previous, { signal });
+            if (!active()) return;
+            unchanged = !Object.keys(files).some(path => !path.startsWith('/'));
+            this.patchDeltaCache.set(key, unchanged);
+          }
+          if (!active()) return;
+          item.previousPatch = { number: older._number, unchanged };
+          detail.revisions[rev].previousPatch = item.previousPatch;
+          this.send({ type: 'patchComparisons', id: s.id, rev: s.rev, patches: { [rev]: item.previousPatch } });
+        } catch { /* Unknown is not the same as unchanged. Refresh can retry. */ }
+      }
+    }));
+  }
   async openParent(sha) {
     const s = this.selected, detail = this.model.detail;
     const focus = detail.viewRevision || s.rev;
@@ -333,7 +361,7 @@ class Workbench {
     const password = mode.authMode === 'webPassword' ? keyInput : keyInput?.trim();
     if (!password) return;
     const api = this.createApi(url, username.trim(), password, mode.authMode); const user = await api.self();
-    this.cancelSearch(); this.searchResults = undefined;
+    this.cancelSearch(); this.searchResults = undefined; this.patchDeltaCache.clear();
     await this.context.secrets.store(`gerrit:${url}:${username.trim()}`, password);
     await this.context.globalState.update('connection', { url, username: username.trim(), authMode: mode.authMode });
     if (old.url && (old.url !== url || old.username !== username.trim())) await this.context.secrets.delete(`gerrit:${old.url}:${old.username}`);
@@ -487,7 +515,7 @@ class Workbench {
     for (const page of this.inboxPages.values()) page.rows = page.rows.map(update);
     if (this.searchResults) this.searchResults.rows = this.searchResults.rows.map(update);
     this.model.detail = { ...change, viewRevision: focus, viewPinned: pinned, files, comments, comparison: plan, patchView, related, mine: change.owner?._account_id === this.user._account_id };
-    this.preloadContext(); this.loadFileProgress();
+    this.preloadContext(); this.loadFileProgress(); this.preloadPatchChanges();
     if (this.discussion) this.discussion.title = `#${change._number} · 评审讨论`;
     // Reattach comments in any already-open snapshot for this exact patch set.
     for (const [uri, info] of this.documents) if (this.validInfo(info)) await this.attach(vscode.Uri.parse(uri), info);
@@ -746,6 +774,7 @@ class Workbench {
       this.pathIndex.dispose().catch(() => {}); this.pathIndex = new PathIndex((...args) => this.runGit(...args));
       const saved = this.context.globalState.get('connection');
       if (saved) await this.context.secrets.delete(`gerrit:${saved.url}:${saved.username}`);
+      this.patchDeltaCache.clear();
       await this.context.globalState.update('connection', undefined); this.gateway?.dispose(); this.gateway = undefined; this.api = null; this.selected = null; this.clearThreads(); this.documents.clear();
       this.model = { connected: false, changes: [], query: this.setting('defaultQuery', 'is:open'), start: 0, pageSize: this.setting('pageSize', 50) }; this.render(); return;
     }
@@ -778,11 +807,14 @@ class Workbench {
     if (m.type === 'metadata') return this.searchMetadata(String(m.kind), String(m.value || ''));
     if (m.type === 'file') {
       if (m.compareLeft && (m.compareLeft !== s.comparison?.left || m.compareRight !== s.comparison?.right)) throw new Error('比较版本已更新，请重新点击文件');
-      return this.openDiff(String(m.path));
+      const path = String(m.path), comparison = s.comparison;
+      await this.openDiff(path);
+      if (this.selected === s && s.comparison === comparison) await this.markFileRead(path, comparison.revision, true);
+      return;
     }
-    if (m.type === 'returnComparison') {
-      await vscode.commands.executeCommand('gerrit.dashboard.focus');
-      this.view?.webview.postMessage({ type: 'focusComparison' }); return;
+    if (m.type === 'returnDiscussion') {
+      await this.openDiscussion();
+      this.discussion?.webview.postMessage({ type: 'showDiscussion' }); return;
     }
     if (m.type === 'showFiles') return this.showFiles();
     if (m.type === 'related') return this.loadRelated();
@@ -849,7 +881,7 @@ class Workbench {
     const bytes = await Promise.all(sides.map(info => info.empty ? Buffer.alloc(0) : this.api.bytes(s.id, info.rev, info.contentPath, info.side === 'PARENT')));
     const decoded = bytes.map((value, index) => sides[index].empty ? { kind: 'text', text: '' } : classifyFile(value, path));
     if (decoded.some(value => value.kind !== 'text')) {
-      await this.nativeFiles.openPair(sides.map((info, index) => ({ ...info, bytes: bytes[index] }))); return;
+      await this.nativeFiles.openPair(sides.map((info, index) => ({ ...info, bytes: bytes[index] }))); return { sides, uris: [] };
     }
     const contents = decoded.map(value => value.text);
     const uris = sides.map((info, index) => {
@@ -858,6 +890,19 @@ class Workbench {
     });
     await vscode.commands.executeCommand('vscode.diff', uris[0], uris[1], `${path} · ${sides[0].label} ↔ ${sides[1].label}`, { preview: false, viewColumn: this.setting('diff.openBeside', false) ? vscode.ViewColumn.Beside : vscode.ViewColumn.Active });
     for (const uri of uris) await this.attach(uri, this.documents.get(uri.toString()));
+    return { sides, uris };
+  }
+  async openSnapshot(uri) {
+    const info = uri && this.documents.get(uri.toString());
+    if (!info) throw new Error('请先打开 Gerrit 文件差异');
+    if (info.empty) throw new Error('这一侧文件不存在');
+    const document = await vscode.workspace.openTextDocument(uri);
+    return vscode.window.showTextDocument(document, { viewColumn: vscode.ViewColumn.Active, preview: false });
+  }
+  async openDiffSide(side) {
+    const input = vscode.window.tabGroups?.activeTabGroup?.activeTab?.input;
+    if (!input?.original || !input?.modified) throw new Error('请先打开 Gerrit 文件差异');
+    return this.openSnapshot(side === 'left' ? input.original : input.modified);
   }
   commentsFor(info) {
     if (!this.validInfo(info) || info.empty) return [];
@@ -876,9 +921,21 @@ class Workbench {
   async locateComment(path, id) {
     const s = this.selected; const comment = s.comments[path]?.find(c => c.id === id);
     if (!comment) throw new Error('评论已不存在，请刷新');
+    if (!path || path.startsWith('/')) return; // Patch-level comments do not have a code file.
     const rev = Object.keys(s.change.revisions).find(key => s.change.revisions[key]._number === comment.patch_set) || s.rev;
-    const editor = await this.openSingle(path, rev, comment.side || 'REVISION');
-    if (!editor) throw new Error('已打开原文件预览，此文件无法按代码行定位评论');
+    await this.compare('base', rev);
+    if (this.selected !== s) return;
+    // A file-level comment may refer to an unchanged file, which is absent from List Files.
+    if (!Object.hasOwn(s.files, path)) {
+      s.files[path] = { status: 'M', unchanged: true };
+      this.model.detail.files = s.files; this.render();
+    }
+    const result = await this.openDiff(path);
+    const side = comment.side || 'REVISION';
+    const index = result.sides.findIndex(info => info.rev === rev && info.side === side && !info.empty);
+    const uri = result.uris[index]; if (!uri) return;
+    const editor = vscode.window.visibleTextEditors.find(editor => editor.document.uri.toString() === uri.toString());
+    if (!editor) return;
     const document = editor.document;
     const line = Math.max(0, Math.min(document.lineCount - 1, (comment.range?.start_line || comment.line || 1) - 1));
     editor.selection = new vscode.Selection(line, 0, line, 0);

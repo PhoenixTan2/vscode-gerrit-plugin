@@ -173,3 +173,14 @@ body:has(.review-shell)>header{padding-bottom:7px;margin-bottom:8px}
 .change.state-ready{border-left-color:#e779b4}
 .file-blocked .file-row{opacity:.45;cursor:not-allowed}
 .unscored{margin-top:8px}.unscored summary{cursor:pointer;color:var(--vscode-descriptionForeground)}
+
+/* Align every inbox criterion in one label/input grid. */
+.search-fields{grid-template-columns:65px minmax(0,1fr);margin-top:0}.search-fields label{white-space:nowrap}
+.file-status.type-A{color:var(--vscode-gitDecoration-addedResourceForeground,#6eaf6e)}
+.file-status.type-D{color:var(--vscode-gitDecoration-deletedResourceForeground,#d16969)}
+.file-status.type-M,.file-status.type-W{color:var(--vscode-gitDecoration-modifiedResourceForeground,#d7ba7d)}
+.file-status.type-R,.file-status.type-C{color:var(--vscode-gitDecoration-renamedResourceForeground,#73c991)}
+.file-limit{display:inline;white-space:nowrap;color:var(--vscode-descriptionForeground);font-family:var(--vscode-font-family);font-size:11px}
+
+.file-path{display:flex;align-items:center;gap:3px}.file-name{overflow:hidden;text-overflow:ellipsis;min-width:0}.file-limit{flex-shrink:0}
+.file-status.type-R{color:var(--vscode-charts-blue,#75beff)}.file-status.type-C{color:var(--vscode-charts-purple,#b180d7)}.file-status.type-W{color:var(--vscode-charts-orange,#ce9178)}

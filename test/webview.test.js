@@ -54,7 +54,7 @@ test('discussion lives in its own surface, groups replies and escapes untrusted 
   assert.ok(!f.app.innerHTML.includes('<img src=x'));
   assert.ok(f.app.innerHTML.includes('&lt;img src=x'));
   assert.equal((f.app.innerHTML.match(/data-form="reply"/g) || []).length, 1);
-  assert.ok(f.app.innerHTML.includes('定位到代码'));
+  assert.ok(f.app.innerHTML.includes('定位到差异代码'));
 });
 test('compare form and reply form retain current change identity and exact targets', () => {
   const f = surfaceFixture();
@@ -343,11 +343,28 @@ test('ready cards require server approval and exclude WIP, merged and abandoned 
 });
 
 test('empty patch labels, unscored disclosure and unavailable files render independently', () => {
-  const f=surfaceFixture(), detail={id:'c',current_revision:'r',subject:'Example',revisions:{r:{_number:2,files:{'/COMMIT_MSG':{}}},old:{_number:1}},
+  const f=surfaceFixture(), detail={id:'c',current_revision:'r',subject:'Example',revisions:{r:{_number:2,files:{'/COMMIT_MSG':{}},previousPatch:{number:1,unchanged:true}},old:{_number:1}},
     patchView:{rev:'r',files:[]},comparison:{left:'base',right:'r'},files:{'huge.bin':{blockedReason:'超过 32MB 限制'}},
     labels:{'Code-Review':{all:[{name:'Scored',value:1},{name:'Waiting',value:0},{name:'Pending'}]}}};
   f.update({connected:true,surface:'discussion',detail});
   assert.ok(f.app.innerHTML.includes('<details class="unscored">')); assert.ok(f.app.innerHTML.includes('未打分 / 0 分（2 人）'));
-  f.update({connected:true,surface:'files',detail}); assert.match(f.app.innerHTML,/data-unavailable="true" disabled/); assert.ok(f.app.innerHTML.includes('返回版本比较'));
-  f.update({connected:true,surface:'sidebar',detail}); assert.ok(f.app.innerHTML.includes('无改动文件'));
+  f.update({connected:true,surface:'files',detail}); assert.match(f.app.innerHTML,/data-unavailable="true" disabled/); assert.ok(f.app.innerHTML.includes('返回评审讨论'));
+  f.update({connected:true,surface:'sidebar',detail}); assert.ok(f.app.innerHTML.includes('与 PS 1 无代码差异'));
+});
+
+
+test('card scoring deduplicates repeated zero and nonzero values',()=>{
+  const f=surfaceFixture();f.update({connected:true,changes:[{id:'c',status:'NEW',labels:{'Code-Review':{all:[{value:0},{value:0},{value:1},{value:1},{value:-1}]}}}]});
+  assert.ok(f.app.innerHTML.includes('Code-Review +1 / 0 / -1'));assert.ok(!f.app.innerHTML.includes('0 / 0'));
+});
+
+test('global comments have no locate button and adjacent PS updates retain an active draft',()=>{
+  const f=surfaceFixture(),detail={id:'c',current_revision:'r',revisions:{r:{_number:2,files:{}},old:{_number:1}},comments:{'/PATCHSET_LEVEL':[{id:'global',message:'Whole change',patch_set:2}]}};
+  f.update({connected:true,surface:'discussion',detail});assert.ok(!f.app.innerHTML.includes('data-action="locate"'));
+  const draft={value:'Keep this text'};f.elements['review-message']=draft;
+  f.message({type:'patchComparisons',id:'c',rev:'r',patches:{r:{number:1,unchanged:true}}});
+  assert.equal(f.elements['review-message'],draft);
+  f.update({connected:true,surface:'sidebar',detail});assert.ok(f.app.innerHTML.includes('与 PS 1 无代码差异'));
+  f.update({connected:true,surface:'sidebar',detail:{...detail,revisions:{r:{_number:2,files:{}},old:{_number:1}}}});
+  assert.ok(!f.app.innerHTML.includes('无代码差异'));
 });

@@ -273,7 +273,7 @@ test('file view resolves independently and stale comparison rows cannot open a n
   app.render(); assert.equal(app.view, sidebar); assert.equal(fileMessages.at(-1).model.surface, 'files');
   await app.showFiles(); assert.equal(files.preserve, true);
   app.receiveMessage(files.webview, { type: 'rendered' }); assert.equal(app.filesReady, true); assert.equal(app.sidebarReady, undefined);
-  app.selected.comparison = { left: 'old', right: 'abc' }; app.openDiff = async path => executed.push(path);
+  app.selected.comparison = { left: 'old', right: 'abc' }; app.openDiff = async path => executed.push(path); app.markFileRead = async () => {};
   await assert.rejects(app.handle({ type: 'file', id: app.selected.id, rev: 'abc', compareLeft: 'base', compareRight: 'abc', path: 'a.c' }), /比较版本/);
   await app.handle({ type: 'file', id: app.selected.id, rev: 'abc', compareLeft: 'old', compareRight: 'abc', path: 'a.c' });
   assert.equal(executed.at(-1), 'a.c');
@@ -651,13 +651,14 @@ test('connection defaults to web password, documents exclusive modes and skips H
   assert.ok(picks[0].options.title.includes('二选一')); assert.equal(app.model.commitInfoExpanded, true); assert.equal(app.model.relationChainExpanded, true);
 });
 
-test('oversized comparisons reject before content fetch and return-to-comparison focuses the sidebar', async () => {
+test('oversized comparisons reject before content fetch and return opens review discussion', async () => {
   const { app, executed } = fixture(); let fetched = false; const sent = [];
   app.selected.files = { 'huge.bin': { size: 25 * 1024 * 1024, size_delta: 0 } };
   app.api.bytes = async () => { fetched = true; }; app.view = { webview: { postMessage: data => sent.push(data) } };
   await assert.rejects(app.openDiff('huge.bin'), /32MB/); assert.equal(fetched, false);
-  await app.handle({ type: 'returnComparison', id: app.selected.id, rev: app.selected.rev });
-  assert.equal(executed.at(-1)[0], 'gerrit.dashboard.focus'); assert.equal(sent.at(-1).type, 'focusComparison');
+  let opened = false; app.openDiscussion = async () => { opened = true; }; app.discussion = app.view;
+  await app.handle({ type: 'returnDiscussion', id: app.selected.id, rev: app.selected.rev });
+  assert.equal(opened, true); assert.equal(sent.at(-1).type, 'showDiscussion');
 });
 
 test('number and file filters persist across paging and metadata navigation clears both', async () => {
@@ -668,4 +669,70 @@ test('number and file filters persist across paging and metadata navigation clea
   await app.handle({ type: 'page', next: true }); assert.equal(queries[1], queries[0]);
   await app.load('child'); await app.searchMetadata('repo', '');
   assert.equal(app.model.changeNumber, ''); assert.equal(app.model.file, '');
+});
+
+
+test('PS labels compare adjacent revisions in background rather than each PS against Base', async () => {
+  const { app, childSha, oldChild } = familyFixture(); let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  app.api.files = async (id,rev,base) => { if (id==='child' && base===oldChild) { await gate; return {'/COMMIT_MSG':{}}; } return {'code.c':{}}; };
+  await app.run(() => app.load('child')); assert.equal(app.busy,false);
+  assert.equal(app.model.detail.revisions[childSha].previousPatch,undefined);
+  release(); await app.patchChangesJob;
+  assert.equal(app.model.detail.revisions[childSha].previousPatch.unchanged,true);
+  assert.equal(app.model.detail.revisions[childSha].previousPatch.number,1);
+  assert.equal(app.model.detail.revisions[oldChild].previousPatch,undefined);
+  const files=app.api.files; app.api.files=async(id,rev,base)=>{ if(base===oldChild) throw new Error('comparison should be cached'); return files(id,rev,base); };
+  await app.load('child'); await app.patchChangesJob;
+  assert.equal(app.model.detail.revisions[childSha].previousPatch.unchanged,true);
+});
+
+test('late adjacent PS results cannot update a different change', async () => {
+  const { app, oldChild }=familyFixture(); let release;
+  const gate=new Promise(resolve=>{release=resolve;}); const messages=[]; app.send=data=>messages.push(data);
+  app.api.files=async(id,rev,base)=>{ if(id==='child' && base===oldChild) await gate; return {}; };
+  await app.load('child'); const old=app.patchChangesJob; await app.load('parent'); await app.patchChangesJob;
+  release(); await old;
+  assert.ok(!messages.some(message=>message.type==='patchComparisons' && message.id==='child'));
+});
+
+test('opening a comparison marks read only after success and leaves failed opens unread', async () => {
+  const { app, childSha }=familyFixture(); await app.load('child'); await app.progressPromise;
+  const event={type:'file',id:'child',rev:childSha,path:'code.c'};
+  app.openDiff=async()=>{throw new Error('cannot open');};
+  await assert.rejects(app.handle(event),/cannot open/);
+  assert.ok(!app.model.detail.fileProgress.read.includes('code.c'));
+  app.openDiff=async()=>{}; await app.handle(event); await app.progressPromise;
+  assert.ok(app.model.detail.fileProgress.read.includes('code.c'));
+});
+
+test('comment navigation opens historical PS vs Base and reveals renamed parent-side lines', async () => {
+  const { app, vscode, oldChild }=familyFixture(); await app.load('child');
+  const reads=[], diffs=[]; let revealed;
+  app.selected.comments={'new.c':[{id:'comment',patch_set:1,side:'PARENT',line:7}]};
+  app.api.files=async()=>({'new.c':{status:'R',old_path:'old.c'}});
+  app.api.bytes=async(...args)=>{reads.push(args);return Buffer.from('text');}; app.attach=async()=>{};
+  vscode.commands.executeCommand=async(name,...args)=>{
+    if(name!=='vscode.diff') return; diffs.push(args);
+    vscode.window.visibleTextEditors=args.slice(0,2).map(uri=>({document:{uri,lineCount:20},revealRange:range=>{revealed=range;}}));
+  };
+  app.openSingle=async()=>{throw new Error('must not open a standalone file');};
+  await app.locateComment('new.c','comment');
+  assert.equal(app.selected.comparison.right,oldChild); assert.equal(diffs.length,1);
+  assert.equal(reads[0][1],oldChild); assert.equal(reads[0][2],'old.c'); assert.equal(reads[0][3],true);
+  assert.equal(vscode.window.visibleTextEditors[0].selection.start.line,6); assert.equal(revealed.start.line,6);
+  app.selected.comments['/PATCHSET_LEVEL']=[{id:'global'}];
+  const comparison=app.selected.comparison; await app.locateComment('/PATCHSET_LEVEL','global');
+  assert.equal(app.selected.comparison,comparison); assert.equal(diffs.length,1);
+});
+
+test('single-side commands open cached snapshots without network and reject an absent side', async () => {
+  const { app, vscode, commands }=fixture(); const left={toString:()=> 'left'},right={toString:()=> 'right'};
+  app.documents.set('left',{content:'old'}); app.documents.set('right',{content:'new'});
+  vscode.window.tabGroups={activeTabGroup:{activeTab:{input:{original:left,modified:right}}}};
+  const opened=[];vscode.workspace.openTextDocument=async uri=>({uri});vscode.window.showTextDocument=async(doc)=>opened.push(doc.uri);
+  app.api.bytes=async()=>{throw new Error('no fetching');};
+  await commands.get('gerrit.openLeftFile')(); await commands.get('gerrit.openRightFile')();
+  assert.deepEqual(opened,[left,right]); app.documents.get('left').empty=true;
+  await assert.rejects(app.openDiffSide('left'),/不存在/);
 });

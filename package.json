@@ -2,7 +2,7 @@
   "name": "gerrit-workbench",
   "displayName": "Gerrit Workbench",
   "description": "在侧边栏完成 Gerrit 提交、代码评审、评论、评分与变更管理",
-  "version": "0.13.0",
+  "version": "0.14.0",
   "publisher": "local-tools",
   "license": "MIT",
   "engines": {
@@ -125,6 +125,21 @@
         "command": "gerrit.tasks",
         "title": "Gerrit: 后台任务",
         "icon": "$(tasklist)"
+      },
+      {
+        "command": "gerrit.openLeftFile",
+        "title": "Gerrit: 单独打开左侧文件",
+        "icon": "$(arrow-left)"
+      },
+      {
+        "command": "gerrit.openRightFile",
+        "title": "Gerrit: 单独打开右侧文件",
+        "icon": "$(arrow-right)"
+      },
+      {
+        "command": "gerrit.openThisFile",
+        "title": "Gerrit: 单独打开此侧文件",
+        "icon": "$(go-to-file)"
       }
     ],
     "menus": {
@@ -172,6 +187,11 @@
           "command": "gerrit.comment",
           "when": "resourceScheme == gerrit",
           "group": "gerrit"
+        },
+        {
+          "command": "gerrit.openThisFile",
+          "when": "resourceScheme == gerrit && isInDiffEditor",
+          "group": "gerrit"
         }
       ],
       "editor/title": [
@@ -194,6 +214,16 @@
           "command": "gerrit.fileComments",
           "when": "resourceScheme == gerrit",
           "group": "navigation"
+        },
+        {
+          "command": "gerrit.openLeftFile",
+          "when": "resourceScheme == gerrit && activeEditor == workbench.editors.textDiffEditor",
+          "group": "navigation@1"
+        },
+        {
+          "command": "gerrit.openRightFile",
+          "when": "resourceScheme == gerrit && activeEditor == workbench.editors.textDiffEditor",
+          "group": "navigation@1"
         }
       ],
       "comments/commentThread/context": [
