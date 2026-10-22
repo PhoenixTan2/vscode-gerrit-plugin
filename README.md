@@ -1,12 +1,12 @@
 # Gerrit Workbench
 
-**中文** | [English](README.en.md) · [更新记录](CHANGELOG.md) · [本地发布检查](RELEASE.md)
+**中文** | [English](#english) · [更新记录](CHANGELOG.md) · [本地发布检查](RELEASE.md)
 
 在 VS Code 中完成 Gerrit 连接、提交、代码评审、评论、回复、评分和变更管理。常用功能通过侧边栏、编辑器按钮和右键菜单操作，无需 Ctrl+Shift+P。
 
 ## 安装与连接
 
-在扩展面板 `…` → **从 VSIX 安装**，选择 `gerrit-workbench-0.15.0.vsix`。点击左侧 Gerrit Workbench 图标连接服务器。该入口与其他 Gerrit 插件相互独立；若活动栏未显示，可右键活动栏勾选 Gerrit Workbench，或点击状态栏 Gerrit 打开。通常只需服务器根地址，例如 `http://192.168.1.10` 或 `https://review.example.com:8443`，无需手动追加 `/gerrit` 或 `/dashboard/self`。实际部署在子路径的服务器仍支持对应前缀；也兼容粘贴 dashboard 地址。
+在扩展面板 `…` → **从 VSIX 安装**，选择 `gerrit-workbench-0.16.0.vsix`。点击左侧 Gerrit Workbench 图标连接服务器。该入口与其他 Gerrit 插件相互独立；若活动栏未显示，可右键活动栏勾选 Gerrit Workbench，或点击状态栏 Gerrit 打开。通常只需服务器根地址，例如 `http://192.168.1.10` 或 `https://review.example.com:8443`，无需手动追加 `/gerrit` 或 `/dashboard/self`。实际部署在子路径的服务器仍支持对应前缀；也兼容粘贴 dashboard 地址。
 
 在扩展设置的 **Language / 语言** 中选择 `zh-CN`（默认）或 `en`，插件页面和对话框即时切换。VS Code 命令、设置标题等声明式文字跟随 VS Code 显示语言；评论、代码、姓名和服务器信息保持原文。
 
@@ -126,3 +126,86 @@ python scripts/package.py
 API 依据：[Gerrit Changes REST API](https://gerrit-review.googlesource.com/Documentation/rest-api-changes.html)、[上传评审](https://gerrit-review.googlesource.com/Documentation/user-upload.html)、[VS Code API](https://code.visualstudio.com/api/references/vscode-api)。
 
 Markdown 渲染使用离线打包的 markdown-it 15.0.3（MIT），许可证位于 media/vendor/markdown-it.LICENSE。
+
+
+---
+
+## English
+
+[返回中文 / Back to Chinese](#gerrit-workbench)
+
+
+Connect, upload commits, review changes, comment on code, reply and vote from VS Code. Normal workflows use the sidebar, editor buttons and file panel without opening the Command Palette.
+
+## Install and connect
+
+Install `gerrit-workbench-0.16.0.vsix` using Extensions → **Install from VSIX**, then open the Gerrit Workbench activity icon. Enter a server root such as `http://192.168.1.10` or `https://review.example.com:8443`. Do not append `/gerrit` unless your server is actually deployed at that prefix. Dashboard URLs are also accepted.
+
+Choose one authentication method per connection:
+
+- **Website password** (default): for HTTP reverse-proxy login. Creates a website session and sends CSRF tokens for writes.
+- **HTTP Key / HTTP password**: the credential generated in Gerrit Settings → HTTP Credentials, using the `/a/` REST API.
+
+The methods are not combined; a server may support either or both. Existing connections keep the last choice. Passwords are stored in VS Code SecretStorage. Cookies and session tokens stay in memory. Interactive SSO/OAuth is not supported. HTTPS certificate verification remains enabled.
+
+## Language
+
+Set **Gerrit → Language** to `zh-CN` (default) or `en`. Views, dialogs and extension-generated messages change immediately. Native VS Code command and settings titles follow the VS Code display language through packaged NLS resources. User comments, source code, names and server data remain unchanged.
+
+## Main workflows
+
+| Feature | How it works |
+| --- | --- |
+| Search | Open (including visible WIP), Merged, Abandoned, related-to-me and my-changes presets. Combine Message, Repo, Branch, Owner, exact Gerrit number and modified-file path fields. Message and filename matching use case-insensitive substring matching. Advanced Gerrit conditions remain available. |
+| Message search | Searches subjects, historical commit messages, overall reviews, inline comments, Change-Ids, numbers and SHAs. It does not search source contents. Narrow Repo/Branch to reduce scanning time. |
+| Stable results | Results stream in the background. Browsing locks their order; later hits show a count until you merge them. Back navigation uses cached results. Search/reset/list refresh starts a new search; detail refresh updates only that change. |
+| Background tasks | Sidebar/file-panel task button and discussion entry show Message scans, path indexes and downloads. Cancel or retry failed/cancelled tasks. Checkout cannot be interrupted once it starts. |
+| Change navigation | Previous/Next follows cached result order. Parent links appear only for confirmed visible Gerrit changes and open the exact referenced PS. Breadcrumbs return directly to any child context, restoring comparisons. |
+| Commit and related changes | Created and last-updated timestamps, full commit message and metadata. Author/committer/repo/branch links search their identity. Related changes preload in the background; manual collapse state is retained. |
+| Arbitrary comparison | Choose any PS pair or PS/Base in the sidebar. Base is the other PS's first parent. Selecting a revision immediately updates the bottom **Gerrit Comparison** panel. |
+| PS annotations | Adjacent PS revisions are compared in the background. A revision is annotated only when no code files differ from the preceding PS. Virtual commit-message files are ignored. |
+| Comparison files | File types have distinct colors, with path filters, statistics and comment counts. Successful opening marks that PS file read locally; failed opening does not. Read markers can be cleared manually. New PS versions retain reads only for unchanged files. |
+| Temporary tabs | File comparisons use reusable preview tabs to avoid tab accumulation. Double-click a tab to keep it. Original binary pairs also use preview tabs in their two editor groups. |
+| Single-side files | Top-right buttons open the left, right or currently focused side separately using already-loaded snapshots. Missing sides cannot be opened. |
+| Discussions | Discussion opens in the active editor group. Code threads and activity entries collapse to their first lines. Filters select unresolved threads and discussions you joined. Back from the comparison panel opens the discussion tab. |
+| Inline comments | Press `C` in a read-only Gerrit diff: comment on the selected range, or at the cursor line when no selection exists. `Ctrl+C` still copies. The shortcut is inactive in comment text inputs. Gutter/comment-toolbar entry points are also available. |
+| Comment navigation | Gutter markers, hover summaries, scrollbar marks and previous/next comment buttons. Discussion navigation opens the original PS/Base diff and reveals the correct side. Change-level comments have no code navigation button. |
+| Markdown and links | Discussions and draft replies support safe Markdown with preview on blur. HTTP(S) links open in the integrated browser. Same-site Gerrit links use the authenticated gateway; external links receive no Gerrit credentials. Site-relative links are supported. Raw HTML and non-web link protocols are disabled. |
+| Votes and management | Nonzero votes show directly; unvoted/zero-score people are collapsed. Cards deduplicate identical scores. Pink Ready-to-submit cards use the server's submittable flag; submitting still requires permission. Own WIP can be published, own changes abandoned, permitted changes submitted. |
+| Browse revision files | Find paths in any selected PS, including unchanged headers, without a matching workspace repository. An isolated temporary bare Git cache fetches paths over SSH; content is read through Gerrit. No checkout or workspace changes occur. |
+| Binary files | Gerrit's binary flag does not prevent text decoding/diff. Opaque files are passed as original bytes to VS Code in old/new editor groups; preview depends on installed file extensions. No embedded PDF/Excel viewer is included. |
+| Large files | Metadata preflights both sides against the 32 MiB Base64 response budget (about 24 MiB source bytes). Known oversized files are disabled. Without metadata, Content-Length is checked before reading and streaming responses retain the byte limit. |
+
+File reads are local progress markers, separate from Gerrit's reviewed-by-me state. That state means you commented or voted after the author's last update. Opening a file does not publish a Gerrit review.
+
+Overall reviews and votes target the latest PS. Historical PS pages require explicitly opening the latest PS before overall review or change-management actions. Inline replies retain the original revision. Reviews publish immediately; drafts are never automatically published.
+
+## SSH downloads and uploads
+
+Downloads use the Gerrit-advertised SSH URL and your local OpenSSH key/agent and known_hosts. Password prompts and automatic host-key acceptance are disabled. No private keys are managed by the extension.
+
+Open a local Git repository whose remote project matches the change. The extension fetches the selected change ref, verifies FETCH_HEAD against its SHA, then creates `change-<number>` and checks it out. It checks uncommitted files, unsaved editors and existing branches before checkout. It never clones, overwrites branches, stashes or forces checkout. Downloads and uploads are serialized per repository.
+
+Upload staged changes or the existing HEAD through the sidebar or Source Control upload button. The destination is `refs/for/<branch>`, optionally WIP. Install Gerrit's commit-msg hook first; every uploaded commit needs a valid Change-Id. Remote/branch/commit choices are confirmed before pushing.
+
+## Settings
+
+| Setting | Default | Purpose |
+| --- | --- | --- |
+| `gerrit.language` | `zh-CN` | Chinese or English views/dialogs |
+| `gerrit.defaultQuery` | `is:open` | Initial query |
+| `gerrit.pageSize` | 50 | 10–100 changes per page |
+| `gerrit.requestTimeout` | 30000 | HTTP timeout in milliseconds |
+| `gerrit.commitInfo.defaultExpanded` | true | Expand commit details |
+| `gerrit.comments.expandThreads` | true | Expand native inline comments |
+| `gerrit.relationChain.defaultExpanded` | true | Expand related changes |
+| `gerrit.diff.openBeside` | false | Open comparisons in a separate editor group on the right |
+| `gerrit.logLevel` | `info` | off/error/info/debug |
+
+Toolbar settings and output buttons open extension settings and the Gerrit Workbench output channel. Known secrets and authentication headers are redacted; request bodies and response bodies are not logged. Output can contain server/project paths.
+
+## Development and local delivery
+
+Run `python scripts/verify.py`, then `python scripts/package.py`. Optionally run `python scripts/verify_host.py --vsix gerrit-workbench-0.16.0.vsix` for an isolated real VS Code host check. Node.js or VS Code's bundled Node runtime and Python are required. Local Git tests require Git. The packager validates the new archive before removing older project VSIX files and includes only runtime assets and documentation.
+
+This is a local delivery; no remote repository or Marketplace publication is configured. See [release checks](RELEASE.en.md). MIT license; bundled markdown-it license is documented in [third-party notices](THIRD_PARTY_NOTICES.md).

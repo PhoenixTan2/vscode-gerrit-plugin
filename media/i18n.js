@@ -592,7 +592,9 @@
   "只支持": "Only supports",
   "链接地址无效": "Invalid link URL",
   "本地化": "Localization",
-  "链接": "link"
+  "链接": "link",
+  "添加评论或回复": "Add a comment or reply",
+  "输入评论，点击发布后发送": "Write a comment; click Post to publish"
 };
   const punctuation = {'。':'. ', '，':', ', '：':': ', '；':'; ', '（':' (', '）':')', '、':', ', '？':'?', '！':'!', '“':'"', '”':'"'};
   const entries = {...messages,...punctuation};

@@ -2,7 +2,7 @@
   "name": "gerrit-workbench",
   "displayName": "Gerrit Workbench",
   "description": "%extension.description%",
-  "version": "0.15.0",
+  "version": "0.16.0",
   "publisher": "local-tools",
   "license": "MIT",
   "engines": {
@@ -140,6 +140,26 @@
         "command": "gerrit.openThisFile",
         "title": "%extension.contributes.commands.15.title%",
         "icon": "$(go-to-file)"
+      },
+      {
+        "command": "gerrit.postCommentZh",
+        "title": "发布评论",
+        "icon": "$(send)"
+      },
+      {
+        "command": "gerrit.postCommentEn",
+        "title": "Post comment",
+        "icon": "$(send)"
+      },
+      {
+        "command": "gerrit.replyZh",
+        "title": "回复",
+        "icon": "$(send)"
+      },
+      {
+        "command": "gerrit.replyEn",
+        "title": "Reply",
+        "icon": "$(send)"
       }
     ],
     "menus": {
@@ -228,9 +248,42 @@
       ],
       "comments/commentThread/context": [
         {
-          "command": "gerrit.reply",
-          "when": "commentController == gerrit",
+          "command": "gerrit.postCommentZh",
+          "when": "commentController == gerrit && gerritCommentLanguage == zh && commentThread != gerritReply",
           "group": "inline"
+        },
+        {
+          "command": "gerrit.postCommentEn",
+          "when": "commentController == gerrit && gerritCommentLanguage == en && commentThread != gerritReply",
+          "group": "inline"
+        },
+        {
+          "command": "gerrit.replyZh",
+          "when": "commentController == gerrit && gerritCommentLanguage == zh && commentThread == gerritReply",
+          "group": "inline"
+        },
+        {
+          "command": "gerrit.replyEn",
+          "when": "commentController == gerrit && gerritCommentLanguage == en && commentThread == gerritReply",
+          "group": "inline"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "gerrit.postCommentZh",
+          "when": "false"
+        },
+        {
+          "command": "gerrit.postCommentEn",
+          "when": "false"
+        },
+        {
+          "command": "gerrit.replyZh",
+          "when": "false"
+        },
+        {
+          "command": "gerrit.replyEn",
+          "when": "false"
         }
       ]
     },

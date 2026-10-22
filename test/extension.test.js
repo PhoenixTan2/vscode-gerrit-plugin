@@ -11,19 +11,19 @@ function fixture() {
     comments: { createCommentController: () => controller }, Range,
     StatusBarAlignment: { Left: 1 }, CommentMode: { Preview: 0 }, CommentThreadState: { Resolved: 1, Unresolved: 0 }, CommentThreadCollapsibleState: { Expanded: 1, Collapsed: 0 },
     window: { createStatusBarItem: () => ({ show() {}, dispose() {} }), createOutputChannel: () => ({ appendLine() {}, show() {}, dispose() {} }), registerWebviewViewProvider() {},
-      createTextEditorDecorationType: options => ({ options, dispose() {} }), onDidChangeVisibleTextEditors() {}, visibleTextEditors: [], setStatusBarMessage() {}, showInformationMessage() {},
+      createTextEditorDecorationType: options => ({ options, dispose() {} }), onDidChangeVisibleTextEditors() {}, onDidChangeTextEditorSelection() {}, onDidChangeActiveTextEditor() {}, visibleTextEditors: [], setStatusBarMessage() {}, showInformationMessage() {},
       createWebviewPanel: (...args) => { const panel = { webview: { postMessage() {} }, onDidDispose() {}, reveal: column => { panel.revealed = column; } }; panels.push({ args, panel }); return panel; }
     },
     Uri: { joinPath: (_, ...segments) => ({ path: segments.join('/') }), from: value => ({ ...value, toString: () => `${value.scheme}://${value.authority}${value.path}` }), parse: value => ({ toString: () => value }) },
     ThemeColor: class { constructor(id) { this.id = id; } }, OverviewRulerLane: { Full: 7 },
     Selection: class extends Range { constructor(...args) { super(...args); this.active = this.end; } }, TextEditorRevealType: { InCenter: 0 },
     env: { asExternalUri: async uri => uri },
-    ViewColumn: { Beside: -2, Active: -1 },
+    TextEditorSelectionChangeKind: { Keyboard: 1, Mouse: 2, Command: 3 }, ViewColumn: { Beside: -2, Active: -1 },
     MarkdownString: class { constructor() { this.value = ''; } appendText(text) { this.value += text; } },
     Hover: class { constructor(contents) { this.contents = contents; } },
     languages: { registerHoverProvider() {} },
     workspace: { getConfiguration: () => ({ get: (key, value) => settings[key] ?? value }), onDidChangeConfiguration() {}, registerTextDocumentContentProvider() {} },
-    commands: { registerCommand(name, handler) { commands.set(name, handler); }, executeCommand: async (...args) => executed.push(args), getCommands: async () => ['workbench.action.browser.open'] }
+    commands: { registerCommand(name, handler) { commands.set(name, handler); }, executeCommand: async (...args) => { if (args[0] !== 'setContext') return executed.push(args); }, getCommands: async () => ['workbench.action.browser.open'] }
   };
   const context = { subscriptions: [] };
   const module = { exports: {} };
@@ -764,4 +764,39 @@ test('diff previews are temporary and language changes update generated error di
   await app.openDiff('a.c');assert.equal(executed[0][4].preview,true);
   try {settings.language='en';app.configure();assert.equal(app.model.language,'en');await assert.rejects(app.openDiff('missing'),error=>!/[\u3400-\u9fff]/.test(error.message));}
   finally {settings.language='zh-CN';app.configure();}
+});
+
+
+test('native comment prompts, labels and language-specific submit menus follow plugin language',async()=>{
+  const {app,controller,settings,created}=fixture();
+  assert.equal(controller.options.prompt,'添加评论或回复…');
+  const uri={toString:()=> 'gerrit:localized'};app.selected.change.revisions={abc:{_number:1}};app.selected.comments={'a.c':[{id:'root',patch_set:1,line:1,message:'原文'}]};
+  await app.attach(uri,{id:app.selected.id,rev:'abc',path:'a.c',side:'REVISION',label:'PS 1'});
+  assert.equal(created[0].contextValue,'gerritReply');
+  try {settings.language='en';app.configure();assert.equal(controller.options.prompt,'Add a comment or reply…');assert.ok(!/[\u3400-\u9fff]/.test(controller.options.placeHolder));assert.ok(!/[\u3400-\u9fff]/.test(created[0].label));assert.equal(created[0].comments[0].body,'原文');}
+  finally {settings.language='zh-CN';app.configure();}
+});
+
+test('native comment selection redirects to diff while explicit single opening and ordinary cursor moves stay single',async()=>{
+  const {app,vscode,Range}=fixture(),uri={toString:()=> 'gerrit:native'},range=new Range(4,0,4,0);
+  const tab={input:{uri},isPreview:true},diff={input:{original:uri,modified:uri}};
+  vscode.window.tabGroups={activeTabGroup:{activeTab:tab},all:[{tabs:[tab,diff]}],close:async()=>{}};
+  const thread={uri,range,comments:[{body:'Review'}]},info={id:app.selected.id,rev:'abc',path:'a.c',commentIds:['root']};app.threads.set(thread,info);
+  const calls=[];app.locateComment=async(...args)=>{calls.push(args);vscode.window.tabGroups.activeTabGroup.activeTab=diff;};
+  const event={kind:3,textEditor:{document:{uri}},selections:[range]};
+  await app.followNativeComment({...event,kind:2});assert.equal(calls.length,0);
+  app.busy=true;await app.followNativeComment(event);app.busy=false;assert.equal(calls.length,0);
+  await app.followNativeComment(event);assert.deepEqual(calls,[['a.c','root']]);
+  await app.followNativeComment(event);assert.equal(calls.length,1);
+});
+
+
+test('first-line native comment activation redirects but revisiting an explicit standalone tab does not',async()=>{
+ const {app,vscode,Range}=fixture(),uri={toString:()=> 'gerrit:first-line'},range=new Range(0,0,0,0);
+ const tab={input:{uri}},thread={uri,range,comments:[{}]},info={id:app.selected.id,rev:'abc',path:'a.c',commentIds:['root']};
+ vscode.window.tabGroups={activeTabGroup:{activeTab:tab}};app.threads.set(thread,info);
+ const calls=[];app.locateComment=async(...args)=>calls.push(args);
+ const event={textEditor:{document:{uri}},selections:[range]};
+ app.rememberStandalone(uri);await app.followNativeComment(event,true);assert.equal(calls.length,0);
+ app.explicitStandaloneTabs=new WeakSet();await app.followNativeComment(event,true);assert.deepEqual(calls,[['a.c','root']]);
 });

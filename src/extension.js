@@ -6,6 +6,7 @@ const { GerritApi, normalizeUrl } = require('./api');
 const { inboxQuery, searchPlan, scanChanges } = require('./inbox');
 const { fileLimitReason } = require('./limits');
 const { classifyFile } = require('./files');
+const {nativeCommentTarget} = require('./comment-navigation');
 const { NativeFiles } = require('./native-files');
 const { PathIndex } = require('./path-index');
 const { ReviewProgress } = require('./review-progress');
@@ -31,6 +32,7 @@ function activate(context) {
     vscode.commands.registerCommand('gerrit.push', () => app.run(() => app.push())),
     vscode.commands.registerCommand('gerrit.comment', () => app.run(() => app.addComment())),
     vscode.commands.registerCommand('gerrit.reply', reply => app.run(() => app.reply(reply))),
+    ...['postCommentZh','postCommentEn','replyZh','replyEn'].map(id => vscode.commands.registerCommand('gerrit.' + id, reply => app.run(() => app.reply(reply)))),
     vscode.commands.registerCommand('gerrit.tasks', () => app.openTasks()),
     vscode.commands.registerCommand('gerrit.settings', () => app.openSettings()),
     vscode.commands.registerCommand('gerrit.logs', () => app.output.show(true)),
@@ -40,6 +42,8 @@ function activate(context) {
     vscode.commands.registerCommand('gerrit.fileComments', () => app.run(() => app.navigateComment(0))),
     vscode.commands.registerCommand('gerrit._viewStatus', () => ({ resolved: !!app.view, ready: !!app.sidebarReady, error: app.sidebarError || null, filesReady: !!app.filesReady, filesError: app.filesError || null })),
     vscode.window.onDidChangeVisibleTextEditors(() => app.updateDecorations()),
+    vscode.window.onDidChangeTextEditorSelection(event => { void Promise.resolve().then(() => app.followNativeComment(event)); }),
+    vscode.window.onDidChangeActiveTextEditor(editor => { if (editor) void Promise.resolve().then(() => app.followNativeComment({ textEditor: editor, selections: editor.selections }, true)); }),
     vscode.languages.registerHoverProvider({ scheme: 'gerrit' }, { provideHover: (document, position) => app.commentHover(document, position) }),
     vscode.workspace.onDidChangeConfiguration(event => { if (event.affectsConfiguration('gerrit')) app.run(async () => {
       app.configure();
@@ -59,7 +63,7 @@ class Workbench {
     this.output = vscode.window.createOutputChannel('Gerrit Workbench');
     this.logger = new Logger(this.output);
     this.model = { connected: false, changes: [], query: this.setting('defaultQuery', 'is:open'), start: 0 };
-    this.patchDeltaCache = new Map(); this.backgroundJobs = new Map(); this.reviewProgress = new ReviewProgress(context.globalState); this.parentTrail = []; this.inboxPages = new Map(); this.patchPathCache = new Map(); this.downloadJobs = new Map(); this.nativeFiles = new NativeFiles(vscode); this.pathIndex = new PathIndex((...args) => this.runGit(...args));
+    this.explicitStandaloneTabs = new WeakSet(); this.patchDeltaCache = new Map(); this.backgroundJobs = new Map(); this.reviewProgress = new ReviewProgress(context.globalState); this.parentTrail = []; this.inboxPages = new Map(); this.patchPathCache = new Map(); this.downloadJobs = new Map(); this.nativeFiles = new NativeFiles(vscode); this.pathIndex = new PathIndex((...args) => this.runGit(...args));
     this.configure();
     this.documents = new Map(); this.threads = new Map(); this.selected = null; this.busy = false;
     this.commentDecoration = vscode.window.createTextEditorDecorationType({
@@ -67,6 +71,7 @@ class Workbench {
       overviewRulerColor: new vscode.ThemeColor('gerrit.commentMarker'), overviewRulerLane: vscode.OverviewRulerLane.Full
     });
     this.controller = vscode.comments.createCommentController('gerrit', 'Gerrit');
+    this.updateNativeCommentLanguage();
     this.controller.commentingRangeProvider = { provideCommentingRanges: document => {
       const info = this.documents.get(document.uri.toString());
       return this.validInfo(info) && !info.empty ? [new vscode.Range(0, 0, Math.max(0, document.lineCount - 1), 0)] : undefined;
@@ -82,6 +87,7 @@ class Workbench {
     this.model.commitInfoExpanded = this.setting('commitInfo.defaultExpanded', true);
     this.model.relationChainExpanded = this.setting('relationChain.defaultExpanded', true);
     if (this.api) { this.api.pageSize = this.model.pageSize; this.api.timeout = this.setting('requestTimeout', 30000); }
+    this.updateNativeCommentLanguage();
     this.render();
   }
   createApi(url, username, password, authMode) {
@@ -614,6 +620,7 @@ class Workbench {
     this.documents.set(uri.toString(), { id: s.id, rev, path, content, side, label: `PS ${s.change.revisions[rev]._number}${side === 'PARENT' ? ' Base' : ''}` });
     const document = await vscode.workspace.openTextDocument(uri);
     const editor = await vscode.window.showTextDocument(document, { viewColumn: vscode.ViewColumn.Active, preview: false });
+    this.rememberStandalone(uri);
     await this.attach(uri, this.documents.get(uri.toString())); return editor;
   }
   async localRepository(project) {
@@ -917,7 +924,12 @@ class Workbench {
     if (!info) throw new Error(tr('请先打开 Gerrit 文件差异'));
     if (info.empty) throw new Error(tr('这一侧文件不存在'));
     const document = await vscode.workspace.openTextDocument(uri);
-    return vscode.window.showTextDocument(document, { viewColumn: vscode.ViewColumn.Active, preview: false });
+    const editor = await vscode.window.showTextDocument(document, { viewColumn: vscode.ViewColumn.Active, preview: false });
+    this.rememberStandalone(uri); return editor;
+  }
+  rememberStandalone(uri) {
+    const tab = vscode.window.tabGroups?.activeTabGroup?.activeTab;
+    if (tab?.input?.uri?.toString() === uri.toString()) this.explicitStandaloneTabs.add(tab);
   }
   async openDiffSide(side) {
     const input = vscode.window.tabGroups?.activeTabGroup?.activeTab?.input;
@@ -937,6 +949,29 @@ class Workbench {
     body.appendText(tr`此处有 ${comments.length} 条 Gerrit 评论（${info.label || info.side}）\n点击行号旁的评论图标展开并回复。\n\n`);
     for (const c of comments.slice(-5)) body.appendText(`${c.author?.name || c.author?.username || tr('Gerrit 用户')}：${c.message.slice(0, 600)}\n\n`);
     return new vscode.Hover(body);
+  }
+  updateNativeCommentLanguage() {
+    void vscode.commands.executeCommand('setContext', 'gerritCommentLanguage', this.model.language === 'en' ? 'en' : 'zh');
+    if (!this.controller) return;
+    this.controller.options = { prompt: tr('添加评论或回复…'), placeHolder: tr('输入评论，点击发布后发送') };
+    for (const [thread, info] of this.threads || []) {
+      thread.label = thread.comments.length ? tr`${tr.current(info.label) || info.side} · 发布后立即可见` : tr`新建评论 · ${tr.current(info.label) || info.side} · 发布后立即可见`;
+    }
+  }
+  async followNativeComment(event, activation = false) {
+    if (this.disposed || this.busy || this.nativeCommentNavigation) return;
+    const target = nativeCommentTarget(vscode, event, this.threads, activation);
+    if (activation && target && this.explicitStandaloneTabs.has(target.tab)) return;
+    if (!target || !this.validInfo(target.info)) return;
+    this.nativeCommentNavigation = true;
+    try {
+      await this.run(async () => {
+        await this.locateComment(target.info.path, target.commentId);
+        const active = vscode.window.tabGroups?.activeTabGroup?.activeTab;
+        // Discard only the temporary single tab created by native navigation, never a kept user tab.
+        if (active?.input?.original && target.tab.isPreview && !target.tab.isDirty && vscode.window.tabGroups.all?.some(group => group.tabs.includes(target.tab))) await vscode.window.tabGroups.close(target.tab, true);
+      });
+    } finally { this.nativeCommentNavigation = false; }
   }
   async locateComment(path, id) {
     const s = this.selected; const comment = s.comments[path]?.find(c => c.id === id);
@@ -976,7 +1011,8 @@ class Workbench {
       const c = group[0];
       const range = c.range ? new vscode.Range(c.range.start_line - 1, c.range.start_character, c.range.end_line - 1, c.range.end_character) : c.line ? new vscode.Range(c.line - 1, 0, c.line - 1, 0) : undefined;
       const thread = this.controller.createCommentThread(uri, range, group.map(item => ({ body: item.message, mode: vscode.CommentMode.Preview, author: { name: item.author?.name || item.author?.username || tr('Gerrit 用户') } })));
-      thread.label = tr`${info.label || info.side} · 回复将立即发布`;
+      thread.contextValue = 'gerritReply';
+      thread.label = tr`${info.label || info.side} · 发布后立即可见`;
       thread.collapsibleState = this.setting('comments.expandThreads', true) ? vscode.CommentThreadCollapsibleState.Expanded : vscode.CommentThreadCollapsibleState.Collapsed;
       thread.state = group.at(-1).unresolved ? vscode.CommentThreadState.Unresolved : vscode.CommentThreadState.Resolved;
       this.threads.set(thread, { ...info, parent: group.at(-1), commentIds: group.map(item => item.id) });
@@ -1027,6 +1063,7 @@ class Workbench {
     const info = this.documents.get(editor.document.uri.toString());
     if (!this.validInfo(info) || info.empty) throw new Error(tr('请从当前变更详情打开非空的文件版本'));
     const thread = this.controller.createCommentThread(editor.document.uri, editor.selection, []);
+    thread.contextValue = 'gerritNewComment';
     thread.label = tr`新建评论 · ${info.label || info.side} · 发布后立即可见`;
     thread.collapsibleState = vscode.CommentThreadCollapsibleState.Expanded;
     this.threads.set(thread, { ...info });

@@ -278,6 +278,39 @@ async function run() {
     await vscode.window.tabGroups.close(tabs.map(item=>item.tab));
     await originals.dispose();
 
+    // Exercise the actual command-selection path used by the native Comments panel,
+    // not the discussion Webview's locate button.
+    const {nativeCommentTarget} = require(require('node:path').join(extension.extensionPath, 'src', 'comment-navigation.js'));
+    const navScheme = 'gerrit-native-comment-smoke';
+    const navProvider = vscode.workspace.registerTextDocumentContentProvider(navScheme, {provideTextDocumentContent: () => 'one\ntwo\nthree\nfour\nfive\n'});
+    const navUri = vscode.Uri.parse(navScheme + ':/review.c'), baseUri = vscode.Uri.parse(navScheme + ':/base.c');
+    const navController = vscode.comments.createCommentController('gerrit.nativeNavigationSmoke', 'Gerrit navigation smoke');
+    navController.options = {prompt:'Add a comment or reply…',placeHolder:'Write a comment; click Post to publish'};
+    const navRange = new vscode.Range(2,0,2,0);
+    const navThread = navController.createCommentThread(navUri, navRange, [{body:'Native navigation test',author:{name:'Reviewer'},mode:vscode.CommentMode.Preview}]);
+    const navThreads = new Map([[navThread,{path:'review.c',commentIds:['root']}]]);
+    let resolveNavigation, rejectNavigation, navigationError;
+    const nativeNavigation = new Promise((resolve,reject)=>{resolveNavigation=resolve;rejectNavigation=reject;});
+    const navTimeout = setTimeout(()=>rejectNavigation(new Error('Native Comments selection was not redirected: '+JSON.stringify(navigationError))),5000);
+    const navListener = vscode.window.onDidChangeTextEditorSelection(event => {
+      if(event.textEditor.document.uri.toString()===navUri.toString()) navigationError={kind:event.kind,line:event.selections[0].start.line,tab:vscode.window.tabGroups.activeTabGroup.activeTab?.input?.constructor.name};
+      const target = nativeCommentTarget(vscode,event,navThreads); if(!target) return;
+      clearTimeout(navTimeout);
+      vscode.commands.executeCommand('vscode.diff',baseUri,navUri,'Native comment diff',{preview:true}).then(resolveNavigation,rejectNavigation);
+    });
+    try {
+      await vscode.commands.executeCommand('vscode.open',navUri,{preview:true,selection:navRange});
+      await nativeNavigation;
+      const navTab=vscode.window.tabGroups.activeTabGroup.activeTab;
+      assert.ok(navTab?.input instanceof vscode.TabInputTextDiff,'Native comment navigation must finish in a diff');
+      assert.equal(navTab.input.modified.toString(),navUri.toString());
+      assert.equal(navController.options.prompt,'Add a comment or reply…');
+    } finally {
+      clearTimeout(navTimeout);navListener.dispose();navController.dispose();
+      const navTabs=vscode.window.tabGroups.all.flatMap(group=>group.tabs.filter(tab=>tab.input?.uri?.scheme===navScheme||tab.input?.modified?.scheme===navScheme));
+      await vscode.window.tabGroups.close(navTabs);navProvider.dispose();
+    }
+
     await vscode.commands.executeCommand('gerrit.logs');
     fs.writeFileSync(process.env.GERRIT_HOST_SMOKE_RESULT, JSON.stringify({ ok: true, vscode: vscode.version, extension: extension.packageJSON.version }));
     console.log('Real Extension Host activation and sidebar smoke test passed');

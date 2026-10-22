@@ -27,6 +27,8 @@ with zipfile.ZipFile(artifact) as z:
     assert {'extension/media/i18n.js','extension/media/vendor/markdown-it.LICENSE','extension/src/i18n.js'} <= names
     assert all(name in ['extension.vsixmanifest','[Content_Types].xml'] or name in ['extension/'+x for x in required] or name.startswith(('extension/src/','extension/media/')) for name in names), 'Unexpected package files'
     assert not any('..' in name.split('/') or name.endswith(('.log','.tmp','.vsix')) for name in names)
+    readme = z.read('extension/README.md').decode('utf-8')
+    assert '[English](#english)' in readme and '## English' in readme and '## Install and connect' in readme, 'Details page needs self-contained English documentation'
     icon = z.read('extension/' + p['icon'])
     assert icon[:8] == b'\x89PNG\r\n\x1a\n'
     assert all(size >= 128 for size in struct.unpack('>II', icon[16:24]))

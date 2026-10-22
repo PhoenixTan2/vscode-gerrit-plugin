@@ -1,6 +1,12 @@
 # 更新记录
 
-**中文** | [English](CHANGELOG.en.md)
+**中文** | [English](#english)
+
+## 0.16.0
+
+- 原生评论输入框提示和发布 / 回复按钮随 Gerrit Language 切换，新评论与已有线程分开显示操作。
+- 补齐 VS Code 底部 Comments 原生定位入口，已登记评论的命令定位切换到所属 PS / Base 差异，保留显式单文件打开和普通光标移动。
+- 扩展详情页文档改为同页中英文说明与页内 English 跳转，不依赖尚未配置的公开仓库地址。
 
 ## 0.15.0
 
@@ -150,3 +156,96 @@
 ## 0.1.1
 
 - 自动识别 dashboard 网页地址，改进 HTTP Key 错误提示。
+
+
+---
+
+## English
+
+[返回中文 / Back to Chinese](#更新记录)
+
+
+## 0.16.0
+
+- Localize native comment prompts and Post comment / Reply actions using Gerrit Language. Distinguish new comments from existing threads.
+- Redirect command-driven navigation to registered native Comments threads into the appropriate PS/Base diff; preserve explicit standalone opening and ordinary cursor movement.
+- Embed English documentation in root documents with in-page language links so the installed extension details viewer does not need a repository URL.
+
+## 0.15.0
+
+- Open comment/activity web links in the integrated browser. Same-site Gerrit links reuse authenticated sessions; external links do not receive Gerrit credentials.
+- Add Chinese (default) and English views, dialogs and messages, packaged NLS contributions and bilingual documentation. Preserve user content verbatim.
+- Move Open this side separately from the context menu to the editor toolbar.
+- Reuse preview tabs for diffs and binary comparison pairs.
+- Press C in read-only Gerrit diffs to comment on the selection or cursor line. Ctrl+C remains copy.
+- Restrict package contents to runtime resources, localization and documentation. Prepare a local package without publishing.
+
+## 0.14.0
+
+Return from comparisons to discussion; align filters; deduplicate votes; compare adjacent PS code in the background; color file types; locate historical comments in PS/Base diffs; add single-side actions; mark successful file opens read; hide change-level code navigation.
+
+## 0.13.0
+
+Add exact change-number and case-insensitive modified-path filters, simplify connection prompts and default to website login. Expand details by default, show pink submittable cards, fold unvoted reviewers and preflight the Base64 response size budget.
+
+## 0.12.0
+
+Freeze search order while browsing with explicit merging of new hits. Add background task cancellation/retry, ancestor breadcrumbs, persistent PS file progress and scoped refresh.
+
+## 0.11.0
+
+Remove workspace dependence from revision path lookup using isolated temporary bare Git caches. Support unchanged files, case-insensitive paths, cache isolation and cleanup.
+
+## 0.10.0
+
+Preload related changes and resolve parent SHAs to visible Gerrit changes. Pin parent navigation to exact historical revisions, retain return context and guard historical review writes.
+
+## 0.9.0
+
+Add result Previous/Next navigation, configurable related-change expansion, metadata searches, compact layout and consistent collapse arrows.
+
+## 0.8.0
+
+Add status colors and clearer controls. Automatically compare mutually exclusive version selections. Improve file path lookup and Markdown discussion editing/preview.
+
+## 0.7.0
+
+Improve streaming search, cancellation, cached results, compact files and status filters.
+
+## 0.6.0
+
+Improve friendly search and native opening of binary originals without embedded file-format readers.
+
+## 0.5.0
+
+Improve comparison/review navigation, related changes, file presentation and search workflows.
+
+## 0.4.0
+
+Improve discussion layout, background SSH downloads, timestamps and commit information.
+
+## 0.3.2
+
+Fix extension activation and view visibility compatibility.
+
+## 0.3.1
+
+Improve extension installation and workbench activation reliability.
+
+## 0.3.0
+
+Expand review, code browsing, download and comment navigation workflows.
+
+## 0.2.0
+
+Add configurable views, arbitrary comparisons, inline discussions and debug output.
+
+## 0.1.2
+
+Improve server authentication and connection handling.
+
+## 0.1.1
+
+Initial connection, commit upload, review, comment, reply and voting workflows.
+
+For the detailed original historical notes, see the [Chinese changelog](CHANGELOG.md).

@@ -2,6 +2,12 @@
 
 [中文](CHANGELOG.md) | **English**
 
+## 0.16.0
+
+- Localize native comment prompts and Post comment / Reply actions using Gerrit Language. Distinguish new comments from existing threads.
+- Redirect command-driven navigation to registered native Comments threads into the appropriate PS/Base diff; preserve explicit standalone opening and ordinary cursor movement.
+- Embed English documentation in root documents with in-page language links so the installed extension details viewer does not need a repository URL.
+
 ## 0.15.0
 
 - Open comment/activity web links in the integrated browser. Same-site Gerrit links reuse authenticated sessions; external links do not receive Gerrit credentials.
