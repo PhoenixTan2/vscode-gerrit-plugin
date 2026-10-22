@@ -736,3 +736,32 @@ test('single-side commands open cached snapshots without network and reject an a
   assert.deepEqual(opened,[left,right]); app.documents.get('left').empty=true;
   await assert.rejects(app.openDiffSide('left'),/不存在/);
 });
+
+
+test('comment links use same-site authentication and open external sites without credentials',async()=>{
+  const {app,executed}=fixture();app.api.url='https://review.example/gerrit';app.api.auth='TEST_PRIVATE_AUTH';
+  const local=[];app.openBrowser=async path=>local.push(path);
+  await app.openLink('/gerrit/c/42?x=1#comment');assert.deepEqual(local,['/gerrit/c/42?x=1#comment']);
+  await app.openLink('https://docs.example/help#review');
+  assert.deepEqual(executed.at(-1),['workbench.action.browser.open','https://docs.example/help#review']);
+  assert.ok(!JSON.stringify(executed).includes('TEST_PRIVATE_AUTH'));
+  for(const url of ['javascript:alert(1)','file:///tmp/x','data:text/plain,a','https://u:pw@docs.example']) await assert.rejects(app.openLink(url),/HTTP/);
+});
+
+test('bare C command opens a comment at the cursor without publishing until reply',async()=>{
+  const {app,vscode,commands,created,sent,Range}=fixture(),uri={toString:()=> 'gerrit:cursor'};
+  app.documents.set(uri.toString(),{id:app.selected.id,rev:'abc',path:'cursor.c',side:'PARENT'});
+  vscode.window.activeTextEditor={document:{uri},selection:new Range(7,3,7,3)};
+  await commands.get('gerrit.comment')();assert.equal(created.length,1);assert.equal(sent.length,0);assert.equal(created[0].range.isEmpty,true);
+  app.load=async()=>{};await app.reply({thread:created[0],text:'Check this line'});
+  const comment=sent[0][2].comments['cursor.c'][0];assert.equal(comment.line,8);assert.equal(comment.side,'PARENT');assert.equal(comment.range,undefined);
+});
+
+test('diff previews are temporary and language changes update generated error dialogs',async()=>{
+  const f=fixture(),{app,settings,executed}=f;
+  app.api.url='https://review.example';app.api.bytes=async()=>Buffer.from('text');app.selected.change.revisions={abc:{_number:1}};
+  app.selected.files={'a.c':{}};app.selected.comparison={left:'base',right:'abc',revision:'abc'};app.attach=async()=>{};
+  await app.openDiff('a.c');assert.equal(executed[0][4].preview,true);
+  try {settings.language='en';app.configure();assert.equal(app.model.language,'en');await assert.rejects(app.openDiff('missing'),error=>!/[\u3400-\u9fff]/.test(error.message));}
+  finally {settings.language='zh-CN';app.configure();}
+});

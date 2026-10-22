@@ -1,4 +1,5 @@
 'use strict';
+const {tr} = require('./i18n');
 const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
@@ -12,12 +13,12 @@ class PathIndex {
     this.controller = new AbortController();
   }
   read(info, { signal, progress = () => {} } = {}) {
-    if (this.disposed) return Promise.reject(new Error('文件查找会话已结束，请重新连接'));
+    if (this.disposed) return Promise.reject(new Error(tr('文件查找会话已结束，请重新连接')));
     let remote;
-    try { remote = new URL(info.url); } catch { return Promise.reject(new Error('无法读取版本文件清单：SSH 地址无效')); }
+    try { remote = new URL(info.url); } catch { return Promise.reject(new Error(tr('无法读取版本文件清单：SSH 地址无效'))); }
     if (remote.protocol !== 'ssh:' || !remote.username || remote.password || remote.search || remote.hash ||
         !/^[a-f0-9]{40,64}$/.test(info.revision || '') || !/^refs\/changes\/\d{2}\/\d+\/\d+$/.test(info.ref || '')) {
-      return Promise.reject(new Error('无法读取版本文件清单：SSH 地址或 Patch 引用无效'));
+      return Promise.reject(new Error(tr('无法读取版本文件清单：SSH 地址或 Patch 引用无效')));
     }
     const repoKey = crypto.createHash('sha256').update(JSON.stringify([info.server, info.account, info.project, remote.toString(), info.revision.length])).digest('hex');
     const key = repoKey + ':' + info.revision;
@@ -29,13 +30,13 @@ class PathIndex {
       if (signal?.aborted) abort();
       const previous = this.queues.get(repoKey) || Promise.resolve();
       const pending = previous.catch(() => {}).then(async () => {
-        if (this.disposed) throw new Error('文件查找会话已结束');
-        controller.signal.throwIfAborted(); progress('准备路径缓存');
+        if (this.disposed) throw new Error(tr('文件查找会话已结束'));
+        controller.signal.throwIfAborted(); progress(tr('准备路径缓存'));
         const directory = await this.repository(repoKey, info.revision.length);
         controller.signal.throwIfAborted();
         return readPatchPaths({ directory, revision: info.revision, ref: info.ref, url: remote.toString(), lightweight: true },
           (cwd, args, options) => {
-            progress(args[0] === 'fetch' ? 'SSH 获取版本路径' : '读取文件路径');
+            progress(args[0] === 'fetch' ? tr('SSH 获取版本路径') : tr('读取文件路径'));
             return this.run(cwd, args, { ...options, signal: controller.signal });
           });
       }).catch(error => { if (controller.signal.aborted) throw controller.signal.reason; throw error; }).finally(() => {
@@ -51,7 +52,7 @@ class PathIndex {
       const pending = (async () => {
         if (!this.rootPromise) this.rootPromise = fs.mkdtemp(path.join(os.tmpdir(), 'gerrit-workbench-index-'));
         const root = await this.rootPromise;
-        if (this.disposed) throw new Error('文件查找会话已结束');
+        if (this.disposed) throw new Error(tr('文件查找会话已结束'));
         const directory = path.join(root, key);
         await fs.mkdir(directory, { recursive: true });
         await this.run(directory, ['init', '--bare', '--quiet', '--template=', ...(hashLength === 64 ? ['--object-format=sha256'] : [])], { signal: this.controller.signal });

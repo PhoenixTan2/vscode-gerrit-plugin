@@ -1,4 +1,5 @@
 'use strict';
+const {tr} = require('./i18n');
 const http = require('node:http');
 const https = require('node:https');
 const crypto = require('node:crypto');
@@ -15,7 +16,7 @@ class BrowserGateway {
   }
   entry(path) {
     const target = new URL(path, this.api.url + '/');
-    if (target.origin !== new URL(this.api.url).origin) throw new Error('浏览器只允许打开当前 Gerrit 站点');
+    if (target.origin !== new URL(this.api.url).origin) throw new Error(tr('浏览器只允许打开当前 Gerrit 站点'));
     const ticket = crypto.randomBytes(32).toString('hex');
     if (this.tickets.size >= 32) this.tickets.delete(this.tickets.keys().next().value);
     this.tickets.set(ticket, target.pathname + target.search + target.hash);
@@ -34,7 +35,7 @@ class BrowserGateway {
       const csrf = this.api.cookies.get('XSRF_TOKEN'); if (csrf) cookies.push(`XSRF_TOKEN=${csrf}; SameSite=Strict; Path=/`);
       res.writeHead(302, { Location: path, 'Set-Cookie': cookies, 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' }); res.end(); return;
     }
-    if (!String(req.headers.cookie || '').split(';').map(s => s.trim()).includes(`${this.cookieName}=${this.nonce}`)) return deny(403, '请从 Gerrit 插件重新打开内置浏览器');
+    if (!String(req.headers.cookie || '').split(';').map(s => s.trim()).includes(`${this.cookieName}=${this.nonce}`)) return deny(403, tr('请从 Gerrit 插件重新打开内置浏览器'));
     if (req.headers.origin && req.headers.origin !== this.origin) return deny(403, 'Cross-origin request blocked');
     if (req.headers['sec-fetch-site'] === 'cross-site') return deny(403, 'Cross-site request blocked');
     if (!['GET', 'HEAD', 'POST', 'PUT', 'DELETE', 'PATCH'].includes(req.method) || req.headers.upgrade) return deny(405, 'Unsupported method');
@@ -46,14 +47,14 @@ class BrowserGateway {
     if (headers.origin) headers.origin = remote.origin;
     if (headers.referer) headers.referer = headers.referer.replace(this.origin, remote.origin);
     if (!['GET', 'HEAD'].includes(req.method)) {
-      const csrf = this.api.cookies.get('XSRF_TOKEN'); if (!csrf) return deny(403, '登录会话缺少 XSRF 令牌，请重新连接');
+      const csrf = this.api.cookies.get('XSRF_TOKEN'); if (!csrf) return deny(403, tr('登录会话缺少 XSRF 令牌，请重新连接'));
       try { headers['x-gerrit-auth'] = decodeURIComponent(csrf); } catch { return deny(403, 'Invalid XSRF token'); }
     }
     const started = Date.now();
     const upstream = (remote.protocol === 'https:' ? https : http).request(remote, { method: req.method, headers }, response => {
       const chunks = []; let size = 0;
       response.on('data', chunk => { size += chunk.length; if (size > 32 * 1024 * 1024) response.destroy(new Error('Gateway response too large')); else chunks.push(chunk); });
-      response.on('error', () => { if (!res.headersSent) deny(502, 'Gerrit 响应读取失败'); else res.destroy(); });
+      response.on('error', () => { if (!res.headersSent) deny(502, tr('Gerrit 响应读取失败')); else res.destroy(); });
       response.on('end', () => {
         if (res.destroyed) return;
         try {
@@ -82,12 +83,12 @@ class BrowserGateway {
           out['content-length'] = body.length; out['cache-control'] = 'no-store'; out['referrer-policy'] = 'no-referrer';
           this.api.log('info', `Browser ${req.method} ${remote.pathname} → HTTP ${response.statusCode} (${Date.now() - started} ms)`);
           res.writeHead(response.statusCode, out); res.end(body);
-        } catch { if (!res.headersSent) deny(502, 'Gerrit 页面转换失败'); }
+        } catch { if (!res.headersSent) deny(502, tr('Gerrit 页面转换失败')); }
       });
     });
     this.pending.add(upstream); upstream.on('close', () => this.pending.delete(upstream));
     upstream.setTimeout(this.api.timeout || 30000, () => upstream.destroy(new Error('Gateway timeout')));
-    upstream.on('error', () => { if (!res.headersSent) deny(502, 'Gerrit 浏览器连接失败，请重新连接'); else res.destroy(); });
+    upstream.on('error', () => { if (!res.headersSent) deny(502, tr('Gerrit 浏览器连接失败，请重新连接')); else res.destroy(); });
     let requestBytes = 0; req.on('data', chunk => { requestBytes += chunk.length; if (requestBytes > 32 * 1024 * 1024) { upstream.destroy(); if (!res.headersSent) deny(413, 'Request too large'); } });
     req.on('aborted', () => upstream.destroy()); req.pipe(upstream);
   }

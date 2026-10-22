@@ -15,7 +15,7 @@ async function run() {
     assert.ok(commands.includes('workbench.view.extension.gerrit'), 'Legacy Gerrit container fixture must be present');
     assert.ok(commands.includes('workbench.view.extension.gerritWorkbench'), 'Our container must remain separate');
     for (const key of ['comments.expandThreads', 'commitInfo.defaultExpanded', 'relationChain.defaultExpanded']) assert.equal(extension.packageJSON.contributes.configuration.properties['gerrit.'+key].default, true);
-    assert.equal(extension.packageJSON.contributes.viewsContainers.panel[0].title, 'Gerrit 对比差异');
+    assert.ok(['Gerrit 对比差异','Gerrit Comparison'].includes(extension.packageJSON.contributes.viewsContainers.panel[0].title));
     for (const id of ['gerrit.connect', 'gerrit.refresh', 'gerrit.logs', 'gerrit.comment', 'gerrit.fileComments', 'gerrit.tasks', 'gerrit.openLeftFile', 'gerrit.openRightFile', 'gerrit.openThisFile']) assert.ok(commands.includes(id), `${id} must be registered`);
     await vscode.commands.executeCommand('workbench.view.extension.gerritWorkbench');
     await vscode.commands.executeCommand('gerrit.dashboard.focus');
@@ -59,11 +59,12 @@ async function run() {
     const panel = vscode.window.createWebviewPanel('gerrit.smoke.review', 'Review UI smoke', vscode.ViewColumn.Active, { enableScripts: true, localResourceRoots: [extension.extensionUri] });
     const nonce = require('node:crypto').randomBytes(16).toString('hex');
     const media = name => panel.webview.asWebviewUri(vscode.Uri.joinPath(extension.extensionUri, 'media', name));
-    let fileAction, searchAction, patchAction, cancelAction, compareAction, navigationAction, metadataAction, relatedAction, parentAction, childAction, patchSearchAction, singleAction, comparisonReturnAction, readAction, ancestorAction, taskCancelAction, taskRetryAction, updatesAction;
+    let fileAction, searchAction, patchAction, cancelAction, compareAction, navigationAction, metadataAction, relatedAction, parentAction, childAction, patchSearchAction, singleAction, openLinkAction, comparisonReturnAction, readAction, ancestorAction, taskCancelAction, taskRetryAction, updatesAction;
     const reviewResult = new Promise((resolve, reject) => {
       const timeout = setTimeout(() => reject(new Error('Review Webview fixture did not render')), 15000);
       panel.webview.onDidReceiveMessage(message => {
         if (message.type === 'returnDiscussion') comparisonReturnAction = message;
+        if (message.type === 'openLink') openLinkAction = message;
         if (message.type === 'fileRead') readAction = message;
         if (message.type === 'returnAncestor') ancestorAction = message;
         if (message.type === 'taskCancel') taskCancelAction = message;
@@ -87,7 +88,8 @@ async function run() {
     });
     const fixtureScript = `
       (async () => { try {
-        window.dispatchEvent(new MessageEvent('message', {data:{type:'state',model:${JSON.stringify(fixture)}}}));
+        const initialModel=${JSON.stringify(fixture)};
+        window.dispatchEvent(new MessageEvent('message', {data:{type:'state',model:initialModel}}));
         if (!document.querySelector('.discussion-layout') || !document.querySelector('#review') || !document.querySelector('.thread')) throw new Error('Review sections missing');
         if (document.getElementById('app').textContent.includes('提交时间')) throw new Error('Obsolete timestamp');
         const thread = document.querySelector('.thread:has([data-action="locate"])');
@@ -222,11 +224,24 @@ async function run() {
         window.dispatchEvent(new MessageEvent('message',{data:{type:'state',model:{...model,surface:'tasks',backgroundTasks:[{id:'working',title:'Path index',status:'running',cancelable:true},{id:'failed',title:'Download',status:'failed',retryable:true}]}}}));
         window.dispatchEvent(new MessageEvent('message',{data:{type:'busy',value:true}}));
         for (const action of ['taskCancel','taskRetry']) { const button=document.querySelector('[data-action="'+action+'"]'); if(button.disabled) throw new Error('Busy disabled task control'); button.click(); }
+        window.dispatchEvent(new MessageEvent('message',{data:{type:'busy',value:false}}));
+        initialModel.detail.comments['Boot/Device.c'][0].message+=' [Docs](https://docs.example/guide)';
+        for(const surface of ['sidebar','discussion','files','tasks']) {
+          window.dispatchEvent(new MessageEvent('message',{data:{type:'state',model:{...initialModel,language:'en',surface}}}));
+          if (/[\u3400-\u9fff]/.test(document.getElementById('app').textContent)) throw new Error('English UI contains Chinese: '+surface);
+          if(document.documentElement.lang!=='en') throw new Error('Language metadata did not update');
+        }
+        window.dispatchEvent(new MessageEvent('message',{data:{type:'state',model:{...initialModel,language:'en',surface:'discussion'}}}));
+        const link=document.querySelector('.markdown-body a[href="https://docs.example/guide"]');
+        if (!link || link.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true}))) throw new Error('Comment link was not intercepted');
+        window.dispatchEvent(new MessageEvent('message',{data:{type:'state',model:{...initialModel,language:'zh-CN',surface:'discussion'}}}));
+        if(!document.getElementById('app').textContent.includes('评审')) throw new Error('Chinese language was not restored');
         post('smokeResult',{ok:true});
       } catch(error) { post('smokeResult',{ok:false,error:error.stack}); } })();
     `;
-    panel.webview.html = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${panel.webview.cspSource}; script-src 'nonce-${nonce}'"><link rel="stylesheet" href="${media('style.css')}"></head><body><header><div id="account"></div></header><div id="notice"></div><main id="app"></main><script nonce="${nonce}" src="${media('vendor/markdown-it.min.js')}"></script><script nonce="${nonce}" src="${media('main.js')}"></script><script nonce="${nonce}">${fixtureScript}</script></body></html>`;
+    panel.webview.html = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${panel.webview.cspSource}; script-src 'nonce-${nonce}'"><link rel="stylesheet" href="${media('style.css')}"></head><body><header><div id="account"></div></header><div id="notice"></div><main id="app"></main><script nonce="${nonce}" src="${media('vendor/markdown-it.min.js')}"></script><script nonce="${nonce}" src="${media('i18n.js')}"></script><script nonce="${nonce}" src="${media('main.js')}"></script><script nonce="${nonce}">${fixtureScript}</script></body></html>`;
     await reviewResult;
+    assert.equal(openLinkAction?.url,'https://docs.example/guide');
     assert.equal(navigationAction?.direction, '-1'); assert.equal(navigationAction?.id, 'fixture');
     assert.equal(metadataAction?.kind, 'author'); assert.equal(relatedAction, undefined, 'Expansion must never issue a loading request');
     assert.equal(patchSearchAction?.query, 'unmodified.h'); assert.equal(patchSearchAction?.patchRev, 'a'.repeat(40));
@@ -258,6 +273,7 @@ async function run() {
     assert.equal(uris.length,2); assert.deepEqual(Buffer.from(await vscode.workspace.fs.readFile(uris[0])),oldBytes);
     assert.deepEqual(Buffer.from(await vscode.workspace.fs.readFile(uris[1])),newBytes);
     const tabs = vscode.window.tabGroups.all.flatMap(group=>group.tabs.filter(tab=>uris.some(uri=>tab.input?.uri?.toString()===uri.toString())).map(tab=>({tab,column:group.viewColumn})));
+    assert.ok(tabs.every(item=>item.tab.isPreview), 'Binary comparisons should use preview tabs');
     assert.equal(tabs.length,2); assert.notEqual(tabs[0].column,tabs[1].column,'Originals must open in two native groups');
     await vscode.window.tabGroups.close(tabs.map(item=>item.tab));
     await originals.dispose();

@@ -1,8 +1,9 @@
 'use strict';
+const {tr} = require('./i18n');
 const { fileLimitReason } = require('./limits');
 // Base always means the first parent of the patch set on the opposite side.
 function comparisonPlan(revisions, left, right) {
-  if (left === right || (left !== 'base' && !revisions[left]) || (right !== 'base' && !revisions[right])) throw new Error('请选择两个不同的有效 Patch set / Base');
+  if (left === right || (left !== 'base' && !revisions[left]) || (right !== 'base' && !revisions[right])) throw new Error(tr('请选择两个不同的有效 Patch set / Base'));
   return { left, right, revision: right === 'base' ? left : right, base: left !== 'base' && right !== 'base' ? left : undefined, reverse: right === 'base' };
 }
 function comparisonFiles(files, reverse) {

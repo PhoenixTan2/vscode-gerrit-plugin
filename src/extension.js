@@ -1,4 +1,5 @@
 'use strict';
+const {tr, setLanguage} = require('./i18n');
 const vscode = require('vscode');
 const crypto = require('node:crypto');
 const { GerritApi, normalizeUrl } = require('./api');
@@ -71,10 +72,11 @@ class Workbench {
       return this.validInfo(info) && !info.empty ? [new vscode.Range(0, 0, Math.max(0, document.lineCount - 1), 0)] : undefined;
     } };
     this.status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 30);
-    this.status.text = '$(git-pull-request) Gerrit'; this.status.command = 'gerrit.dashboard.focus'; this.status.tooltip = '打开 Gerrit 工作台'; this.status.show();
+    this.status.text = '$(git-pull-request) Gerrit'; this.status.command = 'gerrit.dashboard.focus'; this.status.tooltip = tr('打开 Gerrit 工作台'); this.status.show();
   }
   setting(key, fallback) { return vscode.workspace.getConfiguration('gerrit').get(key, fallback); }
   configure() {
+    this.model.language = this.setting('language', 'zh-CN'); setLanguage(this.model.language);
     this.logger.level = this.setting('logLevel', 'info');
     this.model.pageSize = this.setting('pageSize', 50);
     this.model.commitInfoExpanded = this.setting('commitInfo.defaultExpanded', true);
@@ -107,6 +109,9 @@ class Workbench {
   }
   send(message) { this.view?.webview.postMessage(message); this.discussion?.webview.postMessage(message); this.filesView?.webview.postMessage(message); this.tasksView?.webview.postMessage(message); }
   render() {
+    this.model.language = this.setting('language', 'zh-CN');
+    if (this.status) this.status.tooltip = tr('打开 Gerrit 工作台');
+    for (const file of Object.values(this.model.detail?.files || {})) if (file.blockedReason) file.blockedReason = tr.current(file.blockedReason);
     this.model.commitInfoExpanded = this.setting('commitInfo.defaultExpanded', true);
     this.model.relationChainExpanded = this.setting('relationChain.defaultExpanded', true);
     this.model.downloads = this.downloadSnapshot();
@@ -116,6 +121,8 @@ class Workbench {
     this.model.username = this.user?.username;
     this.model.parentNavigation = this.parentTrail?.length ? { number: this.parentTrail.at(-1).number } : undefined;
     this.model.resultNavigation = this.selected ? this.resultNavigation() : undefined;
+    if (this.discussion && this.selected) this.discussion.title = tr`#${this.selected.change._number} · 评审讨论`;
+    if (this.tasksView) this.tasksView.title = tr('Gerrit 后台任务');
     this.updateDecorations();
     this.view?.webview.postMessage({ type: 'state', model: { ...this.model, surface: 'sidebar' } });
     this.discussion?.webview.postMessage({ type: 'state', model: { ...this.model, surface: 'discussion' } });
@@ -145,9 +152,9 @@ class Workbench {
     else if (kind === 'owner') filters.owner = String(change.owner?.username || change.owner?.email || change.owner?._account_id || '');
     else if (kind === 'author' || kind === 'committer') {
       const identity = commit[kind]?.email || commit[kind]?.name;
-      if (!identity) throw new Error('此提交没有可检索的身份信息');
+      if (!identity) throw new Error(tr('此提交没有可检索的身份信息'));
       filters.query = kind + ':' + JSON.stringify(identity);
-    } else throw new Error('不支持的检索字段');
+    } else throw new Error(tr('不支持的检索字段'));
     searchPlan(filters.query, filters);
     this.cancelSearch(); this.searchResults = undefined;
     this.parentTrail = []; this.contextController?.abort();
@@ -163,7 +170,7 @@ class Workbench {
     const s = this.selected, detail = this.model.detail, api = this.api;
     const focus = detail?.viewRevision || s.rev;
     const related = await api.related(s.id, focus, { signal: this.contextController?.signal });
-    if (!Array.isArray(related?.changes)) throw new Error('服务器未返回有效的 Relation chain');
+    if (!Array.isArray(related?.changes)) throw new Error(tr('服务器未返回有效的 Relation chain'));
     if (this.model.detail !== detail || this.api !== api || this.disposed) return;
     detail.related = { rev: focus, status: 'completed', changes: related.changes };
     this.send({ type: 'relatedState', id: s.id, rev: s.rev, focusRevision: focus, related: detail.related });
@@ -179,8 +186,8 @@ class Workbench {
       detail.related = { rev: focus, status: 'loading', changes: [] };
       work.push(this.loadRelated().catch(error => {
         if (!active()) return;
-        detail.related = { rev: focus, status: 'failed', changes: [], error: this.logger.redact(error.name === 'AbortError' ? '查找已取消，可在后台任务中重试' : error.message) };
-        this.logger.write('error', error.logMessage || '关系链预加载失败');
+        detail.related = { rev: focus, status: 'failed', changes: [], error: this.logger.redact(error.name === 'AbortError' ? tr('查找已取消，可在后台任务中重试') : error.message) };
+        this.logger.write('error', error.logMessage || tr('关系链预加载失败'));
         this.send({ type: 'relatedState', id: s.id, rev: s.rev, focusRevision: focus, related: detail.related });
       }));
     }
@@ -205,7 +212,7 @@ class Workbench {
       })().catch(error => {
         if (!active()) return;
         detail.parentTargets[sha] = { status: 'failed', changes: [] };
-        this.logger.write('error', error.logMessage || '父提交关联查询失败');
+        this.logger.write('error', error.logMessage || tr('父提交关联查询失败'));
       }).then(() => {
         if (active()) this.send({ type: 'parentState', id: s.id, rev: s.rev, focusRevision: focus, parentTargets: detail.parentTargets });
       }));
@@ -240,12 +247,12 @@ class Workbench {
   async openParent(sha) {
     const s = this.selected, detail = this.model.detail;
     const focus = detail.viewRevision || s.rev;
-    if (!(s.change.revisions?.[focus]?.commit?.parents || []).some(item => item.commit === sha)) throw new Error('父提交已更新，请重新打开变更');
+    if (!(s.change.revisions?.[focus]?.commit?.parents || []).some(item => item.commit === sha)) throw new Error(tr('父提交已更新，请重新打开变更'));
     const target = detail.parentTargets?.[sha];
-    if (target?.status !== 'found' || !target.changes.length) throw new Error('此父提交没有已确认的可见 Gerrit 变更');
+    if (target?.status !== 'found' || !target.changes.length) throw new Error(tr('此父提交没有已确认的可见 Gerrit 变更'));
     let change = target.changes[0];
     if (target.changes.length > 1) {
-      change = await vscode.window.showQuickPick(target.changes.map(item => ({ ...item, label: '#' + item.number + ' · ' + item.subject, description: item.branch })), { title: '选择父提交对应的 Gerrit 变更', ignoreFocusOut: true });
+      change = await vscode.window.showQuickPick(target.changes.map(item => ({ ...item, label: '#' + item.number + ' · ' + item.subject, description: item.branch })), { title: tr('选择父提交对应的 Gerrit 变更'), ignoreFocusOut: true });
       if (!change) return;
     }
     const snapshot = { id: s.id, number: s.change._number, revision: focus, comparison: s.comparison, patchView: detail.patchView, pinned: detail.viewPinned, start: this.model.start };
@@ -254,10 +261,10 @@ class Workbench {
     catch (error) { this.parentTrail.pop(); this.render(); throw error; }
   }
   async returnChild(index = this.parentTrail.length - 1) {
-    if (!Number.isInteger(index) || index < 0 || index >= this.parentTrail.length) throw new Error('导航路径已更新');
+    if (!Number.isInteger(index) || index < 0 || index >= this.parentTrail.length) throw new Error(tr('导航路径已更新'));
     const trail = [...this.parentTrail], snapshot = trail[index];
     this.parentTrail = trail.slice(0, index);
-    if (!snapshot) throw new Error('没有可返回的子提交');
+    if (!snapshot) throw new Error(tr('没有可返回的子提交'));
     try {
       await this.load(snapshot.id, true, { revision: snapshot.revision, comparison: snapshot.comparison, patchView: snapshot.patchView, pinned: snapshot.pinned });
       this.model.start = snapshot.start; this.render();
@@ -276,12 +283,13 @@ class Workbench {
       return;
     }
     if (message?.type === 'clientError') {
-      const text = String(message.message || '工作台页面加载失败').slice(0, 500);
+      const text = String(message.message || tr('工作台页面加载失败')).slice(0, 500);
       if (webview === this.view?.webview) this.sidebarError = text;
       if (webview === this.filesView?.webview) this.filesError = text;
       this.logger.write('error', `Webview: ${text}`);
-      vscode.window.showErrorMessage(`Gerrit 工作台页面加载失败：${text}`); return;
+      vscode.window.showErrorMessage(tr`Gerrit 工作台页面加载失败：${text}`); return;
     }
+    if (message?.type === 'openLink') return this.openLink(message.url).catch(error => this.send({ type: 'error', message: error.message }));
     if (message?.type === 'taskCancel') { this.cancelTask(String(message.taskId)); return; }
     if (message?.type === 'taskRetry') return this.retryTask(String(message.taskId)).catch(error => this.send({ type: 'error', message: error.message }));
     if (message?.type === 'tasks') return this.openTasks();
@@ -297,27 +305,28 @@ class Workbench {
     webview.onDidReceiveMessage(message => this.receiveMessage(webview, message), undefined, this.context.subscriptions);
     webview.html = fs.readFileSync(vscode.Uri.joinPath(root, 'index.html').fsPath, 'utf8')
       .replaceAll('{{csp}}', webview.cspSource).replaceAll('{{nonce}}', nonce)
+      .replace('{{i18n}}', webview.asWebviewUri(vscode.Uri.joinPath(root, 'i18n.js')).toString())
       .replace('{{css}}', webview.asWebviewUri(vscode.Uri.joinPath(root, 'style.css')).toString())
       .replace('{{markdown}}', webview.asWebviewUri(vscode.Uri.joinPath(root, 'vendor', 'markdown-it.min.js')).toString())
       .replace('{{js}}', webview.asWebviewUri(vscode.Uri.joinPath(root, 'main.js')).toString());
   }
   openDiscussion() {
-    if (!this.selected) throw new Error('请先打开一笔变更');
+    if (!this.selected) throw new Error(tr('请先打开一笔变更'));
     if (!this.discussion) {
-      const panel = vscode.window.createWebviewPanel('gerrit.discussion', 'Gerrit 评审讨论', vscode.ViewColumn.Active, { retainContextWhenHidden: true });
+      const panel = vscode.window.createWebviewPanel('gerrit.discussion', tr('Gerrit 评审讨论'), vscode.ViewColumn.Active, { retainContextWhenHidden: true });
       this.discussion = panel;
       panel.onDidDispose(() => { if (this.discussion === panel) this.discussion = undefined; }, undefined, this.context.subscriptions);
       this.setupWebview(panel.webview);
     } else this.discussion.reveal(vscode.ViewColumn.Active);
-    this.discussion.title = `#${this.selected.change._number} · 评审讨论`;
+    this.discussion.title = tr`#${this.selected.change._number} · 评审讨论`;
     this.render();
   }
-  async openBrowser() {
-    const path = `${new URL(this.api.url).pathname.replace(/\/$/, '')}/c/${this.selected.change._number}`;
+  async openBrowser(targetPath) {
+    const path = targetPath || `${new URL(this.api.url).pathname.replace(/\/$/, '')}/c/${this.selected.change._number}`;
     if (!this.gateway) {
       let api = this.api;
       if (api.authMode !== 'webPassword') {
-        const password = await vscode.window.showInputBox({ title: '内置浏览器：网页登录密码', prompt: '网页反向代理需要网页登录密码（不会替换当前 HTTP Key，也不会写入网址）', password: true, ignoreFocusOut: true });
+        const password = await vscode.window.showInputBox({ title: tr('内置浏览器：网页登录密码'), prompt: tr('网页反向代理需要网页登录密码（不会替换当前 HTTP Key，也不会写入网址）'), password: true, ignoreFocusOut: true });
         if (!password) return;
         api = this.createApi(this.api.url, this.user.username, password, 'webPassword');
         await api.self();
@@ -330,7 +339,18 @@ class Workbench {
     const url = local.toString();
     const commands = await vscode.commands.getCommands(true);
     if (commands.includes('workbench.action.browser.open')) return vscode.commands.executeCommand('workbench.action.browser.open', url);
-    throw new Error('此 VS Code 版本未提供集成浏览器，请升级 VS Code 后使用认证网页入口；原生代码查看和评审功能可继续使用');
+    throw new Error(tr('此 VS Code 版本未提供集成浏览器，请升级 VS Code 后使用认证网页入口；原生代码查看和评审功能可继续使用'));
+  }
+  async openLink(value) {
+    let url;
+    try { url = new URL(String(value), this.api ? this.api.url + '/' : undefined); }
+    catch { throw new Error(tr('链接地址无效')); }
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw new Error(tr('只支持 HTTP(S) 链接'));
+    if (this.api && url.origin === new URL(this.api.url).origin) return this.openBrowser(url.pathname + url.search + url.hash);
+    const commands = await vscode.commands.getCommands(true);
+    if (commands.includes('workbench.action.browser.open')) return vscode.commands.executeCommand('workbench.action.browser.open', url.toString());
+    if (commands.includes('simpleBrowser.show')) return vscode.commands.executeCommand('simpleBrowser.show', url.toString());
+    throw new Error(tr('此 VS Code 版本未提供集成浏览器，请升级 VS Code'));
   }
   async restore() {
     const saved = this.context.globalState.get('connection');
@@ -345,19 +365,19 @@ class Workbench {
   }
   async connect() {
     const old = this.context.globalState.get('connection', {});
-    const urlInput = await vscode.window.showInputBox({ title: '连接 Gerrit · 1/4', prompt: '输入服务器根地址，例如 http://192.168.1.10 或 https://review.example.com:8443；无需添加 /gerrit 或 /dashboard/self', value: old.url || 'https://', ignoreFocusOut: true, validateInput: text => { try { normalizeUrl(text); } catch (e) { return e.message; } } });
+    const urlInput = await vscode.window.showInputBox({ title: tr('连接 Gerrit · 1/4'), prompt: tr('输入服务器根地址，例如 http://192.168.1.10 或 https://review.example.com:8443；无需添加 /gerrit 或 /dashboard/self'), value: old.url || 'https://', ignoreFocusOut: true, validateInput: text => { try { normalizeUrl(text); } catch (e) { return e.message; } } });
     if (!urlInput) return;
     const url = normalizeUrl(urlInput);
     const modes = [
-      { label: '网页登录密码', description: '默认推荐；使用平时网页登录的密码，适用于 HTTP 反向代理登录', authMode: 'webPassword' },
-      { label: 'HTTP Key / HTTP 密码', description: '使用 Gerrit 生成的 Key，通过 /a/ API 认证', authMode: 'httpKey' }
+      { label: tr('网页登录密码'), description: tr('默认推荐；使用平时网页登录的密码，适用于 HTTP 反向代理登录'), authMode: 'webPassword' },
+      { label: tr('HTTP Key / HTTP 密码'), description: tr('使用 Gerrit 生成的 Key，通过 /a/ API 认证'), authMode: 'httpKey' }
     ];
     if (old.authMode === 'httpKey') modes.reverse();
-    const mode = await vscode.window.showQuickPick(modes, { title: '连接 Gerrit · 2/4：认证方式二选一，不同时使用', placeHolder: '取决于服务器支持方式；网页登录密码与 HTTP Key 不可混用', ignoreFocusOut: true });
+    const mode = await vscode.window.showQuickPick(modes, { title: tr('连接 Gerrit · 2/4：认证方式二选一，不同时使用'), placeHolder: tr('取决于服务器支持方式；网页登录密码与 HTTP Key 不可混用'), ignoreFocusOut: true });
     if (!mode) return;
-    const username = await vscode.window.showInputBox({ title: '连接 Gerrit · 3/4', prompt: 'Gerrit 用户名', value: old.username, ignoreFocusOut: true, validateInput: s => !s.trim() || s.includes(':') ? '请输入有效用户名' : undefined });
+    const username = await vscode.window.showInputBox({ title: tr('连接 Gerrit · 3/4'), prompt: tr('Gerrit 用户名'), value: old.username, ignoreFocusOut: true, validateInput: s => !s.trim() || s.includes(':') ? tr('请输入有效用户名') : undefined });
     if (!username) return;
-    const keyInput = await vscode.window.showInputBox({ title: `连接 Gerrit · 4/4：${mode.authMode === 'webPassword' ? '网页登录密码' : 'HTTP Key'}`, prompt: mode.authMode === 'webPassword' ? '输入平时网页登录使用的密码，插件会建立独立登录会话' : '输入 Gerrit HTTP Key / HTTP 密码（Settings → HTTP Credentials），不是网页登录密码', password: true, ignoreFocusOut: true });
+    const keyInput = await vscode.window.showInputBox({ title: tr`连接 Gerrit · 4/4：${mode.authMode === 'webPassword' ? tr('网页登录密码') : 'HTTP Key'}`, prompt: mode.authMode === 'webPassword' ? tr('输入平时网页登录使用的密码，插件会建立独立登录会话') : tr('输入 Gerrit HTTP Key / HTTP 密码（Settings → HTTP Credentials），不是网页登录密码'), password: true, ignoreFocusOut: true });
     const password = mode.authMode === 'webPassword' ? keyInput : keyInput?.trim();
     if (!password) return;
     const api = this.createApi(url, username.trim(), password, mode.authMode); const user = await api.self();
@@ -370,9 +390,9 @@ class Workbench {
     this.model = { connected: true, server: url, user: user.name || user.username, changes: [], query: this.setting('defaultQuery', 'is:open'), start: 0, pageSize: this.setting('pageSize', 50) };
     this.render();
     await this.refresh();
-    vscode.window.showInformationMessage(`Gerrit 已连接：${user.name || user.username} · ${url}`);
+    vscode.window.showInformationMessage(tr`Gerrit 已连接：${user.name || user.username} · ${url}`);
   }
-  needConnection() { if (!this.api) throw new Error('请先点击“连接服务器”'); }
+  needConnection() { if (!this.api) throw new Error(tr('请先点击“连接服务器”')); }
   cancelSearch() {
     if (this.searchJob?.status === 'running') {
       this.searchJob.cancelled = true; this.searchJob.status = 'cancelled';
@@ -402,7 +422,7 @@ class Workbench {
     const fields = Object.fromEntries(['query','message','repo','branch','owner','changeNumber','file','unreviewed'].map(name => [name, this.model[name]]));
     const cache = { key: JSON.stringify(plan), rows: [], pending: new Map(), locked: false };
     this.searchJob = job; this.searchResults = cache;
-    this.registerTask('search', 'Message 检索 · ' + plan.message.slice(0, 60), job, () => this.retrySearch(fields));
+    this.registerTask('search', tr('Message 检索 · ') + plan.message.slice(0, 60), job, () => this.retrySearch(fields));
     this.model.changes = []; this.model.more = false;
     this.searchProgress(job); this.render();
     const active = () => !job.cancelled && this.searchJob === job && this.api === api && !this.disposed;
@@ -425,8 +445,8 @@ class Workbench {
       this.searchProgress(job); this.showSearchPage(false);
     }).catch(error => {
       if (!active()) return;
-      job.controller.abort(); job.status = 'failed'; job.error = '搜索未完成：' + error.message;
-      this.searchProgress(job); this.logger.write('error', error.logMessage || '评论搜索请求失败');
+      job.controller.abort(); job.status = 'failed'; job.error = tr('搜索未完成：') + error.message;
+      this.searchProgress(job); this.logger.write('error', error.logMessage || tr('评论搜索请求失败'));
     }).finally(() => { job.settled = true; this.taskState(); });
   }
 
@@ -449,11 +469,11 @@ class Workbench {
     return page;
   }
   async navigateResult(direction) {
-    if (this.parentTrail.length) throw new Error('请先返回子提交，再按检索结果切换');
-    if (direction !== 1 && direction !== -1) throw new Error('无效的导航方向');
+    if (this.parentTrail.length) throw new Error(tr('请先返回子提交，再按检索结果切换'));
+    if (direction !== 1 && direction !== -1) throw new Error(tr('无效的导航方向'));
     const cache = this.searchResults?.key === JSON.stringify(searchPlan(this.model.query, this.model)) ? this.searchResults : undefined;
     const rows = cache?.rows || this.model.changes, index = rows.findIndex(item => item.id === this.selected.id);
-    if (index < 0) throw new Error('当前变更不在检索结果中，请返回列表选择');
+    if (index < 0) throw new Error(tr('当前变更不在检索结果中，请返回列表选择'));
     this.lockSearch();
     const target = rows[index + direction];
     if (target) {
@@ -491,7 +511,7 @@ class Workbench {
     const oldFocus = sameChange ? this.model.detail?.viewRevision || this.selected.rev : undefined;
     const pinned = context.pinned ?? (context.revision ? true : sameChange && !!this.model.detail?.viewPinned);
     const focus = context.revision || (pinned ? oldFocus : undefined) || rev;
-    if (!change.revisions[focus]) throw new Error('所需 Patch set 已不存在，请刷新后重试');
+    if (!change.revisions[focus]) throw new Error(tr('所需 Patch set 已不存在，请刷新后重试'));
     let plan = comparisonPlan(change.revisions, 'base', focus);
     let savedComparison = context.comparison || (!context.revision && this.selected?.id === change.id ? this.selected.comparison : undefined);
     if (!context.comparison && savedComparison?.left === 'base' && savedComparison.right === oldFocus && focus !== oldFocus) savedComparison = undefined;
@@ -516,7 +536,7 @@ class Workbench {
     if (this.searchResults) this.searchResults.rows = this.searchResults.rows.map(update);
     this.model.detail = { ...change, viewRevision: focus, viewPinned: pinned, files, comments, comparison: plan, patchView, related, mine: change.owner?._account_id === this.user._account_id };
     this.preloadContext(); this.loadFileProgress(); this.preloadPatchChanges();
-    if (this.discussion) this.discussion.title = `#${change._number} · 评审讨论`;
+    if (this.discussion) this.discussion.title = tr`#${change._number} · 评审讨论`;
     // Reattach comments in any already-open snapshot for this exact patch set.
     for (const [uri, info] of this.documents) if (this.validInfo(info)) await this.attach(vscode.Uri.parse(uri), info);
     if (render) { this.render(); if (opening) await this.showFiles(); }
@@ -532,8 +552,8 @@ class Workbench {
     const cacheKey = JSON.stringify([api.url, this.user._account_id, s.id, rev]);
     let pending = this.patchPathCache.get(cacheKey);
     if (!pending) {
-      const job = { status: 'running', stage: '准备路径索引', controller: new AbortController() };
-      this.registerTask('index', `#${s.change._number || s.id} · PS ${s.change.revisions[rev]._number} 路径索引`, job, () => {
+      const job = { status: 'running', stage: tr('准备路径索引'), controller: new AbortController() };
+      this.registerTask('index', tr`#${s.change._number || s.id} · PS ${s.change.revisions[rev]._number} 路径索引`, job, () => {
         if (this.selected?.id === s.id && this.model.detail?.patchView?.rev === rev) return this.selectPatch(rev, this.model.detail.patchView.query);
         return this.patchPaths(s, rev, api);
       });
@@ -544,10 +564,10 @@ class Workbench {
         });
       }).then(paths => {
         if (job.controller.signal.aborted) throw job.controller.signal.reason;
-        job.status = 'completed'; job.stage = `已索引 ${paths.length} 个文件`; return paths;
+        job.status = 'completed'; job.stage = tr`已索引 ${paths.length} 个文件`; return paths;
       }).catch(error => {
         job.status = job.controller.signal.aborted ? 'cancelled' : 'failed';
-        job.error = this.logger.redact(job.status === 'cancelled' ? '路径索引已取消' : error.message); throw error;
+        job.error = this.logger.redact(job.status === 'cancelled' ? tr('路径索引已取消') : error.message); throw error;
       }).finally(() => { job.settled = true; this.taskState(); });
       this.patchPathCache.set(cacheKey, pending);
       pending.catch(() => { if (this.patchPathCache.get(cacheKey) === pending) this.patchPathCache.delete(cacheKey); });
@@ -556,11 +576,11 @@ class Workbench {
   }
   async selectPatch(rev, query = '') {
     const s = this.selected;
-    if (!s.change.revisions[rev]) throw new Error('Patch set 不存在');
+    if (!s.change.revisions[rev]) throw new Error(tr('Patch set 不存在'));
     this.patchQueryJob = undefined;
     if (!query) {
       const files = await this.api.treeFiles(s.id, rev);
-      if (!Array.isArray(files)) throw new Error('服务器未返回此 Patch set 的文件清单');
+      if (!Array.isArray(files)) throw new Error(tr('服务器未返回此 Patch set 的文件清单'));
       this.model.detail.patchView = { rev, query, files: files.filter(p => typeof p === 'string').sort() }; this.render(); return;
     }
     const api = this.api, job = {};
@@ -575,13 +595,13 @@ class Workbench {
       publish();
     }).catch(error => {
       if (!active()) return;
-      this.model.detail.patchView = { rev, query, files: [], error: this.logger.redact(error.name === 'AbortError' ? '查找已取消，可在后台任务中重试' : error.message) };
-      this.logger.write('error', 'Patch 路径检索失败：' + error.message); publish();
+      this.model.detail.patchView = { rev, query, files: [], error: this.logger.redact(error.name === 'AbortError' ? tr('查找已取消，可在后台任务中重试') : error.message) };
+      this.logger.write('error', tr('Patch 路径检索失败：') + error.message); publish();
     });
   }
   async openSingle(path, rev, side = 'REVISION') {
     const s = this.selected;
-    if (!s.change.revisions[rev]) throw new Error('Patch set 不存在');
+    if (!s.change.revisions[rev]) throw new Error(tr('Patch set 不存在'));
     const metadata = s.change.revisions[rev].files?.[path];
     const blocked = fileLimitReason(metadata, side === 'PARENT'); if (blocked) throw new Error(blocked);
     let contentPath = path;
@@ -597,7 +617,7 @@ class Workbench {
     await this.attach(uri, this.documents.get(uri.toString())); return editor;
   }
   async localRepository(project) {
-    if (!vscode.workspace.isTrusted) throw new Error('请先信任此工作区');
+    if (!vscode.workspace.isTrusted) throw new Error(tr('请先信任此工作区'));
     const extension = vscode.extensions?.getExtension('vscode.git');
     let gitApi;
     try { gitApi = extension ? (extension.isActive ? extension.exports : await extension.activate()).getAPI(1) : undefined; } catch { /* Git CLI also works when VS Code's Git integration is disabled. */ }
@@ -614,17 +634,17 @@ class Workbench {
         }
       } catch { /* A workspace folder can be outside a Git repository. */ }
     }
-    if (!candidates.length) throw new Error(`请先在 VS Code 中打开 ${project} 的本地 Git 仓库，并配置指向该项目的 remote`);
-    return candidates.length === 1 ? candidates[0].directory : (await vscode.window.showQuickPick(candidates, { title: '选择本地代码仓库', ignoreFocusOut: true }))?.directory;
+    if (!candidates.length) throw new Error(tr`请先在 VS Code 中打开 ${project} 的本地 Git 仓库，并配置指向该项目的 remote`);
+    return candidates.length === 1 ? candidates[0].directory : (await vscode.window.showQuickPick(candidates, { title: tr('选择本地代码仓库'), ignoreFocusOut: true }))?.directory;
   }
 
   downloadSnapshot() {
-    return [...this.downloadJobs.values()].map(job => Object.fromEntries(['id','changeId','number','patch','directory','branch','status','stage','settled'].map(key => [key, job[key]])));
+    return [...this.downloadJobs.values()].map(job => Object.fromEntries(['id','changeId','number','patch','directory','branch','status','stage','settled'].map(key => [key, key === 'stage' ? tr.current(job[key]) : job[key]])));
   }
   taskSnapshot() {
     return [...(this.backgroundJobs?.values() || [])].reverse().map(job => ({
-      id: job.taskId, kind: job.kind, title: job.title, status: job.status,
-      stage: job.error || job.stage || (job.kind === 'search' ? `已检查 ${job.scanned || 0} 笔，匹配 ${job.matches || 0} 笔` : ''),
+      id: job.taskId, kind: job.kind, title: tr.current(job.title), status: job.status,
+      stage: tr.current(job.error || job.stage) || (job.kind === 'search' ? tr`已检查 ${job.scanned || 0} 笔，匹配 ${job.matches || 0} 笔` : ''),
       cancelable: job.status === 'running' && job.canCancel !== false,
       retryable: !!job.settled && !job.retried && ['failed','cancelled'].includes(job.status) && job.api === this.api
     }));
@@ -648,13 +668,13 @@ class Workbench {
   async retryTask(id) {
     const job = this.backgroundJobs.get(id);
     if (!job || !job.settled || job.retried || !['failed','cancelled'].includes(job.status)) return;
-    if (job.api !== this.api) throw new Error('连接已更改，请在当前连接中重新发起任务');
+    if (job.api !== this.api) throw new Error(tr('连接已更改，请在当前连接中重新发起任务'));
     job.retried = true; this.taskState();
     try { await job.retry(); } catch (error) { job.retried = false; this.taskState(); throw error; }
   }
   openTasks() {
     if (!this.tasksView) {
-      const panel = vscode.window.createWebviewPanel('gerrit.tasks', 'Gerrit 后台任务', vscode.ViewColumn.Active, { enableScripts: true, retainContextWhenHidden: true });
+      const panel = vscode.window.createWebviewPanel('gerrit.tasks', tr('Gerrit 后台任务'), vscode.ViewColumn.Active, { enableScripts: true, retainContextWhenHidden: true });
       this.tasksView = panel; this.setupWebview(panel.webview);
       panel.onDidDispose(() => { if (this.tasksView === panel) this.tasksView = undefined; });
     } else this.tasksView.reveal(vscode.ViewColumn.Active);
@@ -701,11 +721,11 @@ class Workbench {
         this.reviewProgress.prepare(key, rev, baseline, changes);
       }
       publish();
-    })().catch(error => { if (active()) publish(false, '版本比较未完成，可刷新重试'); });
+    })().catch(error => { if (active()) publish(false, tr('版本比较未完成，可刷新重试')); });
   }
   async markFileRead(path, revision, read) {
     const s = this.selected;
-    if (revision !== s.comparison?.revision || !Object.hasOwn(s.files, path) || path.startsWith('/')) throw new Error('文件或比较版本已更新，请重新选择');
+    if (revision !== s.comparison?.revision || !Object.hasOwn(s.files, path) || path.startsWith('/')) throw new Error(tr('文件或比较版本已更新，请重新选择'));
     const key = this.reviewProgress.key(this.api.url, this.user?._account_id ?? this.user?.username, s.id);
     const canonical = s.comparison.reverse && s.files[path].old_path ? s.files[path].old_path : path;
     await this.reviewProgress.mark(key, revision, canonical, read);
@@ -720,42 +740,42 @@ class Workbench {
   async download(patchRev, target) {
     const s = target?.selection || this.selected; const rev = patchRev || this.model.detail.patchView?.rev || s.rev;
     const revision = s.change.revisions[rev];
-    if (!revision) throw new Error('Patch set 不存在，请刷新后重试');
+    if (!revision) throw new Error(tr('Patch set 不存在，请刷新后重试'));
     const url = sshUrl(revision.fetch, this.user.username);
     const directory = target?.directory || await this.localRepository(s.change.project);
     if (!directory) return;
     const repoKey = require('node:path').resolve(directory).toLowerCase();
-    if ([...this.downloadJobs.values()].some(job => job.repoKey === repoKey && (job.status === 'running' || job.settled === false))) throw new Error('此仓库已有下载任务，请等待完成');
+    if ([...this.downloadJobs.values()].some(job => job.repoKey === repoKey && (job.status === 'running' || job.settled === false))) throw new Error(tr('此仓库已有下载任务，请等待完成'));
     const id = crypto.randomBytes(8).toString('hex');
-    const job = { id, changeId: s.id, number: s.change._number, patch: revision._number, directory, repoKey, branch: `change-${s.change._number}`, status: 'running', stage: '准备下载', controller: new AbortController() };
+    const job = { id, changeId: s.id, number: s.change._number, patch: revision._number, directory, repoKey, branch: `change-${s.change._number}`, status: 'running', stage: tr('准备下载'), controller: new AbortController() };
     // Keep the current job per repository; completed states remain visible until the next download.
     for (const [key, previous] of this.downloadJobs) if (previous.repoKey === repoKey) this.downloadJobs.delete(key);
     this.downloadJobs.set(id, job);
-    this.registerTask('download', `#${job.number} · PS ${job.patch} 下载到本地`, job, () => this.download(rev, { selection: s, directory }));
+    this.registerTask('download', tr`#${job.number} · PS ${job.patch} 下载到本地`, job, () => this.download(rev, { selection: s, directory }));
     this.downloadState();
     job.promise = Promise.resolve().then(() => vscode.window.withProgress({
-      location: vscode.ProgressLocation.Notification, title: `Gerrit #${job.number} · PS ${job.patch} 下载到本地`
+      location: vscode.ProgressLocation.Notification, title: tr`Gerrit #${job.number} · PS ${job.patch} 下载到本地`
     }, progress => downloadBranch({ directory, url, signal: job.controller.signal, branch: job.branch, ref: revision.ref, revision: rev, checkWorkspace: () => {
       const path = require('node:path');
       if ((vscode.workspace.textDocuments || []).some(doc => {
         if (!doc.isDirty || doc.uri.scheme !== 'file') return false;
         const relative = path.relative(directory, doc.uri.fsPath);
         return !path.isAbsolute(relative) && relative !== '..' && !relative.startsWith('..' + path.sep);
-      })) throw new Error('本地仓库有未保存的编辑器内容，请先保存并处理修改后重试下载');
+      })) throw new Error(tr('本地仓库有未保存的编辑器内容，请先保存并处理修改后重试下载'));
     }, stage: stage => {
       job.stage = stage; job.canCancel = stage !== 'Git checkout'; progress.report({ message: stage }); this.downloadState();
     } }, (cwd, args, options) => this.runGit(cwd, args, { ...options, signal: job.controller.signal }))))
       .then(() => {
-        job.status = 'completed'; job.stage = '下载完成';
-        this.logger.write('info', `下载任务完成：#${job.number} PS ${job.patch} → ${job.branch}`);
-        if (!this.disposed) vscode.window.showInformationMessage(`Gerrit #${job.number} 已切换到本地分支 ${job.branch}`);
+        job.status = 'completed'; job.stage = tr('下载完成');
+        this.logger.write('info', tr`下载任务完成：#${job.number} PS ${job.patch} → ${job.branch}`);
+        if (!this.disposed) vscode.window.showInformationMessage(tr`Gerrit #${job.number} 已切换到本地分支 ${job.branch}`);
       }).catch(error => {
-        if (job.controller.signal.aborted) { job.status = 'cancelled'; job.stage = '下载已取消，未切换分支'; return; }
+        if (job.controller.signal.aborted) { job.status = 'cancelled'; job.stage = tr('下载已取消，未切换分支'); return; }
         job.status = 'failed';
         job.stage = /Permission denied|publickey|Host key verification failed|Could not resolve hostname|Connection refused|Could not read from remote repository/i.test(error.message)
-          ? 'SSH 下载失败：请检查本机 SSH key / agent、Gerrit 公钥、端口和 known_hosts'
+          ? tr('SSH 下载失败：请检查本机 SSH key / agent、Gerrit 公钥、端口和 known_hosts')
           : error.message;
-        this.logger.write('error', `下载任务失败：${job.stage}`);
+        this.logger.write('error', tr`下载任务失败：${job.stage}`);
         if (!this.disposed) vscode.window.showErrorMessage(`Gerrit: ${job.stage}`);
       }).finally(() => { job.settled = true; this.downloadState(); });
     // Deliberately do not await the job or the completion notification.
@@ -797,7 +817,7 @@ class Workbench {
     if (m.type === 'refresh') return this.refreshCurrent();
     if (m.type === 'open') { this.lockSearch(); this.parentTrail = []; return this.load(String(m.id)); }
     if (m.type === 'back') { this.parentTrail = []; this.contextController?.abort(); this.selected = null; delete this.model.detail; this.clearThreads(); this.render(); return; }
-    const s = this.selected; if (!s || m.id !== s.id || m.rev !== s.rev) throw new Error('页面已更新，请重新选择变更后操作');
+    const s = this.selected; if (!s || m.id !== s.id || m.rev !== s.rev) throw new Error(tr('页面已更新，请重新选择变更后操作'));
     if (m.type === 'fileRead') return this.markFileRead(String(m.path), String(m.fileRev), !!m.read);
     if (m.type === 'returnAncestor') return this.returnChild(Number(m.index));
     if (m.type === 'parentOpen') return this.openParent(String(m.sha || ''));
@@ -806,7 +826,7 @@ class Workbench {
     if (m.type === 'navigate') return this.navigateResult(Number(m.direction));
     if (m.type === 'metadata') return this.searchMetadata(String(m.kind), String(m.value || ''));
     if (m.type === 'file') {
-      if (m.compareLeft && (m.compareLeft !== s.comparison?.left || m.compareRight !== s.comparison?.right)) throw new Error('比较版本已更新，请重新点击文件');
+      if (m.compareLeft && (m.compareLeft !== s.comparison?.left || m.compareRight !== s.comparison?.right)) throw new Error(tr('比较版本已更新，请重新点击文件'));
       const path = String(m.path), comparison = s.comparison;
       await this.openDiff(path);
       if (this.selected === s && s.comparison === comparison) await this.markFileRead(path, comparison.revision, true);
@@ -820,53 +840,53 @@ class Workbench {
     if (m.type === 'related') return this.loadRelated();
     if (m.type === 'relatedOpen') {
       const node = this.model.detail.related?.changes.find(item => String(item._change_number) === String(m.number));
-      if (!node || !Number.isSafeInteger(node._change_number) || node._change_number <= 0) throw new Error('关系链节点已更新，请重新加载');
+      if (!node || !Number.isSafeInteger(node._change_number) || node._change_number <= 0) throw new Error(tr('关系链节点已更新，请重新加载'));
       return this.load(String(node._change_number));
     }
     if (m.type === 'locate') return this.locateComment(m.path, m.comment);
     if (m.type === 'patch') return this.selectPatch(String(m.patchRev || s.rev));
     if (m.type === 'patchSearch') return this.selectPatch(String(m.patchRev), String(m.query || '').trim());
     if (m.type === 'single') {
-      if (this.model.detail.patchView?.rev !== m.patchRev || !this.model.detail.patchView.files.includes(m.path)) throw new Error('文件版本已更新，请重新选择');
+      if (this.model.detail.patchView?.rev !== m.patchRev || !this.model.detail.patchView.files.includes(m.path)) throw new Error(tr('文件版本已更新，请重新选择'));
       return this.openSingle(String(m.path), String(m.patchRev));
     }
     if (m.type === 'download') return this.download(m.patchRev);
     if (m.type === 'compare') return this.compare(String(m.left), String(m.right));
     if (m.type === 'discussion') return this.openDiscussion();
     if (m.type === 'browser') return this.openBrowser();
-    if ((m.type === 'review' || m.type === 'action') && this.model.detail?.viewRevision && this.model.detail.viewRevision !== s.rev) throw new Error('当前查看历史 PS，请先切换到最新 PS 后执行变更操作');
+    if ((m.type === 'review' || m.type === 'action') && this.model.detail?.viewRevision && this.model.detail.viewRevision !== s.rev) throw new Error(tr('当前查看历史 PS，请先切换到最新 PS 后执行变更操作'));
     if (m.type === 'review') {
       const labels = {};
       for (const [name, value] of Object.entries(m.labels || {})) {
-        if (!(s.change.permitted_labels?.[name] || []).some(v => Number(v) === Number(value))) throw new Error('评分超出当前权限，请刷新');
+        if (!(s.change.permitted_labels?.[name] || []).some(v => Number(v) === Number(value))) throw new Error(tr('评分超出当前权限，请刷新'));
         labels[name] = Number(value);
       }
       const message = String(m.message || '').trim();
-      if (!message && !Object.keys(labels).length) throw new Error('请输入评论或选择评分');
+      if (!message && !Object.keys(labels).length) throw new Error(tr('请输入评论或选择评分'));
       await this.api.review(s.id, s.rev, { message, labels });
       this.send({ type: 'reviewSent' }); await this.load(s.id); return;
     }
     if (m.type === 'reply') {
       const parent = s.comments[m.path]?.find(c => c.id === m.comment);
-      if (!parent) throw new Error('评论不存在，请刷新');
-      const text = String(m.message || '').trim(); if (!text) throw new Error('请输入回复内容');
+      if (!parent) throw new Error(tr('评论不存在，请刷新'));
+      const text = String(m.message || '').trim(); if (!text) throw new Error(tr('请输入回复内容'));
       const rev = Object.keys(s.change.revisions).find(key => s.change.revisions[key]._number === parent.patch_set) || s.rev;
       await this.postComment({ ...parent, rev, path: m.path }, text, parent.id); this.send({ type: 'replySent', comment: parent.id }); await this.load(s.id); return;
     }
     if (m.type === 'action') {
-      const action = String(m.action); const titles = { ready: '发布为待评审', abandon: '废弃变更', submit: '合入目标分支' };
-      if (!titles[action] || !s.change.actions?.[action]?.enabled) throw new Error('当前状态或权限不允许此操作，请刷新');
-      if (['ready', 'abandon'].includes(action) && !this.model.detail.mine) throw new Error('此入口仅操作自己的提交');
+      const action = String(m.action); const titles = { ready: tr('发布为待评审'), abandon: tr('废弃变更'), submit: tr('合入目标分支') };
+      if (!titles[action] || !s.change.actions?.[action]?.enabled) throw new Error(tr('当前状态或权限不允许此操作，请刷新'));
+      if (['ready', 'abandon'].includes(action) && !this.model.detail.mine) throw new Error(tr('此入口仅操作自己的提交'));
       if (!await this.confirm(`${titles[action]}：#${s.change._number} ${s.change.subject}`, titles[action])) return;
       let message;
-      if (action === 'abandon') { message = await vscode.window.showInputBox({ title: '废弃原因（可留空，Esc 取消）', ignoreFocusOut: true }); if (message === undefined) return; }
+      if (action === 'abandon') { message = await vscode.window.showInputBox({ title: tr('废弃原因（可留空，Esc 取消）'), ignoreFocusOut: true }); if (message === undefined) return; }
       await this.api.action(s.id, action, message ? { message } : {}); await this.load(s.id);
     }
   }
   async confirm(message, button) { return await vscode.window.showWarningMessage(message, { modal: true }, button) === button; }
-  provideTextDocumentContent(uri) { const doc = this.documents.get(uri.toString()); if (!doc) throw new Error('此 Gerrit 快照已失效，请从工作台重新打开文件'); return doc.content; }
+  provideTextDocumentContent(uri) { const doc = this.documents.get(uri.toString()); if (!doc) throw new Error(tr('此 Gerrit 快照已失效，请从工作台重新打开文件')); return doc.content; }
   async openDiff(path) {
-    const s = this.selected; const file = s.files[path]; if (!file) throw new Error('文件不存在');
+    const s = this.selected; const file = s.files[path]; if (!file) throw new Error(tr('文件不存在'));
     const blocked = file.blockedReason || fileLimitReason(file); if (blocked) throw new Error(blocked);
     const plan = s.comparison || comparisonPlan(s.change.revisions, 'base', s.rev);
     const sides = [plan.left, plan.right].map((value, index) => {
@@ -875,7 +895,7 @@ class Workbench {
       // Parent comments are keyed by the filename in their patch set, including renames.
       const commentPath = value === 'base' ? (plan.reverse ? file.old_path || path : path) : contentPath;
       return { id: s.id, rev, side: value === 'base' ? 'PARENT' : 'REVISION', path: commentPath, contentPath,
-        label: value === 'base' ? `Base (PS ${s.change.revisions[rev]._number} 的第一父提交)` : `PS ${s.change.revisions[rev]._number}`,
+        label: value === 'base' ? tr`Base (PS ${s.change.revisions[rev]._number} 的第一父提交)` : `PS ${s.change.revisions[rev]._number}`,
         empty: index === 0 ? file.status === 'A' : file.status === 'D' };
     });
     const bytes = await Promise.all(sides.map(info => info.empty ? Buffer.alloc(0) : this.api.bytes(s.id, info.rev, info.contentPath, info.side === 'PARENT')));
@@ -888,20 +908,20 @@ class Workbench {
       const uri = vscode.Uri.from({ scheme: 'gerrit', authority: crypto.createHash('sha256').update(this.api.url).digest('hex').slice(0, 12), path: `/${s.change._number}/${info.rev}/${info.side}/${info.empty ? 'empty/' : ''}${info.path}` });
       this.documents.set(uri.toString(), { ...info, content: contents[index] }); return uri;
     });
-    await vscode.commands.executeCommand('vscode.diff', uris[0], uris[1], `${path} · ${sides[0].label} ↔ ${sides[1].label}`, { preview: false, viewColumn: this.setting('diff.openBeside', false) ? vscode.ViewColumn.Beside : vscode.ViewColumn.Active });
+    await vscode.commands.executeCommand('vscode.diff', uris[0], uris[1], `${path} · ${sides[0].label} ↔ ${sides[1].label}`, { preview: true, viewColumn: this.setting('diff.openBeside', false) ? vscode.ViewColumn.Beside : vscode.ViewColumn.Active });
     for (const uri of uris) await this.attach(uri, this.documents.get(uri.toString()));
     return { sides, uris };
   }
   async openSnapshot(uri) {
     const info = uri && this.documents.get(uri.toString());
-    if (!info) throw new Error('请先打开 Gerrit 文件差异');
-    if (info.empty) throw new Error('这一侧文件不存在');
+    if (!info) throw new Error(tr('请先打开 Gerrit 文件差异'));
+    if (info.empty) throw new Error(tr('这一侧文件不存在'));
     const document = await vscode.workspace.openTextDocument(uri);
     return vscode.window.showTextDocument(document, { viewColumn: vscode.ViewColumn.Active, preview: false });
   }
   async openDiffSide(side) {
     const input = vscode.window.tabGroups?.activeTabGroup?.activeTab?.input;
-    if (!input?.original || !input?.modified) throw new Error('请先打开 Gerrit 文件差异');
+    if (!input?.original || !input?.modified) throw new Error(tr('请先打开 Gerrit 文件差异'));
     return this.openSnapshot(side === 'left' ? input.original : input.modified);
   }
   commentsFor(info) {
@@ -914,13 +934,13 @@ class Workbench {
     const comments = this.commentsFor(info).filter(c => c.line && position.line + 1 >= (c.range?.start_line || c.line) && position.line + 1 <= (c.range?.end_line || c.line));
     if (!comments.length) return undefined;
     const body = new vscode.MarkdownString();
-    body.appendText(`此处有 ${comments.length} 条 Gerrit 评论（${info.label || info.side}）\n点击行号旁的评论图标展开并回复。\n\n`);
-    for (const c of comments.slice(-5)) body.appendText(`${c.author?.name || c.author?.username || 'Gerrit 用户'}：${c.message.slice(0, 600)}\n\n`);
+    body.appendText(tr`此处有 ${comments.length} 条 Gerrit 评论（${info.label || info.side}）\n点击行号旁的评论图标展开并回复。\n\n`);
+    for (const c of comments.slice(-5)) body.appendText(`${c.author?.name || c.author?.username || tr('Gerrit 用户')}：${c.message.slice(0, 600)}\n\n`);
     return new vscode.Hover(body);
   }
   async locateComment(path, id) {
     const s = this.selected; const comment = s.comments[path]?.find(c => c.id === id);
-    if (!comment) throw new Error('评论已不存在，请刷新');
+    if (!comment) throw new Error(tr('评论已不存在，请刷新'));
     if (!path || path.startsWith('/')) return; // Patch-level comments do not have a code file.
     const rev = Object.keys(s.change.revisions).find(key => s.change.revisions[key]._number === comment.patch_set) || s.rev;
     await this.compare('base', rev);
@@ -955,8 +975,8 @@ class Workbench {
       group.sort((a, b) => String(a.updated).localeCompare(String(b.updated)));
       const c = group[0];
       const range = c.range ? new vscode.Range(c.range.start_line - 1, c.range.start_character, c.range.end_line - 1, c.range.end_character) : c.line ? new vscode.Range(c.line - 1, 0, c.line - 1, 0) : undefined;
-      const thread = this.controller.createCommentThread(uri, range, group.map(item => ({ body: item.message, mode: vscode.CommentMode.Preview, author: { name: item.author?.name || item.author?.username || 'Gerrit 用户' } })));
-      thread.label = `${info.label || info.side} · 回复将立即发布`;
+      const thread = this.controller.createCommentThread(uri, range, group.map(item => ({ body: item.message, mode: vscode.CommentMode.Preview, author: { name: item.author?.name || item.author?.username || tr('Gerrit 用户') } })));
+      thread.label = tr`${info.label || info.side} · 回复将立即发布`;
       thread.collapsibleState = this.setting('comments.expandThreads', true) ? vscode.CommentThreadCollapsibleState.Expanded : vscode.CommentThreadCollapsibleState.Collapsed;
       thread.state = group.at(-1).unresolved ? vscode.CommentThreadState.Unresolved : vscode.CommentThreadState.Resolved;
       this.threads.set(thread, { ...info, parent: group.at(-1), commentIds: group.map(item => item.id) });
@@ -977,7 +997,7 @@ class Workbench {
       const info = this.documents.get(editor.document.uri.toString());
       const marks = this.commentPoints(info).filter(([line]) => line < editor.document.lineCount).map(([line, comments]) => ({
         range: new vscode.Range(line, 0, line, editor.document.lineAt(line).text.length),
-        hoverMessage: `${comments.length} 条 Gerrit 评论；使用编辑器右上角“本文件评论”查看位置和跳转。`,
+        hoverMessage: tr`${comments.length} 条 Gerrit 评论；使用编辑器右上角“本文件评论”查看位置和跳转。`,
         renderOptions: { after: { contentText: `  💬 ${comments.length}`, color: new vscode.ThemeColor('gerrit.commentMarker'), margin: '0 0 0 1em' } }
       }));
       editor.setDecorations(this.commentDecoration, marks);
@@ -987,10 +1007,10 @@ class Workbench {
     const editor = vscode.window.activeTextEditor;
     if (!editor) return;
     const points = this.commentPoints(this.documents.get(editor.document.uri.toString()));
-    if (!points.length) { vscode.window.showInformationMessage('当前文件版本没有评论'); return; }
+    if (!points.length) { vscode.window.showInformationMessage(tr('当前文件版本没有评论')); return; }
     let point;
     if (!direction) {
-      const picked = await vscode.window.showQuickPick(points.map(([line, comments]) => ({ label: `行 ${line + 1} · ${comments.length} 条评论`, description: comments.map(c => `${c.author?.name || c.author?.username || '用户'}: ${c.message}`).join(' | ').replace(/\s+/g, ' ').slice(0, 250), point: [line, comments] })), { title: '本文件评论位置', matchOnDescription: true });
+      const picked = await vscode.window.showQuickPick(points.map(([line, comments]) => ({ label: tr`行 ${line + 1} · ${comments.length} 条评论`, description: comments.map(c => `${c.author?.name || c.author?.username || tr('用户')}: ${c.message}`).join(' | ').replace(/\s+/g, ' ').slice(0, 250), point: [line, comments] })), { title: tr('本文件评论位置'), matchOnDescription: true });
       point = picked?.point;
     } else {
       const current = editor.selection.active?.line ?? editor.selection.end.line;
@@ -1000,14 +1020,14 @@ class Workbench {
     const line = Math.min(editor.document.lineCount - 1, point[0]);
     editor.selection = new vscode.Selection(line, 0, line, 0); editor.revealRange(new vscode.Range(line, 0, line, 0), vscode.TextEditorRevealType.InCenter);
     for (const [thread, info] of this.threads) if (thread.uri.toString() === editor.document.uri.toString() && info.commentIds?.some(id => point[1].some(c => c.id === id))) thread.collapsibleState = vscode.CommentThreadCollapsibleState.Expanded;
-    vscode.window.setStatusBarMessage(`Gerrit 评论 ${points.indexOf(point) + 1 || points.findIndex(p => p[0] === point[0]) + 1}/${points.length} · 行 ${line + 1}`, 5000);
+    vscode.window.setStatusBarMessage(tr`Gerrit 评论 ${points.indexOf(point) + 1 || points.findIndex(p => p[0] === point[0]) + 1}/${points.length} · 行 ${line + 1}`, 5000);
   }
   async addComment() {
     const editor = vscode.window.activeTextEditor; if (!editor) return;
     const info = this.documents.get(editor.document.uri.toString());
-    if (!this.validInfo(info) || info.empty) throw new Error('请从当前变更详情打开非空的文件版本');
+    if (!this.validInfo(info) || info.empty) throw new Error(tr('请从当前变更详情打开非空的文件版本'));
     const thread = this.controller.createCommentThread(editor.document.uri, editor.selection, []);
-    thread.label = `新建评论 · ${info.label || info.side} · 发布后立即可见`;
+    thread.label = tr`新建评论 · ${info.label || info.side} · 发布后立即可见`;
     thread.collapsibleState = vscode.CommentThreadCollapsibleState.Expanded;
     this.threads.set(thread, { ...info });
   }
@@ -1015,7 +1035,7 @@ class Workbench {
     if (!reply?.thread || !reply.text?.trim()) return;
     const thread = reply.thread;
     const info = this.threads.get(thread) || this.documents.get(thread.uri.toString());
-    if (!this.validInfo(info) || info.empty) throw new Error('此评论属于旧变更，请重新打开');
+    if (!this.validInfo(info) || info.empty) throw new Error(tr('此评论属于旧变更，请重新打开'));
     const r = thread.range;
     const range = !info.parent && r && !r.isEmpty ? { start_line: r.start.line + 1, start_character: r.start.character, end_line: r.end.line + 1, end_character: r.end.character } : info.parent?.range;
     await this.postComment({ ...info, ...(info.parent || {}), path: info.path, side: info.side, range, line: info.parent?.line || (r ? r.end.line + 1 : undefined) }, reply.text.trim(), info.parent?.id);
@@ -1029,59 +1049,59 @@ class Workbench {
     if (info.range) c.range = info.range;
     if (parent) { c.in_reply_to = parent; c.unresolved = info.unresolved ?? true; }
     const revision = info.rev || s.rev;
-    if (!this.validInfo({ ...info, id: s.id, rev: revision })) throw new Error('评论版本已失效，请重新打开文件');
+    if (!this.validInfo({ ...info, id: s.id, rev: revision })) throw new Error(tr('评论版本已失效，请重新打开文件'));
     await this.api.review(s.id, revision, { comments: { [info.path]: [c] } });
   }
   async runGit(cwd, args, options) {
     const started = Date.now(); const operation = args[0] === '-c' ? args[2] : args[0];
-    if (!this.disposed) this.logger.write('debug', `Git ${operation} 开始`);
-    try { const result = await git(cwd, args, options); if (!this.disposed) this.logger.write('info', `Git ${operation} 成功 (${Date.now() - started} ms)`); return result; }
-    catch (error) { error.logMessage = `Git ${operation} 失败 (${Date.now() - started} ms)`; if (!this.disposed) this.logger.write(options?.optional ? 'debug' : 'error', error.logMessage); throw error; }
+    if (!this.disposed) this.logger.write('debug', tr`Git ${operation} 开始`);
+    try { const result = await git(cwd, args, options); if (!this.disposed) this.logger.write('info', tr`Git ${operation} 成功 (${Date.now() - started} ms)`); return result; }
+    catch (error) { error.logMessage = tr`Git ${operation} 失败 (${Date.now() - started} ms)`; if (!this.disposed) this.logger.write(options?.optional ? 'debug' : 'error', error.logMessage); throw error; }
   }
   async push() {
-    if (!vscode.workspace.isTrusted) throw new Error('请先信任此工作区');
+    if (!vscode.workspace.isTrusted) throw new Error(tr('请先信任此工作区'));
     const folders = vscode.workspace.workspaceFolders;
-    if (!folders?.length) throw new Error('请先打开本地 Git 仓库');
-    const folder = folders.length === 1 ? folders[0] : (await vscode.window.showQuickPick(folders.map(f => ({ label: f.name, folder: f })), { title: '选择要提交的仓库' }))?.folder;
+    if (!folders?.length) throw new Error(tr('请先打开本地 Git 仓库'));
+    const folder = folders.length === 1 ? folders[0] : (await vscode.window.showQuickPick(folders.map(f => ({ label: f.name, folder: f })), { title: tr('选择要提交的仓库') }))?.folder;
     if (!folder) return;
     const cwd = folder.uri.fsPath;
     const root = await this.runGit(cwd, ['rev-parse', '--show-toplevel']);
     const repoKey = require('node:path').resolve(root).toLowerCase();
-    if ([...this.downloadJobs.values()].some(job => job.repoKey === repoKey && (job.status === 'running' || job.settled === false))) throw new Error('此仓库正在下载，请完成后再上传');
+    if ([...this.downloadJobs.values()].some(job => job.repoKey === repoKey && (job.status === 'running' || job.settled === false))) throw new Error(tr('此仓库正在下载，请完成后再上传'));
     if (await this.runGit(cwd, ['status', '--porcelain'])) {
       const choice = await vscode.window.showQuickPick([
-        { label: '提交已暂存文件，再推送 HEAD', commit: true },
-        { label: '仅推送已有 HEAD（保留未提交修改）', commit: false }
-      ], { title: '工作区存在未提交修改', ignoreFocusOut: true });
+        { label: tr('提交已暂存文件，再推送 HEAD'), commit: true },
+        { label: tr('仅推送已有 HEAD（保留未提交修改）'), commit: false }
+      ], { title: tr('工作区存在未提交修改'), ignoreFocusOut: true });
       if (!choice) return;
       if (choice.commit) {
-        if (!await this.runGit(cwd, ['diff', '--cached', '--name-only'])) throw new Error('没有已暂存文件，请在源代码管理面板中暂存需要提交的文件');
-        const message = await vscode.window.showInputBox({ title: 'Commit 信息（使用仓库的 commit-msg hook 生成 Change-Id）', ignoreFocusOut: true, validateInput: t => t.trim() ? undefined : '请输入提交信息' });
+        if (!await this.runGit(cwd, ['diff', '--cached', '--name-only'])) throw new Error(tr('没有已暂存文件，请在源代码管理面板中暂存需要提交的文件'));
+        const message = await vscode.window.showInputBox({ title: tr('Commit 信息（使用仓库的 commit-msg hook 生成 Change-Id）'), ignoreFocusOut: true, validateInput: t => t.trim() ? undefined : tr('请输入提交信息') });
         if (!message) return;
         await this.runGit(cwd, ['commit', '-m', message]);
       }
     }
     const remotes = (await this.runGit(cwd, ['remote'])).split('\n').filter(Boolean);
-    const remote = await vscode.window.showQuickPick(remotes, { title: '选择 Gerrit Git remote', ignoreFocusOut: true }); if (!remote) return;
-    const branch = await vscode.window.showInputBox({ title: '目标分支（例如 main / master）', value: await this.runGit(cwd, ['branch', '--show-current']), ignoreFocusOut: true }); if (!branch) return;
-    const mode = await vscode.window.showQuickPick([{ label: '发布为待评审', wip: false }, { label: '上传为 WIP，稍后发布', wip: true }], { title: '上传方式', ignoreFocusOut: true }); if (!mode) return;
+    const remote = await vscode.window.showQuickPick(remotes, { title: tr('选择 Gerrit Git remote'), ignoreFocusOut: true }); if (!remote) return;
+    const branch = await vscode.window.showInputBox({ title: tr('目标分支（例如 main / master）'), value: await this.runGit(cwd, ['branch', '--show-current']), ignoreFocusOut: true }); if (!branch) return;
+    const mode = await vscode.window.showQuickPick([{ label: tr('发布为待评审'), wip: false }, { label: tr('上传为 WIP，稍后发布'), wip: true }], { title: tr('上传方式'), ignoreFocusOut: true }); if (!mode) return;
     const ref = pushRef(branch, mode.wip);
     await this.runGit(cwd, ['check-ref-format', `refs/heads/${branch}`]);
     // Fetch the target into FETCH_HEAD to inspect the entire outgoing commit stack.
     await this.runGit(cwd, ['fetch', '--no-tags', '--', remote, `refs/heads/${branch}`]);
     const commits = (await this.runGit(cwd, ['rev-list', '--reverse', 'FETCH_HEAD..HEAD'])).split('\n').filter(Boolean);
-    if (!commits.length) throw new Error('没有需要上传到该目标分支的新 commit');
+    if (!commits.length) throw new Error(tr('没有需要上传到该目标分支的新 commit'));
     const summaries = [];
     for (const hash of commits) {
       const message = await this.runGit(cwd, ['show', '-s', '--format=%B', hash]);
-      if (!/^Change-Id: I[0-9a-f]{40}\s*$/m.test(message)) throw new Error(`Commit ${hash.slice(0, 8)} 缺少有效 Change-Id。请安装 Gerrit commit-msg hook 并 amend 对应 commit 后重试（README 有说明）`);
+      if (!/^Change-Id: I[0-9a-f]{40}\s*$/m.test(message)) throw new Error(tr`Commit ${hash.slice(0, 8)} 缺少有效 Change-Id。请安装 Gerrit commit-msg hook 并 amend 对应 commit 后重试（README 有说明）`);
       summaries.push(`${hash.slice(0, 8)} ${message.split('\n')[0]}`);
     }
     const remoteUrl = await this.runGit(cwd, ['remote', 'get-url', '--push', remote]);
     const safeUrl = remoteUrl.replace(/(https?:\/\/)[^/@]+@/i, '$1***@');
-    if (!await this.confirm(`上传 ${commits.length} 个 commit 到 ${safeUrl}\n${ref}\n\n${summaries.join('\n')}`, '上传评审')) return;
-    await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: '上传 Gerrit 评审…' }, () => this.runGit(cwd, ['push', '--', remote, ref]));
-    vscode.window.showInformationMessage('Gerrit 上传成功，请刷新查看最新提交');
+    if (!await this.confirm(tr`上传 ${commits.length} 个 commit 到 ${safeUrl}\n${ref}\n\n${summaries.join('\n')}`, tr('上传评审'))) return;
+    await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: tr('上传 Gerrit 评审…') }, () => this.runGit(cwd, ['push', '--', remote, ref]));
+    vscode.window.showInformationMessage(tr('Gerrit 上传成功，请刷新查看最新提交'));
   }
 }
 module.exports = { activate, deactivate() { const app = activeWorkbench; activeWorkbench = undefined; return app?.dispose(); } };

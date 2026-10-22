@@ -7,7 +7,7 @@ test('webview escapes server content and sends pinned change/revision with actio
   const events = {}; const messages = [];
   const app = { innerHTML: '', querySelectorAll: () => [], setAttribute() {}, addEventListener(name, fn) { events[name] = fn; } };
   const elements = { app, notice: {}, account: {} }; let onMessage;
-  const sandbox = { markdownit: require('../media/vendor/markdown-it.min.js'), acquireVsCodeApi: () => ({ postMessage: m => messages.push(m), getState: () => ({}), setState() {} }), document: { getElementById: id => elements[id] }, window: { addEventListener: (_, fn) => { onMessage = fn; } } };
+  const sandbox = { GerritI18n: require('../media/i18n'), markdownit: require('../media/vendor/markdown-it.min.js'), acquireVsCodeApi: () => ({ postMessage: m => messages.push(m), getState: () => ({}), setState() {} }), document: { getElementById: id => elements[id] }, window: { addEventListener: (_, fn) => { onMessage = fn; } } };
   vm.runInNewContext(fs.readFileSync(require.resolve('../media/main.js'), 'utf8'), sandbox);
   assert.equal(messages[0].type, 'init');
   onMessage({ data: { type: 'state', model: { connected: true, detail: { id: 'p~main~Iabc', subject: '<script>alert(1)</script>', current_revision: 'abc123', revisions: { abc123: { _number: 3 } }, labels: {}, files: {}, comments: {} } } } });
@@ -25,7 +25,7 @@ function surfaceFixture() {
   const app = { innerHTML: '', querySelectorAll: () => [], setAttribute() {}, addEventListener: (name, fn) => { events[name] = fn; } };
   elements.app = app;
   vm.runInNewContext(fs.readFileSync(require.resolve('../media/main.js'), 'utf8'), {
-    markdownit: require('../media/vendor/markdown-it.min.js'), acquireVsCodeApi: () => ({ postMessage: m => messages.push(m), getState: () => ({}), setState() {} }),
+    GerritI18n: require('../media/i18n'), markdownit: require('../media/vendor/markdown-it.min.js'), acquireVsCodeApi: () => ({ postMessage: m => messages.push(m), getState: () => ({}), setState() {} }),
     document: { getElementById: id => elements[id] }, window: { addEventListener: (_, fn) => { onMessage = fn; } }
   });
   return { app, events, elements, messages, message: data => onMessage({ data }), update: model => onMessage({ data: { type: 'state', model } }) };
@@ -367,4 +367,27 @@ test('global comments have no locate button and adjacent PS updates retain an ac
   f.update({connected:true,surface:'sidebar',detail});assert.ok(f.app.innerHTML.includes('与 PS 1 无代码差异'));
   f.update({connected:true,surface:'sidebar',detail:{...detail,revisions:{r:{_number:2,files:{}},old:{_number:1}}}});
   assert.ok(!f.app.innerHTML.includes('无代码差异'));
+});
+
+
+test('all view surfaces render English while Chinese comments and names remain verbatim',()=>{
+  const f=surfaceFixture(),detail={id:'c',current_revision:'r',subject:'Subject',_number:1,project:'repo',branch:'main',owner:{name:'Alex'},
+    revisions:{r:{_number:1,commit:{message:'Commit'}}},files:{'a.c':{}},patchView:{rev:'r',files:['a.c']},comments:{'a.c':[{id:'root',message:'English comment',patch_set:1,line:1}]},labels:{}};
+  for(const surface of ['sidebar','discussion','files','tasks']) {
+    f.update({connected:true,language:'en',surface,detail,changes:[]});
+    assert.ok(!/[\u3400-\u9fff]/.test(f.app.innerHTML),surface+' contains untranslated text');
+  }
+  f.update({language:'en',connected:true,changes:[],query:'is:open'});
+  assert.ok(f.app.innerHTML.includes('Review inbox'));assert.ok(!/[\u3400-\u9fff]/.test(f.app.innerHTML));
+  detail.comments['a.c'][0].message='用户中文原文';detail.owner.name='中文作者';
+  f.update({language:'en',surface:'discussion',connected:true,detail});
+  assert.ok(f.app.innerHTML.includes('用户中文原文'));assert.ok(f.app.innerHTML.includes('中文作者'));
+});
+
+test('web links from rendered comments are intercepted before draft editing and remain usable while busy',()=>{
+  const f=surfaceFixture();f.update({connected:true,language:'en'});f.message({type:'busy',value:true});
+  let prevented=false,stopped=false;
+  const anchor={tagName:'A',getAttribute:()=> 'https://example.invalid/readme'};
+  f.events.click({preventDefault:()=>{prevented=true;},stopPropagation:()=>{stopped=true;},target:{closest:selector=>selector==='a[href]'?anchor:null}});
+  assert.equal(f.messages.at(-1).type,'openLink');assert.equal(f.messages.at(-1).url,'https://example.invalid/readme');assert.ok(prevented&&stopped);
 });
