@@ -5,7 +5,7 @@
 This delivery is a local VSIX only. No public repository, Marketplace upload or Git push is configured. Keep the current local-tools publisher identity; do not invent repository, homepage or issue URLs.
 
 1. Run `python scripts/verify.py`, followed by `python scripts/package.py`.
-2. Run `python scripts/verify_host.py --vsix gerrit-workbench-0.16.0.vsix` to exercise an isolated real VS Code host and Webview workflows.
+2. Run `python scripts/verify_host.py --vsix gerrit-workbench-1.0.0.vsix` to exercise an isolated real VS Code host and Webview workflows.
 3. Run `python scripts/check_release.py` to check localization, bilingual documents, PNG icon and archive allowlisting. Exclude logs, credentials, tests and temporary files.
 4. Retain only the current VSIX and record one local Git commit. Do not push.
 

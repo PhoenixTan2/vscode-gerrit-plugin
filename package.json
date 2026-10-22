@@ -2,7 +2,7 @@
   "name": "gerrit-workbench",
   "displayName": "Gerrit Workbench",
   "description": "%extension.description%",
-  "version": "0.16.0",
+  "version": "1.0.0",
   "publisher": "local-tools",
   "license": "MIT",
   "engines": {
@@ -383,5 +383,5 @@
     "comments",
     "ssh"
   ],
-  "preview": true
+  "preview": false
 }

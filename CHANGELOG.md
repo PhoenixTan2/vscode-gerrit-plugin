@@ -2,6 +2,11 @@
 
 **中文** | [English](#english)
 
+## 1.0.0
+
+- 将已验证的 0.16.0 功能集定版为稳定版 1.0.0，取消扩展预览标记。
+- 更新中英文安装与本地发布说明；无额外功能改动，不公开发布。
+
 ## 0.16.0
 
 - 原生评论输入框提示和发布 / 回复按钮随 Gerrit Language 切换，新评论与已有线程分开显示操作。
@@ -164,6 +169,11 @@
 
 [返回中文 / Back to Chinese](#更新记录)
 
+
+## 1.0.0
+
+- Finalize the validated 0.16.0 feature set as stable 1.0.0; remove the extension preview flag.
+- Update bilingual installation and local release instructions. No additional functional changes or public publication.
 
 ## 0.16.0
 

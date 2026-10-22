@@ -2,6 +2,11 @@
 
 [中文](CHANGELOG.md) | **English**
 
+## 1.0.0
+
+- Finalize the validated 0.16.0 feature set as stable 1.0.0; remove the extension preview flag.
+- Update bilingual installation and local release instructions. No additional functional changes or public publication.
+
 ## 0.16.0
 
 - Localize native comment prompts and Post comment / Reply actions using Gerrit Language. Distinguish new comments from existing threads.

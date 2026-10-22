@@ -5,7 +5,7 @@
 本轮只准备本地 VSIX，没有公开仓库，不向 Marketplace 或 Git 远程上传。保留现有 local-tools 发布者标识，不虚构 repository / homepage / issues 地址。
 
 1. 运行 `python scripts/verify.py`，再运行 `python scripts/package.py`。
-2. 运行 `python scripts/verify_host.py --vsix gerrit-workbench-0.16.0.vsix`，验证隔离的真实 VS Code 激活、页面脚本和交互。
+2. 运行 `python scripts/verify_host.py --vsix gerrit-workbench-1.0.0.vsix`，验证隔离的真实 VS Code 激活、页面脚本和交互。
 3. 运行 `python scripts/check_release.py`，检查语言资源、双语文档、PNG 图标和包文件白名单；日志、凭据、测试与临时文件不进入安装包。
 4. 只保留当前 VSIX，并记录本地 Git commit，不推送。
 
@@ -26,7 +26,7 @@
 This delivery is a local VSIX only. No public repository, Marketplace upload or Git push is configured. Keep the current local-tools publisher identity; do not invent repository, homepage or issue URLs.
 
 1. Run `python scripts/verify.py`, followed by `python scripts/package.py`.
-2. Run `python scripts/verify_host.py --vsix gerrit-workbench-0.16.0.vsix` to exercise an isolated real VS Code host and Webview workflows.
+2. Run `python scripts/verify_host.py --vsix gerrit-workbench-1.0.0.vsix` to exercise an isolated real VS Code host and Webview workflows.
 3. Run `python scripts/check_release.py` to check localization, bilingual documents, PNG icon and archive allowlisting. Exclude logs, credentials, tests and temporary files.
 4. Retain only the current VSIX and record one local Git commit. Do not push.
 
