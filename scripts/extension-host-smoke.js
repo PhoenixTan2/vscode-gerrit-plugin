@@ -108,8 +108,8 @@ async function run() {
         if(!document.querySelector('[data-action="rebase"]')||!document.querySelector('[data-action="discardEdit"]'))throw new Error('Rebase or discard not discoverable');
         const currentScoreButton=document.querySelector('[data-label="Code-Review"][data-value="1"]');if(currentScoreButton.getAttribute('aria-pressed')!=='true')throw new Error('Own current score is not selected');currentScoreButton.click();document.getElementById('review').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));
         const reviewerInput=document.getElementById('reviewer-query');reviewerInput.value='dev';reviewerInput.dispatchEvent(new Event('input',{bubbles:true}));
-        await new Promise(resolve=>setTimeout(resolve,250));
-        const pick=document.querySelector('[data-action="reviewerPick"]');if(!pick||!pick.textContent.includes('Suggested dev'))throw new Error('Inline reviewer suggestion missing');pick.click();
+        let pick;const suggestionDeadline=Date.now()+5000;while(!pick&&Date.now()<suggestionDeadline){await new Promise(resolve=>setTimeout(resolve,25));pick=document.querySelector('[data-action="reviewerPick"]');}
+        if(!pick||!pick.textContent.includes('Suggested dev'))throw new Error('Inline reviewer suggestion missing');pick.click();
         document.querySelector('[data-action="reviewerRemove"]').click();
         window.dispatchEvent(new MessageEvent('message',{data:{type:'state',model:initialModel}}));
 

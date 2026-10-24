@@ -4,6 +4,8 @@
 
 ## 1.1.0
 
+- 移除工作台中的评审人员区域，保留评审讨论页内的人员与组管理。
+
 - 本批保持 1.1.0：卡片直接打开复用的评审讨论；冲突链接蓝色加下划线，详情状态文字跟随问题状态颜色。
 - 发布评审和当前评分合并为右侧居中、宽窄一致、可收起的浮窗；默认显示当前账号评分，重复点击当前分值无变化，移除 Code-Review / Verified 的“不修改评分”。
 - 解决 / 未解决代码评论分别着色，默认按状态折叠 / 展开，全局评论默认展开；代码页同步区分状态，移除评论展开设置。
@@ -193,6 +195,8 @@
 
 
 ## 1.1.0
+
+- Remove reviewer management from the workbench; keep in-page people/group controls in discussions.
 
 - Keep 1.1.0: cards open/reuse discussions directly; conflict links are blue and underlined, with state-coloured detail badges.
 - Combine review submission/current votes into one collapsible right-centred window at all widths. Preselect the account's current vote; selecting it again does nothing. Remove unchanged-score controls for Code-Review / Verified.

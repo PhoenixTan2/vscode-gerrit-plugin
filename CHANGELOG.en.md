@@ -4,6 +4,8 @@
 
 ## 1.1.0
 
+- Remove reviewer management from the workbench; keep in-page people/group controls in discussions.
+
 - Keep 1.1.0: cards open/reuse discussions directly; conflict links are blue and underlined, with state-coloured detail badges.
 - Combine review submission/current votes into one collapsible right-centred window at all widths. Preselect the account's current vote; selecting it again does nothing. Remove unchanged-score controls for Code-Review / Verified.
 - Colour resolved/unresolved discussions and code markers; default to resolved collapsed, unresolved expanded and global comments expanded. Remove the comment-expansion setting.

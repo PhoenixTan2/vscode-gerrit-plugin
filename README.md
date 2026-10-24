@@ -57,7 +57,7 @@ Commit 信息、关系链分别记住工作台和评审讨论中的展开 / 收�
 
 上传时读取所选 Git remote 的真实分支。同名远端分支存在时默认填入本地分支，否则留空；输入时忽略大小写筛选候选。选择后仍会检查待推送提交和 Change-Id，通过后上传。
 
-自己的 Open / WIP 提交在工作台、评审讨论中提供“评审人员 · Code-Review / Verified”折叠栏，在框内按姓名、邮箱或组名搜索并添加，点已有人员旁的 × 删除。组展开为成员，按服务器协议自动确认组添加。移除人员同时移除其已有评分；实际操作受服务器权限控制。历史 PS 需切回最新 PS 再管理。
+自己的 Open / WIP 提交仅在评审讨论中提供“评审人员 · Code-Review / Verified”折叠栏，在框内按姓名、邮箱或组名搜索并添加，点已有人员旁的 × 删除。组展开为成员，按服务器协议自动确认组添加。移除人员同时移除其已有评分；实际操作受服务器权限控制。历史 PS 需切回最新 PS 再管理。
 
 Gerrit 的评审人员属于整笔变更，不按 Code-Review、Verified 独立分配；添加人员不会授予打分权限。标签权限由服务器项目配置控制，评分仍按标签显示。
 
@@ -250,7 +250,7 @@ Background conflict checks distinguish target-branch merge conflicts from confli
 
 Uploads read live branches from the selected Git remote. Prefill the local branch only when it exists remotely; otherwise start empty. Type to filter suggestions case-insensitively. Outgoing commits and Change-Ids are still checked before pushing, without a confirmation warning.
 
-Your own Open / WIP changes show a **Reviewers · Code-Review / Verified** section in the workbench and discussion page. Type a name, email or group name in the box and select a suggestion; use × next to a reviewer to remove them. Groups expand into members; server-required group confirmation is handled automatically. Removing reviewers also removes their votes and remains subject to server permissions. Switch historical views to the latest PS before managing reviewers.
+Your own Open / WIP changes show a **Reviewers · Code-Review / Verified** section in the discussion page only. Type a name, email or group name in the box and select a suggestion; use × next to a reviewer to remove them. Groups expand into members; server-required group confirmation is handled automatically. Removing reviewers also removes their votes and remains subject to server permissions. Switch historical views to the latest PS before managing reviewers.
 
 Gerrit assigns reviewers to a whole change, not separately to Code-Review and Verified. Adding reviewers does not grant voting rights; server project configuration controls label permissions. Votes remain displayed per label.
 

@@ -393,13 +393,13 @@ test('web links from rendered comments are intercepted before draft editing and 
 });
 
 
-test('reviewer management is available only on own open latest changes in both surfaces and languages', () => {
+test('reviewer management is restricted to discussion for own open latest changes in both languages', () => {
   const f=surfaceFixture();
   for (const surface of ['sidebar','discussion']) for (const language of ['zh-CN','en']) {
     const detail={id:'c',status:'NEW',mine:true,current_revision:'rev',viewRevision:'rev',revisions:{rev:{_number:1}},reviewers:{REVIEWER:[{name:'<Owner>'}]},files:{},comments:{}};
     f.update({connected:true,surface,language,detail});
-    assert.ok(f.app.innerHTML.includes('id="reviewer-query"')); assert.ok(f.app.innerHTML.includes('&lt;Owner&gt;'));
-    if(language==='en') assert.ok(f.app.innerHTML.includes('Search by name, email or group name'));
+    assert.equal(f.app.innerHTML.includes('id="reviewer-query"'),surface==='discussion');
+    if(surface==='discussion'){assert.ok(f.app.innerHTML.includes('&lt;Owner&gt;'));if(language==='en')assert.ok(f.app.innerHTML.includes('Search by name, email or group name'));}
     for(const override of [{mine:false},{status:'MERGED'},{viewRevision:'old'}]) {
       f.update({connected:true,surface,language,detail:{...detail,...override}});
       assert.ok(!f.app.innerHTML.includes('id="reviewer-query"'));

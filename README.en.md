@@ -57,7 +57,7 @@ Background conflict checks distinguish target-branch merge conflicts from confli
 
 Uploads read live branches from the selected Git remote. Prefill the local branch only when it exists remotely; otherwise start empty. Type to filter suggestions case-insensitively. Outgoing commits and Change-Ids are still checked before pushing, without a confirmation warning.
 
-Your own Open / WIP changes show a **Reviewers · Code-Review / Verified** section in the workbench and discussion page. Type a name, email or group name in the box and select a suggestion; use × next to a reviewer to remove them. Groups expand into members; server-required group confirmation is handled automatically. Removing reviewers also removes their votes and remains subject to server permissions. Switch historical views to the latest PS before managing reviewers.
+Your own Open / WIP changes show a **Reviewers · Code-Review / Verified** section in the discussion page only. Type a name, email or group name in the box and select a suggestion; use × next to a reviewer to remove them. Groups expand into members; server-required group confirmation is handled automatically. Removing reviewers also removes their votes and remains subject to server permissions. Switch historical views to the latest PS before managing reviewers.
 
 Gerrit assigns reviewers to a whole change, not separately to Code-Review and Verified. Adding reviewers does not grant voting rights; server project configuration controls label permissions. Votes remain displayed per label.
 

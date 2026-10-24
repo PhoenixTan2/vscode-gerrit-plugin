@@ -77,7 +77,7 @@ function reviewerResults(error, loading = false) {
   return reviewerItems.map((item,index) => `<button type="button" role="option" class="reviewer-option" data-action="reviewerPick" data-request-id="${reviewerRequest}" data-index="${index}"><span>${item.kind === 'group' ? tr('组') : tr('人员')} · ${e(item.name)}</span><small class="muted">${e(item.description || (Number.isInteger(item.count) ? tr`${item.count} 位成员` : ''))}</small></button>`).join('') || (reviewerQuery() ? tr('<p class="muted">没有匹配的人员或组</p>') : '');
 }
 function reviewerManager(d) {
-  if (!d.mine || d.status !== 'NEW' || (d.viewRevision && d.viewRevision !== d.current_revision)) return '';
+  if (model.surface !== 'discussion' || !d.mine || d.status !== 'NEW' || (d.viewRevision && d.viewRevision !== d.current_revision)) return '';
   const people = d.reviewers?.REVIEWER || [];
   return tr`<details id="reviewer-panel" class="card reviewer-manager" ${model.surface === 'discussion' ? 'open' : ''}><summary>评审人员 · Code-Review / Verified <span class="muted">(${people.length})</span></summary><div class="reviewer-people">${people.map(person => `<span class="reviewer-person">${e(who(person))}${button('×','reviewerRemove','reviewer-remove',`data-account-id="${e(person._account_id)}" aria-label="${e(tr('移除评审人员'))}: ${e(who(person))}"`)}</span>`).join('') || tr('<p class="muted">暂无评审人员</p>')}</div><input id="reviewer-query" type="search" role="combobox" aria-autocomplete="list" aria-controls="reviewer-results" aria-expanded="${!!reviewerItems.length}" aria-label="添加评审人员或组" placeholder="输入姓名、邮箱或组名搜索" value="${e(reviewerQuery())}"><div id="reviewer-results" class="reviewer-results" role="listbox">${reviewerResults()}</div><small class="muted">人员按提交管理，打分权限由 Gerrit 控制。移除人员也会移除其评分。</small></details>`;
 }
@@ -276,7 +276,7 @@ function resultNavigation() {
 function sidebarDetail(d) {
   const rev = d.revisions?.[d.current_revision]; const actions = d.viewRevision && d.viewRevision !== d.current_revision ? {} : d.actions || {};
   const commentCount = commentStats(d);
-  return tr`<div class="row">${button(tr('← 返回列表'), 'back')}${button(tr('刷新此变更'), 'refresh')}${button(tr('内置浏览器'), 'browser')}</div><p><span class="badge">#${e(d._number)}</span><span id="change-status" class="badge status status-${statusTone(d)}">${e(changeStatus(d))}</span>${negativeStatus(d)}</p><div id="result-navigation" class="result-navigation" aria-label="检索结果导航">${resultNavigation()}${pendingSearch()}</div><h1>${e(displaySubject(d))}</h1><p class="muted">${metadataLink(d.project, 'repo')} → ${metadataLink(d.branch, 'branch')}<br>${metadataLink(who(d.owner), 'owner')} · 最新 PS ${e(rev?._number)}</p>${timestamps(d)}${commitInfo(d)}<div class="review-entry">${icon('discussion')}${button(tr`打开评审讨论（${commentCount} 条代码评论）`, 'discussion', 'wide')}<p class="muted">代码评论：未解决(已解决)。讨论与评分、Commit 信息、单个 Patch 代码和本地下载。</p></div><div id="change-actions">${changeActions(d)}</div>${conflictInfo(d)}${reviewerManager(d)}${relationChain(d)}${fileComparison(d)}`;
+  return tr`<div class="row">${button(tr('← 返回列表'), 'back')}${button(tr('刷新此变更'), 'refresh')}${button(tr('内置浏览器'), 'browser')}</div><p><span class="badge">#${e(d._number)}</span><span id="change-status" class="badge status status-${statusTone(d)}">${e(changeStatus(d))}</span>${negativeStatus(d)}</p><div id="result-navigation" class="result-navigation" aria-label="检索结果导航">${resultNavigation()}${pendingSearch()}</div><h1>${e(displaySubject(d))}</h1><p class="muted">${metadataLink(d.project, 'repo')} → ${metadataLink(d.branch, 'branch')}<br>${metadataLink(who(d.owner), 'owner')} · 最新 PS ${e(rev?._number)}</p>${timestamps(d)}${commitInfo(d)}<div class="review-entry">${icon('discussion')}${button(tr`打开评审讨论（${commentCount} 条代码评论）`, 'discussion', 'wide')}<p class="muted">代码评论：未解决(已解决)。讨论与评分、Commit 信息、单个 Patch 代码和本地下载。</p></div><div id="change-actions">${changeActions(d)}</div>${conflictInfo(d)}${relationChain(d)}${fileComparison(d)}`;
 }
 
 const searchIdentity = () => `${model.server || ''}::${model.accountId ?? model.username ?? ''}`;
@@ -452,7 +452,7 @@ window.addEventListener('message', ({ data }) => {
     const ratings = document.getElementById('rating-list'); if (ratings) ratings.innerHTML = votes(model.detail.labels);
     const controls = document.getElementById('score-controls'); if (controls) controls.innerHTML = scoreControls(model.detail);
     const replacement=document.getElementById('reviewer-query');if(focused){replacement?.focus();try{replacement?.setSelectionRange(start,end);}catch{}}
-    if(reviewerQuery())requestReviewers(reviewerQuery());setBusy();return;
+    if(replacement && reviewerQuery())requestReviewers(reviewerQuery());setBusy();return;
   }
   if (data.type === 'changeStatus' && model.detail?.id === data.id && model.detail.current_revision === data.rev) {
     model.detail.conflictStatus = data.conflictStatus; model.detail.editStatus = data.editStatus;
