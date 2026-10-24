@@ -24,3 +24,12 @@ test('reverse Base comparison inverts additions, deletions, rename paths and lin
   assert.equal(result['old.js'].old_path, 'renamed.js'); assert.equal(result['old.js'].lines_inserted, 1);
   assert.equal(files['new.js'].status, 'A');
 });
+
+
+test('Edit compares to any PS or its Base in either direction, always using the edit as canonical right revision',()=>{
+ const edit={commit:{commit:'edit-sha'},base_revision:'new'},revisions={old:{_number:1},new:{_number:2}};
+ for(const other of ['old','new','base'])for(const pair of [[other,'edit'],['edit',other]]){
+  const plan=comparisonPlan(revisions,...pair,edit);assert.equal(plan.revision,'edit');assert.equal(plan.base,other==='base'?undefined:other);assert.equal(plan.reverse,pair[0]==='edit');assert.equal(plan.editHead,'edit-sha');
+ }
+ assert.throws(()=>comparisonPlan(revisions,'old','edit'),/有效/);assert.throws(()=>comparisonPlan(revisions,'edit','edit',edit),/有效/);
+});

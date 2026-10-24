@@ -4,6 +4,27 @@
 
 Connect, upload commits, review changes, comment on code, reply and vote from VS Code. Normal workflows use the sidebar, editor buttons and file panel without opening the Command Palette.
 
+## In-page review controls and state colors
+
+On your own Open / WIP changes, type a name, email or group name directly in the discussion's **Reviewers** box. Select a suggestion to add a person or group; use × next to an existing reviewer to remove them. Keyboard navigation is supported. Stale suggestions cannot add a different person, and sidebar/discussion suggestions are isolated. Reviewer updates preserve the review comment being edited.
+
+Choose permitted scores using direct buttons, including **Leave score unchanged**. Selecting a score does not send it; choose **Post review** to publish. Scores and the comment editor appear in a sticky side column that follows page scrolling. Tall panels scroll internally without covering discussions or current votes. Narrow windows use normal vertical layout.
+
+The workbench comparison selectors include **Edit (saved draft)** for comparison against any PS or Base in either direction. **Compare saved edit** compares the draft to its original PS. Save local edits first; comparisons create no PS. Code comments require publishing the Edit as a PS. **Discard edit** deletes the whole private draft without changing published PS revisions. Dirty local buffers block discard until saved or undone. You can start a fresh Edit on the same PS afterwards.
+
+Your own Open / WIP latest PS always exposes **Rebase**, even when the server omitted action metadata. The server checks permission and feasibility after the Base is selected. Historical views must first switch to the latest PS.
+
+| Card color | Meaning |
+| --- | --- |
+| Blue | Ordinary Open |
+| Brown | WIP |
+| Orange | Negative votes; -1 / -2 share a color and retain their values |
+| Pink | Server says ready to submit, with no negative-vote warning |
+| Green | Merged |
+| Red | Abandoned |
+
+Stripe priority: merged / abandoned, then negative votes, WIP, ready to submit and ordinary Open. Color is a warning, while eligibility uses the server's submittable flag. A negative-voted change that the server permits can show an orange stripe and **Ready to submit** together; the extension does not invent a submission block. Exact tones follow the VS Code theme.
+
 ## Edit, publish and rebase
 
 Open a text diff of the latest PS of your own Open / WIP change and choose **Edit** in the editor toolbar. The left Base / selected PS stays read-only; only the right Edit side is writable. Use **Save Gerrit edit** or Ctrl+S to save a private server-side draft, without a local repository or target-branch changes.
@@ -22,7 +43,7 @@ Background conflict checks distinguish target-branch merge conflicts from confli
 
 Uploads read live branches from the selected Git remote. Prefill the local branch only when it exists remotely; otherwise start empty. Type to filter suggestions case-insensitively. Outgoing commits and Change-Ids are still checked before pushing, without a confirmation warning.
 
-Your own Open / WIP changes show a **Reviewers · Code-Review / Verified** section in the workbench and discussion page. Choose **Manage people / groups** to search by name, email or group name. Groups expand into members; server-required group confirmation is handled automatically. Removing reviewers also removes their votes and remains subject to server permissions. Switch historical views to the latest PS before managing reviewers.
+Your own Open / WIP changes show a **Reviewers · Code-Review / Verified** section in the workbench and discussion page. Type a name, email or group name in the box and select a suggestion; use × next to a reviewer to remove them. Groups expand into members; server-required group confirmation is handled automatically. Removing reviewers also removes their votes and remains subject to server permissions. Switch historical views to the latest PS before managing reviewers.
 
 Gerrit assigns reviewers to a whole change, not separately to Code-Review and Verified. Adding reviewers does not grant voting rights; server project configuration controls label permissions. Votes remain displayed per label.
 

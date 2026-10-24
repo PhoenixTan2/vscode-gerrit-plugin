@@ -4,6 +4,11 @@
 
 ## 1.1.0
 
+- 本批仍为 1.1.0：评审人员/组改为页面内输入补全与直接删除，评分改为分值按钮，评审表单侧栏随滚动并避免遮挡。
+- 比较版本加入已保存 Edit，可与任意 PS / Base 双向查看；增加整份 Edit 废弃及同 PS 再编辑，未保存内容保护。
+- 自己的 Open / WIP 固定提供 Rebase，操作由服务器验证。
+- 负分统一橙色、WIP 棕色；“可合入”以服务器判断为准，负分提醒不会擅自阻止合入。
+
 - 本批保持 1.1.0：自己的最新 PS 支持只读左侧 / 可编辑右侧的 Edit diff；多文件保存到同一草稿，统一发布为一笔新 PS，检测服务器并发编辑。
 - 工作台、讨论页增加发布 / Rebase 和冲突提示，展示并跳转互相冲突的未合入提交。
 - 关系链紧凑显示、移除重复父 SHA 和无编号节点、标记旧 PS；两个页面的 Commit / 关系链折叠状态持久化，移除默认展开设置。
@@ -183,6 +188,11 @@
 
 
 ## 1.1.0
+
+- Keep 1.1.0: inline reviewer/group autocomplete and removal, direct score buttons, and a sticky review column without overlap.
+- Compare saved Edit against any PS / Base in either direction; discard an entire draft and restart on the same PS, with dirty-buffer protection.
+- Always expose Rebase for your own Open / WIP changes; the server validates the operation.
+- Use orange for all negative votes and brown for WIP. Submission eligibility follows the server even when negative votes exist.
 
 - Keep version 1.1.0 for this batch: edit your latest PS in a native diff with immutable left and writable right sides. Save multiple files into one draft and publish one new PS, with server-edit concurrency checks.
 - Add publish/rebase controls and background merge/conflicting-change indicators with detail links.

@@ -86,3 +86,12 @@ test('reopening clean Edit tabs refreshes a changed remote draft without silentl
   await f.edits.start();assert.equal((await f.edits.readFile(uri)).toString(),'web version');
   await assert.rejects(f.edits.writeFile(uri,Buffer.from('local dirty')),/服务器 Edit/);
 });
+
+
+test('discard removes one whole server draft, retires all files, and allows starting a fresh Edit on the same PS',async()=>{
+ const f=fixture();let discarded=0;f.app.api.discardEdit=async()=>{discarded++;f.setEdit(undefined);f.contents.set('src/code.c',Buffer.from('old\n'));};
+ await f.edits.start();const uri=f.calls.at(-1)[2];await f.edits.writeFile(uri,Buffer.from('draft'));
+ await f.edits.discard(f.change.id);assert.equal(discarded,1);assert.equal((await f.edits.stat(uri)).permissions,1);
+ await f.edits.start();assert.equal((await f.edits.readFile(uri)).toString(),'old\n');assert.equal((await f.edits.stat(uri)).permissions,undefined);
+ f.v.workspace.textDocuments=[{uri,isDirty:true}];await assert.rejects(f.edits.discard(f.change.id),/未保存/);assert.equal(discarded,1);
+});

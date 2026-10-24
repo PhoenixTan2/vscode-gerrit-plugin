@@ -4,6 +4,27 @@
 })(globalThis, function () {
   'use strict';
   const messages = {
+  "可合入": "Ready to submit",
+  "Base（另一侧 PS / Edit 的第一父提交）": "Base (first parent of the opposite PS / Edit)",
+  "可比较 PS、已保存的 Edit 或 Base。Edit 发布为 PS 后才能添加代码评论。": "Compare patch sets, saved Edit or Base. Publish the Edit as a PS before adding code comments.",
+  "有负分": "Negative votes",
+  "负分": "Negative vote",
+  "正在查找人员和组…": "Searching people and groups…",
+  "人员": "Person",
+  " 位成员": " members",
+  "没有匹配的人员或组": "No matching people or groups",
+  "人员按提交管理，打分权限由 Gerrit 控制。移除人员也会移除其评分。": "Reviewers belong to the change; Gerrit controls voting permissions. Removing reviewers also removes their votes.",
+  "候选人员已更新，请重新搜索选择": "Suggestions changed; search and select again",
+  "评审人员已更新，请刷新": "Reviewers changed; refresh",
+  "Edit（已保存草稿）": "Edit (saved draft)",
+  "选择 Rebase 目标，权限由服务器校验": "Choose a Rebase target; the server checks permissions",
+  "查看 Edit 改动": "Compare saved edit",
+  "废弃 Edit": "Discard edit",
+  "仍有未保存的 Edit，请先保存或在编辑器中撤销改动，再废弃草稿": "Unsaved edits remain. Save or undo them in the editor before discarding the draft",
+  "只能查看自己的 Edit 草稿": "You can only view your own Edit draft",
+  "Edit 已更新，请刷新比较后重试": "The Edit changed; refresh the comparison and retry",
+  "Edit 草稿发布为 PS 后才能添加代码评论": "Publish the Edit as a patch set before adding code comments",
+
   "冲突提交": "Conflicting changes",
   "无效的 Gerrit 号": "Invalid Gerrit change number",
   "请先保存并发布 Edit，再执行 Rebase": "Save and publish the edit before rebasing",

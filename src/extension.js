@@ -13,7 +13,7 @@ const { PathIndex } = require('./path-index');
 const { ReviewProgress } = require('./review-progress');
 const { git, pushRef } = require('./git');
 const {chooseBranch} = require('./suggestions');
-const {manageReviewers} = require('./reviewers');
+const {suggestReviewers, addReviewer, removeReviewer} = require('./reviewers');
 const { comparisonPlan, comparisonFiles } = require('./comparison');
 const { Logger } = require('./log');
 const { BrowserGateway } = require('./browser');
@@ -34,6 +34,7 @@ function activate(context) {
     vscode.commands.registerCommand('gerrit.edit', () => app.run(() => app.edits.start())),
     vscode.commands.registerCommand('gerrit.saveEdit', () => app.run(() => app.edits.save())),
     vscode.commands.registerCommand('gerrit.publishEdit', () => app.run(() => app.edits.publish())),
+    vscode.commands.registerCommand('gerrit.discardEdit', () => app.run(() => app.edits.discard(app.edits.active()?.session.id))),
     vscode.commands.registerCommand('gerrit.connect', () => app.run(() => app.connect())),
     vscode.commands.registerCommand('gerrit.refresh', () => app.run(() => app.refreshCurrent())),
     vscode.commands.registerCommand('gerrit.push', () => app.run(() => app.push())),
@@ -105,7 +106,7 @@ class Workbench {
   validInfo(info) { return !!(info && this.selected && info.id === this.selected.id && (this.selected.change.revisions ? this.selected.change.revisions[info.rev] : info.rev === this.selected.rev)); }
   dispose() {
     if (this.disposal) return this.disposal;
-    this.disposed = true; this.contextController?.abort(); this.statusController?.abort(); this.cancelSearch();
+    this.disposed = true; this.reviewerController?.abort(); this.contextController?.abort(); this.statusController?.abort(); this.cancelSearch();
     for (const job of this.backgroundJobs.values()) this.cancelTask(job.taskId);
     this.tasksView?.dispose();
     this.disposal = Promise.allSettled([this.nativeFiles.dispose(), this.pathIndex.dispose(), this.reviewProgress.saving]);
@@ -302,6 +303,9 @@ class Workbench {
       this.render(); webview.postMessage({ type: 'busy', value: this.busy });
       if (!this.api && !this.busy) return this.run(() => this.restore());
       return;
+    }
+    if (message?.type === 'reviewerSuggest') {
+      return suggestReviewers(this, message).then(result => { if (result) webview.postMessage(result); }).catch(error => webview.postMessage({type:'reviewerSuggestions',id:message.id,rev:message.rev,requestId:message.requestId,clientId:message.clientId,items:[],error:error.message}));
     }
     if (message?.type === 'foldState') {
       if (!['sidebar', 'discussion'].includes(message.surface) || !['commit', 'relation'].includes(message.panel) || typeof message.expanded !== 'boolean') return;
@@ -547,8 +551,12 @@ class Workbench {
     let plan = comparisonPlan(change.revisions, 'base', focus);
     let savedComparison = context.comparison || (!context.revision && this.selected?.id === change.id ? this.selected.comparison : undefined);
     if (!context.comparison && savedComparison?.left === 'base' && savedComparison.right === oldFocus && focus !== oldFocus) savedComparison = undefined;
+    let comparisonEdit;
+    if (savedComparison && [savedComparison.left,savedComparison.right].includes('edit') && change.owner?._account_id === this.user._account_id) {
+      try { comparisonEdit = await this.api.edit(id); } catch { /* Reset unavailable edit comparisons to PS/Base. */ }
+    }
     if (savedComparison) {
-      try { plan = comparisonPlan(change.revisions, savedComparison.left, savedComparison.right); } catch { /* A removed patch set resets comparison. */ }
+      try { plan = comparisonPlan(change.revisions, savedComparison.left, savedComparison.right, comparisonEdit); } catch { /* A removed patch set resets comparison. */ }
     }
     const [rawFiles, comments] = await Promise.all([this.api.files(id, plan.revision, plan.base), this.api.allComments(id)]);
     const files = comparisonFiles(rawFiles, plan.reverse);
@@ -560,13 +568,14 @@ class Workbench {
       change.revisions[focus].files ||= patchFiles;
       patchView = { rev: focus, query: '', files: Object.entries(patchFiles).filter(([, file]) => file.status !== 'D').map(([path]) => path).sort() };
     }
+    this.reviewerController?.abort(); this.reviewerSuggestionClients?.clear();
     this.clearThreads(); this.selected = { id: change.id, rev, change, files, comments, comparison: plan };
     const related = this.model.detail?.id === change.id && this.model.detail.related?.rev === focus ? this.model.detail.related : undefined;
-    const update = item => item.id === change.id ? { ...item, reviewed: !!change.reviewed, status: change.status, work_in_progress: change.work_in_progress, submittable: change.submittable, updated: change.updated } : item;
+    const update = item => item.id === change.id ? { ...item, reviewed: !!change.reviewed, status: change.status, work_in_progress: change.work_in_progress, submittable: change.submittable, labels: change.labels, updated: change.updated } : item;
     this.model.changes = this.model.changes.map(update);
     for (const page of this.inboxPages.values()) page.rows = page.rows.map(update);
     if (this.searchResults) this.searchResults.rows = this.searchResults.rows.map(update);
-    this.model.detail = { ...change, viewRevision: focus, viewPinned: pinned, files, comments, comparison: plan, patchView, related, mine: change.owner?._account_id === this.user._account_id };
+    this.model.detail = { ...change, viewRevision: focus, viewPinned: pinned, files, comments, comparison: plan, patchView, related, ...(comparisonEdit ? {editStatus:{loaded:true,edit:comparisonEdit}} : {}), mine: change.owner?._account_id === this.user._account_id };
     this.preloadContext(); this.loadFileProgress(); this.preloadPatchChanges(); this.loadChangeStatus(); this.updateEditContext?.();
     if (this.discussion) this.discussion.title = tr`#${change._number} · 评审讨论`;
     // Reattach comments in any already-open snapshot for this exact patch set.
@@ -600,8 +609,13 @@ class Workbench {
     }).finally(() => contextSignal?.removeEventListener('abort', cancel));
   }
   async compare(left, right) {
-    const s = this.selected; const plan = comparisonPlan(s.change.revisions, left, right);
+    const s = this.selected;
+    if ([left,right].includes('edit') && s.change.owner?._account_id !== this.user?._account_id) throw new Error(tr('只能查看自己的 Edit 草稿'));
+    const edit = [left,right].includes('edit') ? await this.api.edit(s.id) : undefined;
+    const plan = comparisonPlan(s.change.revisions, left, right, edit);
     const files = comparisonFiles(await this.api.files(s.id, plan.revision, plan.base), plan.reverse);
+    if (this.selected !== s) return;
+    if (edit) this.model.detail.editStatus = {loaded:true,edit};
     s.files = files; s.comparison = plan;
     this.model.detail.files = files; this.model.detail.comparison = plan; this.loadFileProgress(); this.render(); await this.showFiles();
   }
@@ -761,7 +775,7 @@ class Workbench {
   }
   loadFileProgress() {
     const s = this.selected, detail = this.model.detail, api = this.api, rev = s.comparison?.revision;
-    if (!rev || !s.change.revisions[rev]) return;
+    if (!rev || !s.change.revisions[rev]) { this.progressJob = {}; delete detail.fileProgress; return; }
     const key = this.reviewProgress.key(api.url, this.user?._account_id ?? this.user?.username, s.id);
     const record = this.reviewProgress.ensure(key, rev), baseline = record.ready ? record.baseline : this.reviewProgress.baseline(key, s.change.revisions, rev);
     const token = {}; this.progressJob = token;
@@ -784,7 +798,7 @@ class Workbench {
   }
   async markFileRead(path, revision, read) {
     const s = this.selected;
-    if (revision !== s.comparison?.revision || !Object.hasOwn(s.files, path) || path.startsWith('/')) throw new Error(tr('文件或比较版本已更新，请重新选择'));
+    if (s.comparison?.editHead || revision !== s.comparison?.revision || !Object.hasOwn(s.files, path) || path.startsWith('/')) throw new Error(tr('文件或比较版本已更新，请重新选择'));
     const key = this.reviewProgress.key(this.api.url, this.user?._account_id ?? this.user?.username, s.id);
     const canonical = s.comparison.reverse && s.files[path].old_path ? s.files[path].old_path : path;
     await this.reviewProgress.mark(key, revision, canonical, read);
@@ -848,6 +862,7 @@ class Workbench {
     if (m.type === 'logs') return this.output.show(true);
     if (m.type === 'cancelSearch') { this.cancelSearch(); this.render(); return; }
     if (m.type === 'disconnect') {
+      this.reviewerController?.abort(); this.reviewerSuggestionClients?.clear();
       for (const job of this.backgroundJobs.values()) this.cancelTask(job.taskId);
       this.cancelSearch(); this.contextController?.abort(); this.parentTrail = []; this.searchResults = undefined; this.patchPathCache.clear();
       this.pathIndex.dispose().catch(() => {}); this.pathIndex = new PathIndex((...args) => this.runGit(...args));
@@ -877,7 +892,8 @@ class Workbench {
     if (m.type === 'open') { this.lockSearch(); this.parentTrail = []; return this.load(String(m.id)); }
     if (m.type === 'back') { this.parentTrail = []; this.contextController?.abort(); this.selected = null; delete this.model.detail; this.clearThreads(); this.render(); return; }
     const s = this.selected; if (!s || m.id !== s.id || m.rev !== s.rev) throw new Error(tr('页面已更新，请重新选择变更后操作'));
-    if (m.type === 'manageReviewers') return manageReviewers(this, vscode);
+    if (m.type === 'reviewerAdd') return addReviewer(this,m);
+    if (m.type === 'reviewerRemove') return removeReviewer(this,m);
     if (m.type === 'fileRead') return this.markFileRead(String(m.path), String(m.fileRev), !!m.read);
     if (m.type === 'returnAncestor') return this.returnChild(Number(m.index));
     if (m.type === 'parentOpen') return this.openParent(String(m.sha || ''));
@@ -889,7 +905,7 @@ class Workbench {
       if (m.compareLeft && (m.compareLeft !== s.comparison?.left || m.compareRight !== s.comparison?.right)) throw new Error(tr('比较版本已更新，请重新点击文件'));
       const path = String(m.path), comparison = s.comparison;
       await this.openDiff(path);
-      if (this.selected === s && s.comparison === comparison) await this.markFileRead(path, comparison.revision, true);
+      if (this.selected === s && s.comparison === comparison && !comparison.editHead) await this.markFileRead(path, comparison.revision, true);
       return;
     }
     if (m.type === 'returnDiscussion') {
@@ -899,6 +915,8 @@ class Workbench {
     if (m.type === 'showFiles') return this.showFiles();
     if (m.type === 'publishEdit') return this.edits.publish(s.id);
     if (m.type === 'rebaseEdit') return this.edits.rebase(s.id);
+    if (m.type === 'discardEdit') return this.edits.discard(s.id);
+    if (m.type === 'compareEdit') return this.compare(this.model.detail.editStatus?.edit?.base_revision || s.rev, 'edit');
     if (m.type === 'conflictOpen') {
       const row = this.model.detail.conflictStatus?.changes.find(row => row.id === m.target);
       if (!row) throw new Error(tr('冲突列表已更新，请刷新'));
@@ -942,7 +960,7 @@ class Workbench {
     }
     if (m.type === 'action') {
       const action = String(m.action); const titles = { ready: tr('发布为待评审'), abandon: tr('废弃变更'), submit: tr('合入目标分支'), rebase: 'Rebase' };
-      if (!titles[action] || !(s.change.actions?.[action] || s.change.revisions?.[s.rev]?.actions?.[action])?.enabled) throw new Error(tr('当前状态或权限不允许此操作，请刷新'));
+      if (!titles[action] || (action === 'rebase' ? s.change.status !== 'NEW' : !(s.change.actions?.[action] || s.change.revisions?.[s.rev]?.actions?.[action])?.enabled)) throw new Error(tr('当前状态或权限不允许此操作，请刷新'));
       if (['ready', 'abandon', 'rebase'].includes(action) && !this.model.detail.mine) throw new Error(tr('此入口仅操作自己的提交'));
       let message;
       if (action === 'abandon') { message = await vscode.window.showInputBox({ title: tr('废弃原因（可留空，Esc 取消）'), ignoreFocusOut: true }); if (message === undefined) return; }
@@ -977,17 +995,19 @@ class Workbench {
       // Parent comments are keyed by the filename in their patch set, including renames.
       const commentPath = value === 'base' ? (plan.reverse ? file.old_path || path : path) : contentPath;
       return { id: s.id, rev, side: value === 'base' ? 'PARENT' : 'REVISION', path: commentPath, contentPath,
-        label: value === 'base' ? tr`Base (PS ${s.change.revisions[rev]._number} 的第一父提交)` : `PS ${s.change.revisions[rev]._number}`,
+        label: value === 'base' ? (rev === 'edit' ? 'Base (Edit)' : tr`Base (PS ${s.change.revisions[rev]._number} 的第一父提交)`) : value === 'edit' ? tr('Edit（已保存草稿）') : `PS ${s.change.revisions[rev]._number}`,
+        editHead: rev === 'edit' ? plan.editHead : undefined,
         empty: index === 0 ? file.status === 'A' : file.status === 'D' };
     });
     const bytes = await Promise.all(sides.map(info => info.empty ? Buffer.alloc(0) : this.api.bytes(s.id, info.rev, info.contentPath, info.side === 'PARENT')));
+    if (plan.editHead && (await this.api.edit(s.id))?.commit?.commit !== plan.editHead) throw new Error(tr('Edit 已更新，请刷新比较后重试'));
     const decoded = bytes.map((value, index) => sides[index].empty ? { kind: 'text', text: '' } : classifyFile(value, path));
     if (decoded.some(value => value.kind !== 'text')) {
       await this.nativeFiles.openPair(sides.map((info, index) => ({ ...info, bytes: bytes[index] }))); return { sides, uris: [] };
     }
     const contents = decoded.map(value => value.text);
     const uris = sides.map((info, index) => {
-      const uri = vscode.Uri.from({ scheme: 'gerrit', authority: crypto.createHash('sha256').update(this.api.url).digest('hex').slice(0, 12), path: `/${s.change._number}/${info.rev}/${info.side}/${info.empty ? 'empty/' : ''}${info.path}` });
+      const uri = vscode.Uri.from({ scheme: 'gerrit', authority: crypto.createHash('sha256').update(this.api.url).digest('hex').slice(0, 12), path: `/${s.change._number}/${info.rev}/${info.editHead ? info.editHead + '/' : ''}${info.side}/${info.empty ? 'empty/' : ''}${info.path}` });
       this.documents.set(uri.toString(), { ...info, content: contents[index] }); return uri;
     });
     await vscode.commands.executeCommand('vscode.diff', uris[0], uris[1], `${path} · ${sides[0].label} ↔ ${sides[1].label}`, { preview: true, viewColumn: this.setting('diff.openBeside', false) ? vscode.ViewColumn.Beside : vscode.ViewColumn.Active });
@@ -1146,6 +1166,7 @@ class Workbench {
   async addComment() {
     const editor = vscode.window.activeTextEditor; if (!editor) return;
     const info = this.documents.get(editor.document.uri.toString());
+    if (info?.rev === 'edit') throw new Error(tr('Edit 草稿发布为 PS 后才能添加代码评论'));
     if (!this.validInfo(info) || info.empty) throw new Error(tr('请从当前变更详情打开非空的文件版本'));
     const thread = this.controller.createCommentThread(editor.document.uri, editor.selection, []);
     thread.contextValue = 'gerritNewComment';

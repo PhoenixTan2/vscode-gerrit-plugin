@@ -60,10 +60,14 @@ async function run() {
     const panel = vscode.window.createWebviewPanel('gerrit.smoke.review', 'Review UI smoke', vscode.ViewColumn.Active, { enableScripts: true, localResourceRoots: [extension.extensionUri] });
     const nonce = require('node:crypto').randomBytes(16).toString('hex');
     const media = name => panel.webview.asWebviewUri(vscode.Uri.joinPath(extension.extensionUri, 'media', name));
-    let fileAction, searchAction, patchAction, cancelAction, compareAction, navigationAction, metadataAction, relatedAction, parentAction, childAction, patchSearchAction, singleAction, openLinkAction, comparisonReturnAction, readAction, ancestorAction, taskCancelAction, taskRetryAction, updatesAction;
+    let reviewAction, reviewerAddAction, reviewerRemoveAction, fileAction, searchAction, patchAction, cancelAction, compareAction, navigationAction, metadataAction, relatedAction, parentAction, childAction, patchSearchAction, singleAction, openLinkAction, comparisonReturnAction, readAction, ancestorAction, taskCancelAction, taskRetryAction, updatesAction;
     const reviewResult = new Promise((resolve, reject) => {
       const timeout = setTimeout(() => reject(new Error('Review Webview fixture did not render')), 15000);
       panel.webview.onDidReceiveMessage(message => {
+        if(message.type==='review')reviewAction=message;
+        if(message.type==='reviewerAdd')reviewerAddAction=message;
+        if(message.type==='reviewerRemove')reviewerRemoveAction=message;
+        if(message.type==='reviewerSuggest')panel.webview.postMessage({type:'reviewerSuggestions',id:message.id,rev:message.rev,requestId:message.requestId,clientId:message.clientId,items:[{id:'9',kind:'account',name:'Suggested dev'}]});
         if (message.type === 'returnDiscussion') comparisonReturnAction = message;
         if (message.type === 'openLink') openLinkAction = message;
         if (message.type === 'fileRead') readAction = message;
@@ -92,6 +96,20 @@ async function run() {
         const initialModel=${JSON.stringify(fixture)};
         window.dispatchEvent(new MessageEvent('message', {data:{type:'state',model:initialModel}}));
         if (!document.querySelector('.discussion-layout') || !document.querySelector('#review') || !document.querySelector('.thread')) throw new Error('Review sections missing');
+
+        if(document.querySelector('select[data-label]'))throw new Error('Scoring still uses dropdowns');
+        const score=document.querySelector('[data-action="score"][data-value="1"]');score.click();
+        if(score.getAttribute('aria-pressed')!=='true'||score.getBoundingClientRect().width>80)throw new Error('Direct score choice failed');
+        document.getElementById('review').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));
+        const own={...initialModel,detail:{...initialModel.detail,mine:true,reviewers:{REVIEWER:[{_account_id:8,name:'Existing reviewer'}]},editStatus:{edit:{commit:{commit:'draft'},base_revision:initialModel.detail.current_revision}}}};
+        window.dispatchEvent(new MessageEvent('message',{data:{type:'state',model:own}}));
+        if(!document.querySelector('[data-action="rebase"]')||!document.querySelector('[data-action="discardEdit"]'))throw new Error('Rebase or discard not discoverable');
+        const reviewerInput=document.getElementById('reviewer-query');reviewerInput.value='dev';reviewerInput.dispatchEvent(new Event('input',{bubbles:true}));
+        await new Promise(resolve=>setTimeout(resolve,250));
+        const pick=document.querySelector('[data-action="reviewerPick"]');if(!pick||!pick.textContent.includes('Suggested dev'))throw new Error('Inline reviewer suggestion missing');pick.click();
+        document.querySelector('[data-action="reviewerRemove"]').click();
+        window.dispatchEvent(new MessageEvent('message',{data:{type:'state',model:initialModel}}));
+
         if (document.getElementById('app').textContent.includes('提交时间')) throw new Error('Obsolete timestamp');
         const thread = document.querySelector('.thread:has([data-action="locate"])');
         const global=[...document.querySelectorAll('.thread')].find(item=>item.textContent.includes('Whole change comment'));
@@ -120,10 +138,11 @@ async function run() {
         if (!replyInput.hidden || !replyPreview.querySelector('strong')) throw new Error('Reply blur preview failed');
 
         if (document.querySelector('.unscored').open || !document.querySelector('.unscored').textContent.includes('Waiting')) throw new Error('Unscored reviewers are not folded');
+        if(innerWidth>650 && getComputedStyle(document.querySelector('.review-float')).position!=='sticky')throw new Error('Review pane does not follow scrolling');
         const ratings = document.querySelector('.ratings'); const composer = document.querySelector('.composer');
-        if (getComputedStyle(composer).position !== 'static' || ratings.getBoundingClientRect().bottom > composer.getBoundingClientRect().top) throw new Error('Composer overlaps current votes');
+        if (getComputedStyle(composer).position !== 'static' || composer.getBoundingClientRect().bottom > ratings.getBoundingClientRect().top) throw new Error('Composer overlaps current votes');
         window.scrollTo(0, document.body.scrollHeight);
-        if (ratings.getBoundingClientRect().bottom > composer.getBoundingClientRect().top) throw new Error('Scrolling overlaps current votes');
+        if (composer.getBoundingClientRect().bottom > ratings.getBoundingClientRect().top) throw new Error('Scrolling overlaps current votes');
         if (!document.querySelector('.chain-node') || !document.getElementById('app').textContent.includes('旧 PS')) throw new Error('Relation chain missing');
 
         document.querySelector('[data-action="tabCode"]').click();
@@ -206,7 +225,14 @@ async function run() {
         window.dispatchEvent(new MessageEvent('message',{data:{type:'inboxResults',changes:[{id:'ready',subject:'Ready',status:'NEW',submittable:true,labels:{'Code-Review':{all:[{value:0},{value:0},{value:1}]}}}],start:0,more:false}}));
         const ready=document.querySelector('.state-ready');
         if (ready.textContent.includes('0 / 0') || !ready.textContent.includes('Code-Review +1 / 0')) throw new Error('Repeated score values');
-        if (!ready || !ready.textContent.includes('可发布') || getComputedStyle(ready).borderLeftColor!=='rgb(231, 121, 180)') throw new Error('Ready card not pink');
+        if (!ready || !ready.textContent.includes('可合入') || getComputedStyle(ready).borderLeftColor!=='rgb(231, 121, 180)') throw new Error('Ready card not pink');
+
+        window.dispatchEvent(new MessageEvent('message',{data:{type:'inboxResults',changes:[{id:'wip',status:'NEW',work_in_progress:true},{id:'minus1',status:'NEW',submittable:true,labels:{'Code-Review':{all:[{value:-1}]}}},{id:'minus2',status:'NEW',labels:{'Code-Review':{all:[{value:-2}]}}}],start:0,more:false}}));
+        const negatives=[...document.querySelectorAll('.state-negative')];
+        if(negatives.length!==2||getComputedStyle(negatives[0]).borderLeftColor!==getComputedStyle(negatives[1]).borderLeftColor)throw new Error('Negative score colors differ');
+        if(getComputedStyle(document.querySelector('.state-wip')).borderLeftColor===getComputedStyle(negatives[0]).borderLeftColor)throw new Error('WIP and negative votes share a color');
+        if(!negatives[0].textContent.includes('可合入'))throw new Error('Negative votes incorrectly override server eligibility');
+
         window.dispatchEvent(new MessageEvent('message',{data:{type:'searchProgress',searchStatus:{status:'running',scanned:1,matches:1}}}));
         window.dispatchEvent(new MessageEvent('message',{data:{type:'busy',value:true}}));
         const stop = document.querySelector('[data-action="cancelSearch"]');
@@ -242,6 +268,7 @@ async function run() {
     `;
     panel.webview.html = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${panel.webview.cspSource}; script-src 'nonce-${nonce}'"><link rel="stylesheet" href="${media('style.css')}"></head><body><header><div id="account"></div></header><div id="notice"></div><main id="app"></main><script nonce="${nonce}" src="${media('vendor/markdown-it.min.js')}"></script><script nonce="${nonce}" src="${media('i18n.js')}"></script><script nonce="${nonce}" src="${media('main.js')}"></script><script nonce="${nonce}">${fixtureScript}</script></body></html>`;
     await reviewResult;
+    assert.equal(reviewAction?.labels?.['Code-Review'],1);assert.equal(reviewerAddAction?.index,0);assert.equal(reviewerRemoveAction?.accountId,'8');
     assert.equal(openLinkAction?.url,'https://docs.example/guide');
     assert.equal(navigationAction?.direction, '-1'); assert.equal(navigationAction?.id, 'fixture');
     assert.equal(metadataAction?.kind, 'author'); assert.equal(relatedAction, undefined, 'Expansion must never issue a loading request');

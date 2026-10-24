@@ -3,6 +3,8 @@ const vscode = acquireVsCodeApi();
 const app = document.getElementById('app');
 const notice = document.getElementById('notice');
 let model = {}; let busy = false; let state = vscode.getState() || {};
+const reviewerClientId = Math.random().toString(36).slice(2) + Date.now().toString(36);
+let reviewerTimer, reviewerRequest = 0, reviewerItems = [], reviewerContext;
 const tr = GerritI18n.create(() => model.language);
 const post = (type, data = {}) => vscode.postMessage({ type, ...data });
 window.addEventListener('error', event => post('clientError', { message: event.message || tr('工作台脚本加载失败') }));
@@ -33,14 +35,23 @@ function previewMarkdown(input) {
   input.hidden = true; preview.hidden = false; editor.querySelector('.markdown-hint').hidden = true;
 }
 const patchLabel = item => item.previousPatch?.unchanged ? tr` · 与 PS ${item.previousPatch.number} 无代码差异` : '';
+const negativeVotes = c => Object.entries(c.labels || {}).flatMap(([name,label]) => {
+  const negatives = (label.all || []).map(person=>person.value).filter(value=>Number.isFinite(value)&&value<0);
+  if (Number.isFinite(label.value) && label.value<0) negatives.push(label.value);
+  if (negatives.length) return [{name,value:Math.min(...negatives)}];
+  return label.rejected || label.disliked ? [{name}] : [];
+});
+const negativeMarker = c => {const scores=negativeVotes(c);return scores.length ? `<span class="negative-mark negative-vote">${e(tr('有负分'))} · ${scores.map(score=>e(score.name)+' '+e(score.value??tr('负分'))).join(' · ')}</span>` : '';};
+const negativeStatus = c => `<span id="negative-status">${negativeMarker(c)}</span>`;
 const readyToSubmit = c => c.status === 'NEW' && !c.work_in_progress && c.submittable === true;
-const changeStatus = c => readyToSubmit(c) ? tr('可发布') : statusText(c.status);
+const changeStatus = c => readyToSubmit(c) ? tr('可合入') : statusText(c.status);
 const patchFileBlocked = (d, rev, path) => {
   const file = d.revisions?.[rev]?.files?.[path];
   return file && Number.isFinite(file.size) && 4 * Math.ceil(file.size / 3) > 32 * 1024 * 1024;
 };
 function compareOptions(d, side, selected, other) {
-  const options = [['base', tr('Base（另一侧 PS 的第一父提交）')], ...Object.entries(d.revisions || {}).sort((a, b) => a[1]._number - b[1]._number).map(([sha, rev]) => [sha, `PS ${rev._number} · ${sha.slice(0, 8)}${patchLabel(rev)}`])];
+  const options = [['base', tr('Base（另一侧 PS / Edit 的第一父提交）')], ...Object.entries(d.revisions || {}).sort((a, b) => a[1]._number - b[1]._number).map(([sha, rev]) => [sha, `PS ${rev._number} · ${sha.slice(0, 8)}${patchLabel(rev)}`])];
+  if (d.editStatus?.edit) options.push(['edit',tr('Edit（已保存草稿）')]);
   return options.filter(([id]) => id !== other).map(([id, label]) => `<option value="${e(id)}" ${id === selected ? 'selected' : ''}>${e(label)}</option>`).join('');
 }
 function autoCompare(left, right, send = true) {
@@ -53,26 +64,48 @@ function button(text, action, cls = 'secondary', attrs = '') { return `<button t
 function votes(labels) {
   return Object.entries(labels || {}).map(([name, label]) => {
     const all = label.all || [], scored = all.filter(v => Number.isFinite(v.value) && v.value !== 0), waiting = all.filter(v => !Number.isFinite(v.value) || v.value === 0);
-    const rows = people => people.map(v => `<div class="vote"><span>${e(who(v))}</span><strong class="${v.value > 0 ? 'positive' : v.value < 0 ? 'negative' : ''}">${v.value > 0 ? '+' : ''}${e(v.value ?? tr('未打分'))}</strong></div>`).join('');
+    const rows = people => people.map(v => `<div class="vote"><span>${e(who(v))}</span><strong class="${v.value > 0 ? 'positive' : v.value < 0 ? 'negative-vote' : ''}">${v.value > 0 ? '+' : ''}${e(v.value ?? tr('未打分'))}</strong></div>`).join('');
     return `<div class="card"><b>${e(name)}</b>${rows(scored) || tr('<p class="muted">暂无非零评分</p>')}${waiting.length ? tr`<details class="unscored"><summary>未打分 / 0 分（${waiting.length} 人）</summary>${rows(waiting)}</details>` : ''}</div>`;
   }).join('');
 }
 
+const reviewerQuery = () => state.reviewerQueries?.[key()] || '';
+function reviewerResults(error, loading = false) {
+  if (loading) return tr('<p class="muted">正在查找人员和组…</p>');
+  if (error) return `<p class="negative">${e(error)}</p>`;
+  return reviewerItems.map((item,index) => `<button type="button" role="option" class="reviewer-option" data-action="reviewerPick" data-request-id="${reviewerRequest}" data-index="${index}"><span>${item.kind === 'group' ? tr('组') : tr('人员')} · ${e(item.name)}</span><small class="muted">${e(item.description || (Number.isInteger(item.count) ? tr`${item.count} 位成员` : ''))}</small></button>`).join('') || (reviewerQuery() ? tr('<p class="muted">没有匹配的人员或组</p>') : '');
+}
 function reviewerManager(d) {
   if (!d.mine || d.status !== 'NEW' || (d.viewRevision && d.viewRevision !== d.current_revision)) return '';
   const people = d.reviewers?.REVIEWER || [];
-  return tr`<details class="card reviewer-manager"><summary>评审人员 · Code-Review / Verified <span class="muted">(${people.length})</span></summary><p class="muted">人员按提交管理，打分权限由 Gerrit 控制</p><p>${people.map(person => e(who(person))).join(' · ') || tr('暂无评审人员')}</p>${button(tr('管理人员 / 组'), 'manageReviewers')}</details>`;
+  return tr`<details id="reviewer-panel" class="card reviewer-manager" ${model.surface === 'discussion' ? 'open' : ''}><summary>评审人员 · Code-Review / Verified <span class="muted">(${people.length})</span></summary><div class="reviewer-people">${people.map(person => `<span class="reviewer-person">${e(who(person))}${button('×','reviewerRemove','reviewer-remove',`data-account-id="${e(person._account_id)}" aria-label="${e(tr('移除评审人员'))}: ${e(who(person))}"`)}</span>`).join('') || tr('<p class="muted">暂无评审人员</p>')}</div><input id="reviewer-query" type="search" role="combobox" aria-autocomplete="list" aria-controls="reviewer-results" aria-expanded="${!!reviewerItems.length}" aria-label="添加评审人员或组" placeholder="输入姓名、邮箱或组名搜索" value="${e(reviewerQuery())}"><div id="reviewer-results" class="reviewer-results" role="listbox">${reviewerResults()}</div><small class="muted">人员按提交管理，打分权限由 Gerrit 控制。移除人员也会移除其评分。</small></details>`;
+}
+function requestReviewers(query) {
+  clearTimeout(reviewerTimer); const requestId = ++reviewerRequest;
+  reviewerItems = []; state.reviewerQueries ||= {}; state.reviewerQueries[key()] = query; save();
+  const results = document.getElementById('reviewer-results'); if (results) results.innerHTML = reviewerResults(undefined, !!query.trim());
+  const input = document.getElementById('reviewer-query'); input?.setAttribute?.('aria-expanded','false');
+  reviewerTimer = setTimeout(() => post('reviewerSuggest',{...payload(),query,requestId,clientId:reviewerClientId}),query.trim()?180:0);
+}
+function scoreControls(d) {
+  const saved = draft();
+  return Object.entries(d.permitted_labels || {}).map(([name,raw]) => {
+    const values = [...new Set(raw.map(Number))].sort((a,b)=>a-b);
+    const selected = Object.hasOwn(saved.labels || {},name) && values.includes(Number(saved.labels[name])) ? String(saved.labels[name]) : '';
+    const choice = (value,text,title) => button(text,'score',`score-option ${value === selected ? 'selected' : ''} ${Number(value)>0?'positive':Number(value)<0?'negative-vote':''}`,`data-label="${e(name)}" data-value="${e(value)}" aria-pressed="${value===selected}" title="${e(title)}"`);
+    return tr`<fieldset class="score-group"><legend>${e(name)}</legend><div class="score-options" role="group" aria-label="${e(name)}">${choice('',tr('不修改评分'),tr('不修改评分'))}${values.map(value=>choice(String(value),value>0?'+'+value:String(value),d.labels?.[name]?.values?.[raw.find(item=>Number(item)===value)]||`${name} ${value}`)).join('')}</div></fieldset>`;
+  }).join('');
 }
 
 function comparison(d) {
   const plan = d.comparison || { left: 'base', right: d.current_revision };
   const select = side => `<select id="compare-${side}" aria-label="${side === 'left' ? tr('左侧版本') : tr('右侧版本')}">${compareOptions(d, side, plan[side], plan[side === 'left' ? 'right' : 'left'])}</select>`;
-  return tr`<h2>版本比较</h2><form id="compare"><label for="compare-left">左侧</label>${select('left')}<label for="compare-right">右侧</label>${select('right')}<div class="row">${button(tr('交换左右'), 'swap')}</div></form><p class="muted">可比较任意两个 PS，或 PS 与其 Base。代码评论绑定实际版本。</p>`;
+  return tr`<h2>版本比较</h2><form id="compare"><label for="compare-left">左侧</label>${select('left')}<label for="compare-right">右侧</label>${select('right')}<div class="row">${button(tr('交换左右'), 'swap')}</div></form><p class="muted">可比较 PS、已保存的 Edit 或 Base。Edit 发布为 PS 后才能添加代码评论。</p>`;
 }
 function reviewForm(d) {
   if (d.viewRevision && d.viewRevision !== d.current_revision) return tr`<h2>历史 PS 浏览</h2><p class="muted">整体评审与评分针对最新 PS。先切换到最新版本，再发布评审。</p>${button(tr('切换到最新 PS 评审'), 'openLatest')}`;
   const saved = draft();
-  return tr`<h2>发布评审 · 最新 PS ${e(d.revisions?.[d.current_revision]?._number)}</h2><form id="review">${markdownEditor(saved.message || '', { id: 'review-message', label: tr('评审评论'), placeholder: tr('写下整体评审意见…') })}${Object.entries(d.permitted_labels || {}).map(([name, values], i) => tr`<label for="label-${i}">${e(name)}</label><select id="label-${i}" data-label="${e(name)}"><option value="">不修改评分</option>${values.map(v => `<option value="${e(Number(v))}" ${String(saved.labels?.[name]) === String(Number(v)) ? 'selected' : ''}>${e(v.trim())} ${e(d.labels?.[name]?.values?.[v] || '')}</option>`).join('')}</select>`).join('')}<div class="row"><button type="submit">发布评审</button><span class="muted">整体评论与评分立即发布；下方代码回复发到原评论所在 PS。</span></div></form>`;
+  return tr`<h2>发布评审 · 最新 PS ${e(d.revisions?.[d.current_revision]?._number)}</h2><form id="review">${markdownEditor(saved.message || '', { id: 'review-message', label: tr('评审评论'), placeholder: tr('写下整体评审意见…') })}<div id="score-controls">${scoreControls(d)}</div><div class="row"><button type="submit">发布评审</button><span class="muted">整体评论与评分立即发布；下方代码回复发到原评论所在 PS。</span></div></form>`;
 }
 function time(value) {
   if (!value) return '—';
@@ -139,7 +172,7 @@ function changeActions(d) {
   if (d.viewRevision && d.viewRevision !== d.current_revision) return '';
   const actions = {...(d.revisions?.[d.current_revision]?.actions || {}), ...(d.actions || {})};
   const edit = d.editStatus?.edit;
-  return tr`<div class="row change-actions">${d.mine && actions.ready?.enabled ? button(tr('发布为待评审'), 'ready', '') : ''}${d.mine && actions.rebase?.enabled ? button('Rebase', 'rebase') : ''}${d.mine && actions.abandon?.enabled ? button(tr('废弃'), 'abandon', 'secondary danger') : ''}${actions.submit?.enabled ? button(tr('合入分支'), 'submit') : ''}${d.mine && edit ? button(tr('发布 Edit 为新 PS'), 'publishEdit', '', edit.base_revision && edit.base_revision !== d.current_revision ? 'disabled data-unavailable="true"' : '') : ''}${d.mine && edit?.base_revision && edit.base_revision !== d.current_revision ? button(tr('Rebase Edit 到最新 PS'), 'rebaseEdit') : ''}</div>${d.mine && edit ? tr`<p class="muted">存在未发布的 Edit${edit.base_revision && edit.base_revision !== d.current_revision ? tr(' · 基于旧 PS，需先 Rebase Edit') : ''}</p>` : ''}`;
+  return tr`<div class="row change-actions">${d.mine && actions.ready?.enabled ? button(tr('发布为待评审'), 'ready', '') : ''}${d.mine && d.status === 'NEW' ? button('Rebase', 'rebase', 'secondary', `title="${e(tr('选择 Rebase 目标，权限由服务器校验'))}"`) : ''}${d.mine && actions.abandon?.enabled ? button(tr('废弃'), 'abandon', 'secondary danger') : ''}${actions.submit?.enabled ? button(tr('合入分支'), 'submit') : ''}${d.mine && edit ? button(tr('查看 Edit 改动'), 'compareEdit') + button(tr('废弃 Edit'), 'discardEdit', 'secondary danger') : ''}${d.mine && edit ? button(tr('发布 Edit 为新 PS'), 'publishEdit', '', edit.base_revision && edit.base_revision !== d.current_revision ? 'disabled data-unavailable="true"' : '') : ''}${d.mine && edit?.base_revision && edit.base_revision !== d.current_revision ? button(tr('Rebase Edit 到最新 PS'), 'rebaseEdit') : ''}</div>${d.mine && edit ? tr`<p class="muted">存在未发布的 Edit${edit.base_revision && edit.base_revision !== d.current_revision ? tr(' · 基于旧 PS，需先 Rebase Edit') : ''}</p>` : ''}`;
 }
 function conflictInfo(d) {
   const status = d.conflictStatus;
@@ -163,14 +196,14 @@ function fileResults(d, query = '') {
   const canonical = (path, file) => d.comparison?.reverse && file.old_path ? file.old_path : path;
   const readCount = files.filter(([path,file]) => read.has(canonical(path,file))).length;
   const baseline = progress.baselineNumber ? tr` · 相比 PS ${e(progress.baselineNumber)} 有 ${changed.size} 个文件变化 ${button(tr('查看版本间变化'), 'progressCompare', 'secondary')}` : '';
-  return tr`<div class="muted file-count">显示 ${matched.length} / ${files.length} 个文件 · PS ${e(d.revisions?.[revision]?._number || '?')} 已读 ${readCount}/${files.length}${progress.loading ? tr(' · 正在比较上次版本…') : ''}${progress.error ? ` · ${e(progress.error)}` : baseline}</div><div class="file-table"><div class="file-item file-item-head"><span class="muted">已读</span><div class="file-columns muted"><span>类型</span><span>文件路径</span><span>新增 / 删除</span><span>全部评论</span></div></div>${matched.map(([path, f]) => tr`<div class="file-item ${f.blockedReason ? 'file-blocked' : ''}"><input type="checkbox" data-read-file="${e(path)}" data-file-rev="${e(revision)}" aria-label="标记已读 ${e(path)}" title="此 PS 的本机已读标记" ${read.has(canonical(path,f)) ? 'checked' : ''}><button type="button" class="file-row" data-action="file" data-path="${e(path)}" ${f.blockedReason ? `data-unavailable="true" disabled title="${e(f.blockedReason)}"` : ''}><span class="file-status type-${['A','D','M','R','C','W'].includes(f.status) ? f.status : 'M'}" title="${e(({A:tr('新增'),D:tr('删除'),M:tr('修改'),R:tr('重命名'),C:tr('复制'),W:tr('重写')})[f.status || 'M'] || tr('修改'))}">${e(f.status || 'M')}</span><span class="file-path" title="${e(path)}"><span class="file-name">${e(path)}${f.old_path ? tr`<small class="muted">原路径：${e(f.old_path)}</small>` : ''}</span>${f.blockedReason ? tr('<span class="file-limit"> · 超过 32MB 响应限制</span>') : ''}${(changed.has(path) || changed.has(canonical(path,f))) ? tr('<span class="file-changed">版本有变化</span>') : ''}</span><span class="file-stats"><span class="positive">+${e(f.lines_inserted || 0)}</span> <span class="negative">−${e(f.lines_deleted || 0)}</span></span><span class="muted" title="此文件所有 Patch set 的评论数">${e((d.comments?.[path] || []).length)}</span></button></div>`).join('') || tr('<div class="empty">没有匹配的修改文件</div>')}</div>`;
+  return tr`<div class="muted file-count">显示 ${matched.length} / ${files.length} 个文件 · ${revision === 'edit' ? tr('Edit（已保存草稿）') : `PS ${e(d.revisions?.[revision]?._number || '?')} ${tr('已读')} ${readCount}/${files.length}`}${progress.loading ? tr(' · 正在比较上次版本…') : ''}${progress.error ? ` · ${e(progress.error)}` : baseline}</div><div class="file-table"><div class="file-item file-item-head"><span class="muted">已读</span><div class="file-columns muted"><span>类型</span><span>文件路径</span><span>新增 / 删除</span><span>全部评论</span></div></div>${matched.map(([path, f]) => tr`<div class="file-item ${f.blockedReason ? 'file-blocked' : ''}"><input type="checkbox" ${d.comparison?.editHead ? 'disabled data-unavailable="true"' : ''} data-read-file="${e(path)}" data-file-rev="${e(revision)}" aria-label="标记已读 ${e(path)}" title="此 PS 的本机已读标记" ${read.has(canonical(path,f)) ? 'checked' : ''}><button type="button" class="file-row" data-action="file" data-path="${e(path)}" ${f.blockedReason ? `data-unavailable="true" disabled title="${e(f.blockedReason)}"` : ''}><span class="file-status type-${['A','D','M','R','C','W'].includes(f.status) ? f.status : 'M'}" title="${e(({A:tr('新增'),D:tr('删除'),M:tr('修改'),R:tr('重命名'),C:tr('复制'),W:tr('重写')})[f.status || 'M'] || tr('修改'))}">${e(f.status || 'M')}</span><span class="file-path" title="${e(path)}"><span class="file-name">${e(path)}${f.old_path ? tr`<small class="muted">原路径：${e(f.old_path)}</small>` : ''}</span>${f.blockedReason ? tr('<span class="file-limit"> · 超过 32MB 响应限制</span>') : ''}${(changed.has(path) || changed.has(canonical(path,f))) ? tr('<span class="file-changed">版本有变化</span>') : ''}</span><span class="file-stats"><span class="positive">+${e(f.lines_inserted || 0)}</span> <span class="negative">−${e(f.lines_deleted || 0)}</span></span><span class="muted" title="此文件所有 Patch set 的评论数">${e((d.comments?.[path] || []).length)}</span></button></div>`).join('') || tr('<div class="empty">没有匹配的修改文件</div>')}</div>`;
 }
 
 function filesPanel() {
   const d = model.detail;
   if (!model.connected || !d) return tr('<div class="file-panel"><p class="empty">在左侧 Gerrit 工作台选择一笔变更，即可在这里查看修改文件。</p></div>');
   const plan = d.comparison || { left: 'base', right: d.current_revision };
-  const label = rev => rev === 'base' ? 'Base' : `PS ${d.revisions?.[rev]?._number || '?'}`;
+  const label = rev => rev === 'base' ? 'Base' : rev === 'edit' ? 'Edit' : `PS ${d.revisions?.[rev]?._number || '?'}`;
   const filter = state.fileFilter?.key === fileFilterKey() ? state.fileFilter.query : '';
   return tr`<div class="file-panel"><div class="file-toolbar"><div><b>#${e(d._number)} · ${e(d.subject)}</b><span class="badge">${e(label(plan.left))} → ${e(label(plan.right))}</span></div>${button(tr('返回评审讨论'), 'returnDiscussion')}<input id="file-filter" type="search" aria-label="筛选修改文件路径" placeholder="筛选文件路径…" value="${e(filter)}"></div><div id="file-results">${fileResults(d, filter)}</div></div>`;
 }
@@ -201,7 +234,7 @@ function discussion(d) {
     const replyKey = `${key()}::${last.id}`;
     return tr`<details class="card thread" data-thread-key="${e(`${key()}::${root.id}`)}" ${state.threadCollapsed?.[`${key()}::${root.id}`] ? '' : 'open'}><summary class="thread-summary"><b title="${e(path)}">${path === '/PATCHSET_LEVEL' ? tr('全局评论') : e(path)}${root.line ? `:${e(root.line)}` : tr(' · 文件评论')}</b><span class="thread-snippet" title="${e(firstLine(root.message))}">${markdown.renderInline(firstLine(root.message))}</span><span class="badge">${last.unresolved ? tr('未解决') : tr('已解决')}</span></summary><p class="muted">PS ${e(root.patch_set || '?')} · ${root.side === 'PARENT' ? 'Base' : 'Patch'} ${root.range ? tr`· 行 ${root.range.start_line}–${root.range.end_line}` : ''}</p>${list.map(c => `<div class="thread-message"><div class="message-byline"><span class="avatar">${e(who(c.author).slice(0, 1))}</span><b>${e(who(c.author))}</b><time>${e(time(c.updated))}</time></div><div class="message markdown-body">${md(c.message)}</div></div>`).join('')}<div class="row">${!path.startsWith('/') ? button(tr('定位到差异代码'), 'locate', 'secondary', `data-path="${e(path)}" data-comment="${e(root.id)}"`) : ''}</div><form data-form="reply" data-path="${e(path)}" data-comment="${e(last.id)}">${markdownEditor(state.replies?.[replyKey] || '', { replyKey, label: tr`回复 ${path} 的讨论`, placeholder: tr('回复这条讨论…') })}<div class="row"><button type="submit">发布回复</button></div></form></details>`;
   }).join('') || tr('<div class="empty">暂无符合筛选的代码讨论</div>')}<h2>活动记录</h2>${(d.messages || []).slice().reverse().map(m => `<details class="card activity"><summary><b>${e(who(m.author))}</b><span class="badge">PS ${e(m._revision_number)}</span><span class="activity-snippet" title="${e(firstLine(m.message))}">${markdown.renderInline(firstLine(m.message))}</span><time>${e(time(m.date))}</time></summary><div class="message markdown-body">${md(m.message)}</div></details>`).join('') || tr('<p class="muted">暂无活动</p>')}`;
-  return tr`<div class="review-shell"><div class="hero"><div class="hero-top"><span class="eyebrow">CHANGE #${e(d._number)}</span><span class="badge status">${e(changeStatus(d))}</span><div class="hero-actions"><span id="task-entry">${taskButton()}</span>${button(tr('刷新此变更'), 'refresh')}${button(tr('内置浏览器'), 'browser')}</div></div><div id="result-navigation" class="result-navigation" aria-label="检索结果导航">${resultNavigation()}${pendingSearch()}</div><h1>${e(displaySubject(d))}</h1><p class="muted">${metadataLink(d.project, 'repo')} <span class="separator">/</span> ${metadataLink(d.branch, 'branch')} <span class="separator">·</span> ${metadataLink(who(d.owner), 'owner')} <span class="badge">最新 PS ${e(d.revisions?.[d.current_revision]?._number)}</span></p>${timestamps(d)}<div id="change-actions">${changeActions(d)}</div>${conflictInfo(d)}</div>${commitInfo(d)}${relationChain(d)}<div class="discussion-layout"><section><nav class="tabs" aria-label="评审视图">${button(tr('讨论'), 'tabDiscussion', codeTab ? 'tab' : 'tab active')}${button(tr('代码与下载'), 'tabCode', codeTab ? 'tab active' : 'tab')}</nav>${codeTab ? `<div class="card code-panel" id="patch-browser">${patchBrowser(d)}</div>` : discussionBody}</section><aside><div class="ratings"><h2>当前评分 <span class="muted">最新 PS</span></h2>${reviewerManager(d)}${votes(d.labels) || tr('<p class="muted">暂无评分标签</p>')}</div><div class="card composer">${reviewForm(d)}</div></aside></div></div>`;
+  return tr`<div class="review-shell"><div class="hero"><div class="hero-top"><span class="eyebrow">CHANGE #${e(d._number)}</span><span id="change-status" class="badge status">${e(changeStatus(d))}</span>${negativeStatus(d)}<div class="hero-actions"><span id="task-entry">${taskButton()}</span>${button(tr('刷新此变更'), 'refresh')}${button(tr('内置浏览器'), 'browser')}</div></div><div id="result-navigation" class="result-navigation" aria-label="检索结果导航">${resultNavigation()}${pendingSearch()}</div><h1>${e(displaySubject(d))}</h1><p class="muted">${metadataLink(d.project, 'repo')} <span class="separator">/</span> ${metadataLink(d.branch, 'branch')} <span class="separator">·</span> ${metadataLink(who(d.owner), 'owner')} <span class="badge">最新 PS ${e(d.revisions?.[d.current_revision]?._number)}</span></p>${timestamps(d)}<div id="change-actions">${changeActions(d)}</div>${conflictInfo(d)}</div>${commitInfo(d)}${relationChain(d)}<div class="discussion-layout"><section><nav class="tabs" aria-label="评审视图">${button(tr('讨论'), 'tabDiscussion', codeTab ? 'tab' : 'tab active')}${button(tr('代码与下载'), 'tabCode', codeTab ? 'tab active' : 'tab')}</nav>${codeTab ? `<div class="card code-panel" id="patch-browser">${patchBrowser(d)}</div>` : discussionBody}</section><aside class="review-float"><div class="card composer">${reviewForm(d)}</div><div class="ratings"><h2>当前评分 <span class="muted">最新 PS</span></h2>${reviewerManager(d)}<div id="rating-list">${votes(d.labels) || tr('<p class="muted">暂无评分标签</p>')}</div></div></aside></div></div>`;
 }
 
 
@@ -231,7 +264,7 @@ function resultNavigation() {
 function sidebarDetail(d) {
   const rev = d.revisions?.[d.current_revision]; const actions = d.viewRevision && d.viewRevision !== d.current_revision ? {} : d.actions || {};
   const commentCount = Object.values(d.comments || {}).flat().length;
-  return tr`<div class="row">${button(tr('← 返回列表'), 'back')}${button(tr('刷新此变更'), 'refresh')}${button(tr('内置浏览器'), 'browser')}</div><p><span class="badge">#${e(d._number)}</span><span class="badge status">${e(changeStatus(d))}</span>${d.work_in_progress ? '<span class="badge">WIP</span>' : ''}</p><div id="result-navigation" class="result-navigation" aria-label="检索结果导航">${resultNavigation()}${pendingSearch()}</div><h1>${e(displaySubject(d))}</h1><p class="muted">${metadataLink(d.project, 'repo')} → ${metadataLink(d.branch, 'branch')}<br>${metadataLink(who(d.owner), 'owner')} · 最新 PS ${e(rev?._number)}</p>${timestamps(d)}${commitInfo(d)}<div class="review-entry">${icon('discussion')}${button(tr`打开评审讨论（${commentCount} 条代码评论）`, 'discussion', 'wide')}<p class="muted">讨论与评分、Commit 信息、单个 Patch 代码和本地下载。</p></div><div id="change-actions">${changeActions(d)}</div>${conflictInfo(d)}${reviewerManager(d)}${relationChain(d)}${fileComparison(d)}`;
+  return tr`<div class="row">${button(tr('← 返回列表'), 'back')}${button(tr('刷新此变更'), 'refresh')}${button(tr('内置浏览器'), 'browser')}</div><p><span class="badge">#${e(d._number)}</span><span id="change-status" class="badge status">${e(changeStatus(d))}</span>${negativeStatus(d)}${d.work_in_progress ? '<span class="badge">WIP</span>' : ''}</p><div id="result-navigation" class="result-navigation" aria-label="检索结果导航">${resultNavigation()}${pendingSearch()}</div><h1>${e(displaySubject(d))}</h1><p class="muted">${metadataLink(d.project, 'repo')} → ${metadataLink(d.branch, 'branch')}<br>${metadataLink(who(d.owner), 'owner')} · 最新 PS ${e(rev?._number)}</p>${timestamps(d)}${commitInfo(d)}<div class="review-entry">${icon('discussion')}${button(tr`打开评审讨论（${commentCount} 条代码评论）`, 'discussion', 'wide')}<p class="muted">讨论与评分、Commit 信息、单个 Patch 代码和本地下载。</p></div><div id="change-actions">${changeActions(d)}</div>${conflictInfo(d)}${reviewerManager(d)}${relationChain(d)}${fileComparison(d)}`;
 }
 
 const searchIdentity = () => `${model.server || ''}::${model.accountId ?? model.username ?? ''}`;
@@ -264,9 +297,11 @@ function searchControls() {
 }
 function inboxResults() {
   const pageSize = model.pageSize || 50;
-  return tr`${(model.changes || []).map(c => tr`<button type="button" class="change state-${c.status === 'MERGED' ? 'merged' : c.status === 'ABANDONED' ? 'abandoned' : c.work_in_progress ? 'wip' : readyToSubmit(c) ? 'ready' : 'open'}" data-action="open" data-id="${e(c.id)}"><span class="muted">#${e(c._number)} · ${e(changeStatus(c))}${c.work_in_progress ? ' · WIP' : ''}</span>${c.status === 'NEW' ? tr`<span class="review-mark ${c.reviewed ? 'done' : 'pending'}" title="你在作者最近一次更新后发布过评论或评分，即显示已评审">${c.reviewed ? tr('✓ 我已评审') : tr('○ 我未评审')}</span>` : ''}<span class="subject">${e(c.subject)}</span><span class="muted">${e(c.project)} → ${e(c.branch)}<span class="card-byline">${e(who(c.owner))} · 更新 ${e(time(c.updated))}</span></span><div class="row card-votes">${Object.entries(c.labels || {}).map(([name, l]) => `<span class="badge">${e(name)} ${e(l.approved ? '✓' : l.rejected ? '✕' : [...new Set((l.all || []).filter(v => Number.isFinite(v.value)).map(v => v.value))].sort((a,b) => b-a).map(value => value > 0 ? `+${value}` : value).join(' / ') || '—')}</span>`).join('')}</div></button>`).join('') || tr('<div class="card muted">没有匹配的变更。可切换 Open 或修改查询。</div>')}<div class="row">${model.start ? button(tr('上一页'), 'prev') : ''}${model.more ? button(tr('下一页'), 'next') : ''}<span class="muted">第 ${Math.floor((model.start || 0) / pageSize) + 1} 页</span></div>`;
+  return tr`${(model.changes || []).map(c => tr`<button type="button" class="change state-${c.status === 'MERGED' ? 'merged' : c.status === 'ABANDONED' ? 'abandoned' : negativeVotes(c).length ? 'negative' : c.work_in_progress ? 'wip' : readyToSubmit(c) ? 'ready' : 'open'}" data-action="open" data-id="${e(c.id)}"><span class="muted">#${e(c._number)} · ${e(changeStatus(c))}${c.work_in_progress ? ' · WIP' : ''}</span>${negativeMarker(c)}${c.status === 'NEW' ? tr`<span class="review-mark ${c.reviewed ? 'done' : 'pending'}" title="你在作者最近一次更新后发布过评论或评分，即显示已评审">${c.reviewed ? tr('✓ 我已评审') : tr('○ 我未评审')}</span>` : ''}<span class="subject">${e(c.subject)}</span><span class="muted">${e(c.project)} → ${e(c.branch)}<span class="card-byline">${e(who(c.owner))} · 更新 ${e(time(c.updated))}</span></span><div class="row card-votes">${Object.entries(c.labels || {}).map(([name, l]) => `<span class="badge">${e(name)} ${e(l.approved ? '✓' : l.rejected ? '✕' : [...new Set((l.all || []).filter(v => Number.isFinite(v.value)).map(v => v.value))].sort((a,b) => b-a).map(value => value > 0 ? `+${value}` : value).join(' / ') || '—')}</span>`).join('')}</div></button>`).join('') || tr('<div class="card muted">没有匹配的变更。可切换 Open 或修改查询。</div>')}<div class="row">${model.start ? button(tr('上一页'), 'prev') : ''}${model.more ? button(tr('下一页'), 'next') : ''}<span class="muted">第 ${Math.floor((model.start || 0) / pageSize) + 1} 页</span></div>`;
 }
 function render() {
+  const context = key(); if (reviewerContext !== context) { clearTimeout(reviewerTimer); reviewerRequest++; reviewerItems = []; reviewerContext = context; }
+
   if (document.documentElement) document.documentElement.lang = model.language === 'en' ? 'en' : 'zh-CN';
   document.title = tr('Gerrit 工作台');
   const brand = document.querySelector?.('.brand span'); if (brand) brand.textContent = tr('工作台');
@@ -302,6 +337,11 @@ app.addEventListener('click', event => {
   if (['tasks','taskCancel','taskRetry'].includes(action)) { post(action, { taskId: b.dataset.taskId }); return; }
   if (action === 'cancelSearch') { post('cancelSearch'); return; }
   if (busy || b.dataset.unavailable === 'true') return;
+  if (action === 'reviewerPick') { post('reviewerAdd',{...payload(),index:Number(b.dataset.index),requestId:Number(b.dataset.requestId),clientId:reviewerClientId}); return; }
+  if (action === 'score') {
+    b.closest('.score-options').querySelectorAll('button[data-label]').forEach(item => { item.setAttribute('aria-pressed', String(item===b)); item.classList.toggle('selected',item===b); });
+    saveReview(); return;
+  }
   if (action === 'progressCompare') { post('compare', { ...payload(), left: model.detail.fileProgress.baselineRevision, right: model.detail.fileProgress.revision }); return; }
   if (action === 'tabCode' || action === 'tabDiscussion') { state.tabs ||= {}; state.tabs[model.detail.id] = action === 'tabCode' ? 'code' : 'discussion'; save(); render(); if (action === 'tabCode' && !model.detail.patchView) post('patch', { ...payload(), patchRev: model.detail.current_revision }); return; }
   if (action === 'download') { post('download', { ...payload(), patchRev: document.getElementById('patch-revision').value }); return; }
@@ -318,10 +358,11 @@ app.addEventListener('click', event => {
 });
 function saveReview() {
   const message = document.getElementById('review-message'); if (!message) return;
-  const labels = {}; app.querySelectorAll('select[data-label]').forEach(s => { if (s.value !== '') labels[s.dataset.label] = Number(s.value); });
+  const labels = {}; app.querySelectorAll('button[data-label][aria-pressed="true"]').forEach(item => { if (item.dataset.value !== '') labels[item.dataset.label] = Number(item.dataset.value); });
   state.drafts ||= {}; state.drafts[key()] = { message: message.value, labels }; save();
 }
 app.addEventListener('input', event => {
+  if (event.target.id === 'reviewer-query') requestReviewers(event.target.value);
   if (['message-filter', 'repo-filter', 'branch-filter', 'owner-filter', 'changeNumber-filter', 'file-filter-search', 'query'].includes(event.target.id)) { state.searchDraft = { identity: searchIdentity(), base: model.query, values: searchValues() }; save(); }
   if (event.target.id === 'file-filter') {
     state.fileFilter = { key: fileFilterKey(), query: event.target.value }; save();
@@ -352,6 +393,13 @@ app.addEventListener('focusout', event => {
   if (event.target.matches?.('.markdown-editor textarea')) previewMarkdown(event.target);
 });
 app.addEventListener('keydown', event => {
+  if (event.target.closest?.('#reviewer-results') && ['ArrowDown','ArrowUp','Escape'].includes(event.key)) {
+    event.preventDefault();const options=[...document.getElementById('reviewer-results').querySelectorAll('button')],index=options.indexOf(event.target.closest('button'));
+    if(event.key==='Escape'||(event.key==='ArrowUp'&&index<=0))document.getElementById('reviewer-query')?.focus();else options[Math.min(options.length-1,index+(event.key==='ArrowDown'?1:-1))]?.focus();return;
+  }
+  if (event.target.id === 'reviewer-query' && event.key === 'ArrowDown') { event.preventDefault(); document.getElementById('reviewer-results')?.querySelector('button')?.focus(); return; }
+  if (event.target.id === 'reviewer-query' && event.key === 'Escape') { event.preventDefault(); event.target.value=''; requestReviewers(''); return; }
+
   if ((event.key === 'Enter' || event.key === ' ') && event.target.matches?.('.markdown-preview')) {
     event.preventDefault(); startMarkdownEdit(event.target);
   }
@@ -371,10 +419,27 @@ for (const name of ['pointerover','focusin','wheel']) app.addEventListener(name,
   if (event.target.closest?.('#inbox-results')) post('lockSearch');
 }, { passive: true });
 window.addEventListener('message', ({ data }) => {
+  if (data.type === 'reviewerSuggestions' && data.clientId === reviewerClientId && model.detail?.id === data.id && model.detail.current_revision === data.rev && data.requestId === reviewerRequest) {
+    reviewerItems = data.items || []; const results = document.getElementById('reviewer-results'); if (results) results.innerHTML = reviewerResults(data.error);
+    document.getElementById('reviewer-query')?.setAttribute?.('aria-expanded',String(!!reviewerItems.length));setBusy();return;
+  }
+  if (data.type === 'reviewersState' && model.detail?.id === data.id && model.detail.current_revision === data.rev) {
+    Object.assign(model.detail,{reviewers:data.reviewers,labels:data.labels,permitted_labels:data.permitted_labels},data.changeSummary || {});
+    const status=document.getElementById('change-status');if(status)status.textContent=changeStatus(model.detail);
+    const changeControls=document.getElementById('change-actions');if(changeControls)changeControls.innerHTML=changeActions(model.detail);
+    const input = document.getElementById('reviewer-query'), focused = document.activeElement === input, start = input?.selectionStart, end = input?.selectionEnd;
+    reviewerItems=[];const panel = document.getElementById('reviewer-panel'); if (panel) panel.outerHTML = reviewerManager(model.detail);
+    const negative = document.getElementById('negative-status'); if (negative) negative.outerHTML = negativeStatus(model.detail);
+    const ratings = document.getElementById('rating-list'); if (ratings) ratings.innerHTML = votes(model.detail.labels);
+    const controls = document.getElementById('score-controls'); if (controls) controls.innerHTML = scoreControls(model.detail);
+    const replacement=document.getElementById('reviewer-query');if(focused){replacement?.focus();try{replacement?.setSelectionRange(start,end);}catch{}}
+    if(reviewerQuery())requestReviewers(reviewerQuery());setBusy();return;
+  }
   if (data.type === 'changeStatus' && model.detail?.id === data.id && model.detail.current_revision === data.rev) {
     model.detail.conflictStatus = data.conflictStatus; model.detail.editStatus = data.editStatus;
     const conflicts = document.getElementById('conflict-info'); if (conflicts) conflicts.outerHTML = conflictInfo(model.detail);
     const actions = document.getElementById('change-actions'); if (actions) actions.innerHTML = changeActions(model.detail);
+    if(document.getElementById('compare-left') && document.getElementById('compare-right')) autoCompare(model.detail.comparison?.left || 'base',model.detail.comparison?.right || model.detail.current_revision,false);
     setBusy(); return;
   }
   if (data.type === 'showDiscussion' && model.surface === 'discussion' && model.detail) {

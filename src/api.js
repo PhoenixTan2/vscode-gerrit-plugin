@@ -104,6 +104,7 @@ class GerritApi {
   edit(id, {signal} = {}) { return this.request(`/changes/${enc(id)}/edit?list`, 'GET', undefined, false, {signal}); }
   async editBytes(id, path) { return this.decodeBytes(await this.request(`/changes/${enc(id)}/edit/${enc(path)}`, 'GET', undefined, true)); }
   putEditFile(id, path, bytes) { return this.request(`/changes/${enc(id)}/edit/${enc(path)}`, 'PUT', {binary_content: `data:application/octet-stream;base64,${bytes.toString('base64')}`}); }
+  discardEdit(id) { return this.request(`/changes/${enc(id)}/edit`, 'DELETE'); }
   publishEdit(id) { return this.request(`/changes/${enc(id)}/edit:publish`, 'POST', {}); }
   rebaseEdit(id) { return this.request(`/changes/${enc(id)}/edit:rebase`, 'POST', {}); }
   mergeable(id, rev, {signal} = {}) { return this.request(this.revision(id, rev, '/mergeable'), 'GET', undefined, false, {signal}); }

@@ -4,6 +4,11 @@
 
 ## 1.1.0
 
+- Keep 1.1.0: inline reviewer/group autocomplete and removal, direct score buttons, and a sticky review column without overlap.
+- Compare saved Edit against any PS / Base in either direction; discard an entire draft and restart on the same PS, with dirty-buffer protection.
+- Always expose Rebase for your own Open / WIP changes; the server validates the operation.
+- Use orange for all negative votes and brown for WIP. Submission eligibility follows the server even when negative votes exist.
+
 - Keep version 1.1.0 for this batch: edit your latest PS in a native diff with immutable left and writable right sides. Save multiple files into one draft and publish one new PS, with server-edit concurrency checks.
 - Add publish/rebase controls and background merge/conflicting-change indicators with detail links.
 - Compact related nodes, omit duplicate parent SHAs and anonymous nodes, mark old patch sets, persist Commit/relation expansion per surface and remove default-expansion settings.

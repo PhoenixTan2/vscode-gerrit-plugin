@@ -824,7 +824,7 @@ test('merge conflict results and draft status load in background, and stale resu
   assert.equal(sent.length,1);
 });
 test('ready, submit and rebase execute without confirmation popups and preserve selected rebase input',async()=>{
-  const {app,vscode}=fixture(), calls=[];app.model.detail={mine:true};app.selected.change.actions={ready:{enabled:true},submit:{enabled:true},rebase:{enabled:true}};
+  const {app,vscode}=fixture(), calls=[];app.model.detail={mine:true};app.selected.change.status='NEW';app.selected.change.actions={ready:{enabled:true},submit:{enabled:true},rebase:{enabled:true}};
   vscode.window.showWarningMessage=()=>{throw new Error('No warning dialogs');};
   app.api.action=async(...args)=>calls.push(args);app.load=async()=>{};
   for(const action of ['ready','submit']) await app.handle({type:'action',id:app.selected.id,rev:app.selected.rev,action});
@@ -867,4 +867,24 @@ test('upload goes directly to push after target choices without a warning dialog
     if(args[0]==='rev-list')return 'a'.repeat(40);if(args[0]==='show')return 'Subject\n\nChange-Id: I'+'a'.repeat(40);return '';
   };
   await app.push();assert.ok(calls.some(args=>args[0]==='push'&&args.at(-1)==='HEAD:refs/for/main'));
+});
+
+
+test('Edit comparisons use saved draft bytes, preserve reverse renames, and never mark a draft read',async()=>{
+ const {app,executed}=fixture(),calls=[];app.user={_account_id:1};Object.assign(app.selected.change,{_number:1,status:'NEW',owner:{_account_id:1},revisions:{old:{_number:1},abc:{_number:2}}});app.model.detail={fileProgress:{read:['x']}};
+ app.api.url='https://review.example.invalid';app.api.edit=async()=>({commit:{commit:'draft-sha'},base_revision:'abc'});
+ app.api.files=async(...args)=>{calls.push(['files',...args]);return {'new.c':{status:'R',old_path:'old.c'}};};
+ app.api.bytes=async(...args)=>{calls.push(['bytes',...args]);return Buffer.from('code\n');};app.showFiles=async()=>{};app.attach=async()=>{};
+ await app.compare('edit','old');assert.equal(app.selected.comparison.reverse,true);assert.ok(app.selected.files['old.c']);assert.equal(app.model.detail.fileProgress,undefined);
+ assert.equal(calls[0][2],'edit');assert.equal(calls[0][3],'old');
+ app.markFileRead=async()=>{throw Error('Do not mark drafts read');};
+ await app.handle({type:'file',id:app.selected.id,rev:'abc',path:'old.c',compareLeft:'edit',compareRight:'old'});
+ assert.ok(calls.some(call=>call[0]==='bytes'&&call[2]==='edit'&&call[3]==='new.c'));
+ assert.ok(executed.at(-1)[1].path.includes('draft-sha'));
+ app.api.edit=async()=>({commit:{commit:'changed-draft'},base_revision:'abc'});await assert.rejects(app.openDiff('old.c'),/Edit 已更新/);
+});
+test('Rebase is usable for own open changes even when the server omitted the action flag',async()=>{
+ const {app,vscode}=fixture(),calls=[];Object.assign(app.selected.change,{status:'NEW',actions:{}});app.model.detail={mine:true};
+ vscode.window.showQuickPick=async()=>({input:{base:'123'}});app.api.action=async(...args)=>calls.push(args);app.load=async()=>{};
+ await app.handle({type:'action',id:app.selected.id,rev:'abc',action:'rebase'});assert.equal(calls[0][1],'rebase');assert.equal(calls[0][2].base,'123');
 });

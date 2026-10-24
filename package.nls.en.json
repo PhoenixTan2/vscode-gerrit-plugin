@@ -30,5 +30,6 @@
   "extension.contributes.colors.0.description": "Color of Gerrit comment gutter icons, code markers, scrollbar and minimap indicators.",
   "command.edit": "Edit modified file (Gerrit Edit)",
   "command.saveEdit": "Save Gerrit edit",
-  "command.publishEdit": "Publish edit as new PS"
+  "command.publishEdit": "Publish edit as new PS",
+  "command.discardEdit": "Discard Gerrit edit"
 }

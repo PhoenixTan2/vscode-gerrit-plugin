@@ -7,7 +7,7 @@ test('webview escapes server content and sends pinned change/revision with actio
   const events = {}; const messages = [];
   const app = { innerHTML: '', querySelectorAll: () => [], setAttribute() {}, addEventListener(name, fn) { events[name] = fn; } };
   const elements = { app, notice: {}, account: {} }; let onMessage;
-  const sandbox = { GerritI18n: require('../media/i18n'), markdownit: require('../media/vendor/markdown-it.min.js'), acquireVsCodeApi: () => ({ postMessage: m => messages.push(m), getState: () => ({}), setState() {} }), document: { getElementById: id => elements[id] }, window: { addEventListener: (_, fn) => { onMessage = fn; } } };
+  const sandbox = { setTimeout, clearTimeout, GerritI18n: require('../media/i18n'), markdownit: require('../media/vendor/markdown-it.min.js'), acquireVsCodeApi: () => ({ postMessage: m => messages.push(m), getState: () => ({}), setState() {} }), document: { getElementById: id => elements[id] }, window: { addEventListener: (_, fn) => { onMessage = fn; } } };
   vm.runInNewContext(fs.readFileSync(require.resolve('../media/main.js'), 'utf8'), sandbox);
   assert.equal(messages[0].type, 'init');
   onMessage({ data: { type: 'state', model: { connected: true, detail: { id: 'p~main~Iabc', subject: '<script>alert(1)</script>', current_revision: 'abc123', revisions: { abc123: { _number: 3 } }, labels: {}, files: {}, comments: {} } } } });
@@ -25,7 +25,7 @@ function surfaceFixture() {
   const app = { innerHTML: '', querySelectorAll: () => [], setAttribute() {}, addEventListener: (name, fn) => { events[name] = fn; } };
   elements.app = app;
   vm.runInNewContext(fs.readFileSync(require.resolve('../media/main.js'), 'utf8'), {
-    GerritI18n: require('../media/i18n'), markdownit: require('../media/vendor/markdown-it.min.js'), acquireVsCodeApi: () => ({ postMessage: m => messages.push(m), getState: () => ({}), setState() {} }),
+    setTimeout, clearTimeout, GerritI18n: require('../media/i18n'), markdownit: require('../media/vendor/markdown-it.min.js'), acquireVsCodeApi: () => ({ postMessage: m => messages.push(m), getState: () => ({}), setState() {} }),
     document: { getElementById: id => elements[id] }, window: { addEventListener: (_, fn) => { onMessage = fn; } }
   });
   return { app, events, elements, messages, message: data => onMessage({ data }), update: model => onMessage({ data: { type: 'state', model } }) };
@@ -120,7 +120,7 @@ test('sidebar places Commit immediately after timestamps and owns comparison con
   assert.ok(f.app.innerHTML.includes('id="compare"')); assert.ok(!f.app.innerHTML.includes('data-action="showFiles"'));
   assert.ok(!f.app.innerHTML.includes('data-action="file"'));
   f.update({ connected: true, surface: 'discussion', detail });
-  assert.ok(f.app.innerHTML.indexOf('class="ratings"') < f.app.innerHTML.indexOf('class="card composer"'));
+  assert.ok(f.app.innerHTML.indexOf('class="ratings"') > f.app.innerHTML.indexOf('class="card composer"'));
   f.events.click({ target: { closest: selector => selector === '.markdown-preview' ? null : ({ dataset: { action: 'tabCode' } }) } });
   assert.ok(!f.app.innerHTML.includes('id="compare"'));
 });
@@ -339,7 +339,7 @@ test('ready cards require server approval and exclude WIP, merged and abandoned 
     {id:'ready',status:'NEW',submittable:true,subject:'Ready'},
     {id:'wip',status:'NEW',work_in_progress:true,submittable:true,subject:'Wip'},
     {id:'closed',status:'MERGED',submittable:true,subject:'Closed'}]});
-  assert.equal((f.app.innerHTML.match(/state-ready/g)||[]).length,1); assert.ok(f.app.innerHTML.includes('可发布'));
+  assert.equal((f.app.innerHTML.match(/state-ready/g)||[]).length,1); assert.ok(f.app.innerHTML.includes('可合入'));
 });
 
 test('empty patch labels, unscored disclosure and unavailable files render independently', () => {
@@ -398,11 +398,11 @@ test('reviewer management is available only on own open latest changes in both s
   for (const surface of ['sidebar','discussion']) for (const language of ['zh-CN','en']) {
     const detail={id:'c',status:'NEW',mine:true,current_revision:'rev',viewRevision:'rev',revisions:{rev:{_number:1}},reviewers:{REVIEWER:[{name:'<Owner>'}]},files:{},comments:{}};
     f.update({connected:true,surface,language,detail});
-    assert.ok(f.app.innerHTML.includes('data-action="manageReviewers"')); assert.ok(f.app.innerHTML.includes('&lt;Owner&gt;'));
-    if(language==='en') assert.ok(f.app.innerHTML.includes('Manage people / groups'));
+    assert.ok(f.app.innerHTML.includes('id="reviewer-query"')); assert.ok(f.app.innerHTML.includes('&lt;Owner&gt;'));
+    if(language==='en') assert.ok(f.app.innerHTML.includes('Search by name, email or group name'));
     for(const override of [{mine:false},{status:'MERGED'},{viewRevision:'old'}]) {
       f.update({connected:true,surface,language,detail:{...detail,...override}});
-      assert.ok(!f.app.innerHTML.includes('data-action="manageReviewers"'));
+      assert.ok(!f.app.innerHTML.includes('id="reviewer-query"'));
     }
   }
 });
@@ -432,4 +432,19 @@ test('conflicting change links and edit/rebase actions appear on both surfaces w
     assert.ok(conflicts.outerHTML.includes('data-action="conflictOpen"'));assert.ok(conflicts.outerHTML.includes('&lt;unsafe&gt;.c'));assert.equal(draft.value,'unsaved');
     assert.ok(actions.innerHTML.includes('data-action="rebaseEdit"'));assert.ok(actions.innerHTML.includes('disabled data-unavailable="true"'));
   }
+});
+
+
+test('negative votes share orange -1/-2 priority and suppress the ready pink state',()=>{
+ const f=surfaceFixture();const one={id:'one',status:'NEW',submittable:true,labels:{'Code-Review':{approved:{},all:[{value:2},{value:-1}]}}};
+ const two={...one,id:'two',labels:{'Code-Review':{all:[{value:-1}]},Verified:{all:[{value:-2}]}}};
+ f.update({connected:true,changes:[one,two]});assert.equal((f.app.innerHTML.match(/state-negative/g)||[]).length,2);assert.ok(!f.app.innerHTML.includes('state-ready'));assert.ok(f.app.innerHTML.includes('Verified -2'));assert.ok(f.app.innerHTML.includes('可合入'));
+ for(const surface of ['sidebar','discussion']){f.update({connected:true,surface,detail:{...two,mine:true,current_revision:'r',revisions:{r:{_number:1}}}});assert.ok(f.app.innerHTML.includes('id="negative-status"'));assert.ok(f.app.innerHTML.includes('negative-vote'));}
+});
+test('score buttons replace selects; own open changes expose Rebase and Edit compare/discard controls',()=>{
+ const f=surfaceFixture();const detail={id:'c',status:'NEW',mine:true,current_revision:'r',revisions:{r:{_number:1}},permitted_labels:{'Code-Review':['-2','-1','0','1','2']},editStatus:{edit:{commit:{commit:'draft'},base_revision:'r'}}};
+ f.update({connected:true,surface:'discussion',detail});assert.ok(!f.app.innerHTML.includes('<select id="label-'));assert.equal((f.app.innerHTML.match(/data-action="score"/g)||[]).length,6);
+ for(const action of ['rebase','compareEdit','discardEdit'])assert.ok(f.app.innerHTML.includes(`data-action="${action}"`));
+ assert.ok(f.app.innerHTML.includes('class="review-float"'));assert.ok(f.app.innerHTML.indexOf('class="card composer"')<f.app.innerHTML.indexOf('class="ratings"'));
+ f.update({connected:true,detail});assert.ok(f.app.innerHTML.includes('value="edit"'));assert.ok(f.app.innerHTML.includes('Edit（已保存草稿）'));
 });

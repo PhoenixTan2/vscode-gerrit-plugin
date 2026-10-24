@@ -2,7 +2,12 @@
 const {tr} = require('./i18n');
 const { fileLimitReason } = require('./limits');
 // Base always means the first parent of the patch set on the opposite side.
-function comparisonPlan(revisions, left, right) {
+function comparisonPlan(revisions, left, right, edit) {
+  if (left === 'edit' || right === 'edit') {
+    const other = left === 'edit' ? right : left;
+    if (left === right || !edit?.commit?.commit || (other !== 'base' && !revisions[other])) throw new Error(tr('请选择两个不同的有效 Patch set / Base'));
+    return {left,right,revision:'edit',base:other==='base'?undefined:other,reverse:left==='edit',editHead:edit.commit.commit,editBase:edit.base_revision};
+  }
   if (left === right || (left !== 'base' && !revisions[left]) || (right !== 'base' && !revisions[right])) throw new Error(tr('请选择两个不同的有效 Patch set / Base'));
   return { left, right, revision: right === 'base' ? left : right, base: left !== 'base' && right !== 'base' ? left : undefined, reverse: right === 'base' };
 }

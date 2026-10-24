@@ -231,3 +231,10 @@ test('conflict lookup pages all results and mergeability is pinned to a revision
   assert.ok(calls[0].includes('q=is%3Aopen%20conflicts%3A42'));assert.ok(calls[1].includes('S=100'));
   await assert.rejects(api.conflicts('42 OR status:merged'),/无效/);
 });
+
+
+test('saved edit revisions use normal files/content APIs and discard deletes the complete draft',async()=>{
+ const api=new GerritApi(url,'user','http-key');await api.files('c','edit','old-sha');assert.ok(received.at(-1).url.includes('/revisions/edit/files/?base=old-sha'));
+ await api.bytes('c','edit','x.c');assert.ok(received.at(-1).url.endsWith('/revisions/edit/files/x.c/content'));
+ await api.discardEdit('c');assert.equal(received.at(-1).method,'DELETE');assert.ok(received.at(-1).url.endsWith('/changes/c/edit'));
+});

@@ -105,11 +105,13 @@ class ChangeEdits {
       }
     }
     const uri = this.v.Uri.from({scheme: this.scheme, authority: this.identity(), path: `/${session.change._number}/${info.rev}/${info.contentPath || info.path}`, query: 'change=' + encodeURIComponent(info.id)});
+    if (this.entries.get(uri.toString())?.session.retired) this.entries.delete(uri.toString());
     if (!this.entries.has(uri.toString())) {
       const edit = await session.api.edit(info.id);
       const bytes = edit ? await session.api.editBytes(info.id, info.contentPath || info.path) : await session.api.bytes(info.id, info.rev, info.contentPath || info.path);
       if (classifyFile(bytes, info.path).kind !== 'text') throw new Error(tr('Edit 仅支持文本文件'));
       this.entries.set(uri.toString(), {session, path: info.contentPath || info.path, bytes, uri, mtime: Date.now()});
+      this.events.fire([{type:this.v.FileChangeType.Changed,uri}]);
     }
     await this.v.commands.executeCommand('vscode.diff', input.original, uri, tr`${info.path} · Base / PS ↔ Edit（仅右侧可编辑）`, {preview: true});
     app.updateEditContext();
@@ -139,6 +141,21 @@ class ChangeEdits {
     if (this.app.api === api) await this.app.load(id);
     this.app.updateEditContext();
     if (origin && origin.session.id === id && !this.hasDirty(id) && this.active() === origin && this.app.selected?.id === id && this.app.selected.files?.[origin.path]) await this.app.openDiff(origin.path);
+  }
+  async discard(id) {
+    if (!id) throw new Error(tr('请先打开 Edit diff'));
+    if (this.hasDirty(id)) throw new Error(tr('仍有未保存的 Edit，请先保存或在编辑器中撤销改动，再废弃草稿'));
+    const {api} = await this.owned(id);
+    const sessions=[...this.sessions.values()].filter(session=>session.api===api&&session.id===id&&!session.retired);
+    for(const session of sessions)await session.queue.catch(()=>{});
+    const draft = await api.edit(id);
+    if(draft && sessions.some(session=>session.head !== draft.commit?.commit))throw new Error(tr('服务器 Edit 已发生变化，请重新打开后处理，避免覆盖其他编辑'));
+    if(this.hasDirty(id))throw new Error(tr('仍有未保存的 Edit，请先保存或在编辑器中撤销改动，再废弃草稿'));
+    if (draft) await api.discardEdit(id);
+    for(const session of sessions){session.retired=true;this.sessions.delete(session.key);}
+    for(const entry of this.entries.values())if(sessions.includes(entry.session))this.events.fire([{type:this.v.FileChangeType.Changed,uri:entry.uri}]);
+    if(this.app.api===api)await this.app.load(id);
+    this.app.updateEditContext();
   }
   async rebase(id) {
     if (this.hasDirty(id)) throw new Error(tr('请先保存 Edit，再 Rebase Edit'));

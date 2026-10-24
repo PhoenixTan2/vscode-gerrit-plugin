@@ -4,6 +4,27 @@
 
 在 VS Code 中完成 Gerrit 连接、提交、代码评审、评论、回复、评分和变更管理。常用功能通过侧边栏、编辑器按钮和右键菜单操作，无需 Ctrl+Shift+P。
 
+## 讨论页内操作与状态颜色
+
+自己的 Open / WIP 提交在评审讨论的“评审人员”框内直接输入姓名、邮箱或组名，选择下方候选即可添加人员或整组成员；点击已有人员旁的 × 删除。支持键盘切换候选；请求过期后不会误加其他人员，工作台和讨论页的候选相互隔离。人员管理只更新对应区域，不打断正在输入的评审评论。
+
+评分改为直接点击允许的分值按钮，含“不修改评分”；点击分值仅选择，点击“发布评审”才发送。评分与评论位于独立的浮动侧栏，跟随页面滚动；侧栏过高时内部滚动，不遮住讨论或当前评分。窄窗口改为普通纵向布局。
+
+工作台的版本对比可选择 **Edit（已保存草稿）**，与任意 PS 或 Base 双向对比；也可点“查看 Edit 改动”直接对比草稿与其原 PS。需先保存本地 Edit，比较不会生成 PS。Edit 快照不提供代码评论，发布后可对新 PS 评论。“废弃 Edit”删除整份服务器草稿，不影响已发布的 PS；未保存内容存在时先停止废弃，请先保存或在编辑器中撤销改动。废弃后可在同一 PS 开始新的 Edit。
+
+自己的 Open / WIP 最新 PS 固定显示 **Rebase** 入口；不再因服务器遗漏动作标记而隐藏。选择 Base 后由服务器校验权限和操作是否可行，历史 PS 需先切回最新 PS。
+
+| 提交卡片颜色 | 场景 |
+| --- | --- |
+| 蓝色 | 普通 Open |
+| 棕色 | WIP |
+| 橙色 | 存在负分，-1 / -2 同色，标签保留具体分值 |
+| 粉色 | 服务器判断可合入，且没有负分提醒 |
+| 绿色 | 已合入 |
+| 红色 | 已废弃 |
+
+色条优先级：已合入 / 已废弃 → 负分 → WIP → 可合入 → 普通 Open。颜色仅用于提醒，是否“可合入”严格使用服务器 submittable；有负分但服务器允许合入时，显示橙色色条及“可合入”文字，不自行禁用合入。具体色调随 VS Code 主题变化。
+
 ## Edit、发布与 Rebase
 
 打开自己的 Open / WIP 提交的最新 PS 文本 diff，点击编辑器右上角 **Edit**。左侧 Base / 已选 PS 始终只读，只有右侧 Edit 可修改。使用右上角“保存 Edit 草稿”或 Ctrl+S 保存到 Gerrit 私有草稿，不依赖本地仓库，也不会直接改目标分支。
@@ -22,7 +43,7 @@ Commit 信息、关系链分别记住工作台和评审讨论中的展开 / 收�
 
 上传时读取所选 Git remote 的真实分支。同名远端分支存在时默认填入本地分支，否则留空；输入时忽略大小写筛选候选。选择后仍会检查待推送提交和 Change-Id，通过后上传。
 
-自己的 Open / WIP 提交在工作台、评审讨论中提供“评审人员 · Code-Review / Verified”折叠栏，点击“管理人员 / 组”即可按姓名、邮箱或组名搜索并添加。组展开为成员，按服务器协议自动确认组添加。移除人员同时移除其已有评分；实际操作受服务器权限控制。历史 PS 需切回最新 PS 再管理。
+自己的 Open / WIP 提交在工作台、评审讨论中提供“评审人员 · Code-Review / Verified”折叠栏，在框内按姓名、邮箱或组名搜索并添加，点已有人员旁的 × 删除。组展开为成员，按服务器协议自动确认组添加。移除人员同时移除其已有评分；实际操作受服务器权限控制。历史 PS 需切回最新 PS 再管理。
 
 Gerrit 的评审人员属于整笔变更，不按 Code-Review、Verified 独立分配；添加人员不会授予打分权限。标签权限由服务器项目配置控制，评分仍按标签显示。
 
@@ -57,7 +78,7 @@ Gerrit 的评审人员属于整笔变更，不按 Code-Review、Verified 独立�
 | 后台任务 | 侧边栏或文件面板右上角任务按钮、讨论页任务入口，集中查看 Message 检索、版本路径索引和 SSH 下载；可取消并重试失败 / 取消的任务。Git checkout 开始后需等待完成 |
 | 刷新范围 | 详情“刷新此变更”及详情中的右上角刷新仅更新当前变更；回到列表后“刷新列表”才重新检索。搜索、重置仍重新检索 |
 | 文件已读进度 | 下方文件面板勾选已读，按服务器、账号、变更和 PS 保存在本机；新 PS 与此前浏览过的最近 PS 比较，继承未变文件的已读状态，修改及重命名文件需重新确认。“查看版本间变化”打开两版比较；该标记不发布到 Gerrit，也不改变“我已评审”状态 |
-| 状态与评审标记 | `NEW` 显示为“评审中”，表示尚未关闭或合入；Open 卡片分别标出“我已评审”“我未评审”，与是否已合入是两个维度；卡片按标签去重相同分数，多个 0 分仅显示一次；左边框用蓝色表示评审中、橙色表示 WIP、绿色表示已合入、红色表示已废弃、粉色表示“可发布”（服务器 submittable 为 true 且非 WIP；评审条件满足，实际合入仍需权限） |
+| 状态与评审标记 | `NEW` 显示为“评审中”，表示尚未关闭或合入；Open 卡片分别标出“我已评审”“我未评审”，与是否已合入是两个维度；卡片按标签去重相同分数，多个 0 分仅显示一次；左边框用蓝色表示评审中、棕色表示 WIP、橙色表示负分、绿色表示已合入、红色表示已废弃、粉色表示“可合入”（服务器 submittable 为 true 且非 WIP；评审条件满足，实际合入仍需权限） |
 | 时间与 Commit 信息 | 提交卡片显示最后更新；详情和讨论页依次显示创建时间、最后更新时间，统一为本地时区的 `YYYY-MM-DD HH:mm:ss`。Commit 信息紧跟最后更新时间，显示完整消息、SHA、Change-Id、作者和父提交 |
 | 独立评审讨论 | 详情“打开评审讨论”，在当前编辑器组打开标签页，包含所有 Patch set 的讨论、评分和活动记录；代码讨论可折叠并记住状态，收起时单行显示评论首行，活动记录收起时也显示首行 |
 | 按检索结果导航 | 工作台详情和评审讨论均提供“上一条 / 下一条”，按当前检索顺序切换，支持跨页并复用结果缓存；当前变更不在检索结果中时禁用 |
@@ -78,7 +99,7 @@ Gerrit 的评审人员属于整笔变更，不按 Code-Review、Verified 独立�
 | Markdown 讨论与回复 | 讨论和活动记录支持 Markdown 标题、列表、代码块、表格和链接。整体评审与回复草稿点击进入编辑，移开焦点显示预览；点击发布才发送原始文本 |
 | 评论中的链接 | HTTP(S) 链接在内置浏览器打开，同 Gerrit 站点复用认证网关，外站直接打开且不携带 Gerrit 凭据；支持站点相对路径，禁用非网页链接协议 |
 | 评论筛选 | 讨论页支持“仅显示未解决”和“有我参与”，后者保留自己曾回复过的完整线程，可组合筛选 |
-| 发布评审与打分 | 在讨论页填写整体意见，选择实际有权限的标签分数，点击“发布评审”；未选的评分不修改；当前评分位于发布表单上方，随页面正常滚动；默认直接显示非零评分，未打分 / 0 分人员放在折叠栏中 |
+| 发布评审与打分 | 在讨论页填写整体意见，选择实际有权限的标签分数，点击“发布评审”；未选的评分不修改；评分和评审评论表单位于独立浮动侧栏，当前评分在其下方；默认直接显示非零评分，未打分 / 0 分人员放在折叠栏中 |
 | 回复 | 在代码线程中发布回复，或在讨论页线程下的多行文本框回复 |
 | 发布 / 废弃 / 合入 | 自己的 WIP 可发布为待评审；可废弃自己的提交；有 submit 权限且服务器允许时可合入目标分支 |
 | 设置 / 调试输出 | 仅保留 Gerrit 侧边栏右上角的齿轮和输出小按钮，不在页面正文重复显示 |
@@ -163,6 +184,27 @@ Markdown 渲染使用离线打包的 markdown-it 15.0.3（MIT），许可证位�
 
 Connect, upload commits, review changes, comment on code, reply and vote from VS Code. Normal workflows use the sidebar, editor buttons and file panel without opening the Command Palette.
 
+## In-page review controls and state colors
+
+On your own Open / WIP changes, type a name, email or group name directly in the discussion's **Reviewers** box. Select a suggestion to add a person or group; use × next to an existing reviewer to remove them. Keyboard navigation is supported. Stale suggestions cannot add a different person, and sidebar/discussion suggestions are isolated. Reviewer updates preserve the review comment being edited.
+
+Choose permitted scores using direct buttons, including **Leave score unchanged**. Selecting a score does not send it; choose **Post review** to publish. Scores and the comment editor appear in a sticky side column that follows page scrolling. Tall panels scroll internally without covering discussions or current votes. Narrow windows use normal vertical layout.
+
+The workbench comparison selectors include **Edit (saved draft)** for comparison against any PS or Base in either direction. **Compare saved edit** compares the draft to its original PS. Save local edits first; comparisons create no PS. Code comments require publishing the Edit as a PS. **Discard edit** deletes the whole private draft without changing published PS revisions. Dirty local buffers block discard until saved or undone. You can start a fresh Edit on the same PS afterwards.
+
+Your own Open / WIP latest PS always exposes **Rebase**, even when the server omitted action metadata. The server checks permission and feasibility after the Base is selected. Historical views must first switch to the latest PS.
+
+| Card color | Meaning |
+| --- | --- |
+| Blue | Ordinary Open |
+| Brown | WIP |
+| Orange | Negative votes; -1 / -2 share a color and retain their values |
+| Pink | Server says ready to submit, with no negative-vote warning |
+| Green | Merged |
+| Red | Abandoned |
+
+Stripe priority: merged / abandoned, then negative votes, WIP, ready to submit and ordinary Open. Color is a warning, while eligibility uses the server's submittable flag. A negative-voted change that the server permits can show an orange stripe and **Ready to submit** together; the extension does not invent a submission block. Exact tones follow the VS Code theme.
+
 ## Edit, publish and rebase
 
 Open a text diff of the latest PS of your own Open / WIP change and choose **Edit** in the editor toolbar. The left Base / selected PS stays read-only; only the right Edit side is writable. Use **Save Gerrit edit** or Ctrl+S to save a private server-side draft, without a local repository or target-branch changes.
@@ -181,7 +223,7 @@ Background conflict checks distinguish target-branch merge conflicts from confli
 
 Uploads read live branches from the selected Git remote. Prefill the local branch only when it exists remotely; otherwise start empty. Type to filter suggestions case-insensitively. Outgoing commits and Change-Ids are still checked before pushing, without a confirmation warning.
 
-Your own Open / WIP changes show a **Reviewers · Code-Review / Verified** section in the workbench and discussion page. Choose **Manage people / groups** to search by name, email or group name. Groups expand into members; server-required group confirmation is handled automatically. Removing reviewers also removes their votes and remains subject to server permissions. Switch historical views to the latest PS before managing reviewers.
+Your own Open / WIP changes show a **Reviewers · Code-Review / Verified** section in the workbench and discussion page. Type a name, email or group name in the box and select a suggestion; use × next to a reviewer to remove them. Groups expand into members; server-required group confirmation is handled automatically. Removing reviewers also removes their votes and remains subject to server permissions. Switch historical views to the latest PS before managing reviewers.
 
 Gerrit assigns reviewers to a whole change, not separately to Code-Review and Verified. Adding reviewers does not grant voting rights; server project configuration controls label permissions. Votes remain displayed per label.
 

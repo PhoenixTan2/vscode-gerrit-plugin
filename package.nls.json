@@ -30,5 +30,6 @@
   "extension.contributes.colors.0.description": "Gerrit 评论的行号图标、代码标记、滚动条和缩略图标记颜色。",
   "command.edit": "编辑右侧文件（Gerrit Edit）",
   "command.saveEdit": "保存 Edit 草稿",
-  "command.publishEdit": "发布 Edit 为新 PS"
+  "command.publishEdit": "发布 Edit 为新 PS",
+  "command.discardEdit": "废弃 Edit 草稿"
 }

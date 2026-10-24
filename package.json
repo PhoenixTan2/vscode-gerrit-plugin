@@ -176,6 +176,11 @@
         "command": "gerrit.publishEdit",
         "title": "%command.publishEdit%",
         "icon": "$(cloud-upload)"
+      },
+      {
+        "command": "gerrit.discardEdit",
+        "title": "%command.discardEdit%",
+        "icon": "$(trash)"
       }
     ],
     "menus": {
@@ -273,6 +278,11 @@
         },
         {
           "command": "gerrit.publishEdit",
+          "when": "gerritEditing && resourceScheme == gerrit-edit",
+          "group": "navigation@0"
+        },
+        {
+          "command": "gerrit.discardEdit",
           "when": "gerritEditing && resourceScheme == gerrit-edit",
           "group": "navigation@0"
         }
