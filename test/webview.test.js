@@ -443,8 +443,35 @@ test('negative votes share orange -1/-2 priority and suppress the ready pink sta
 });
 test('score buttons replace selects; own open changes expose Rebase and Edit compare/discard controls',()=>{
  const f=surfaceFixture();const detail={id:'c',status:'NEW',mine:true,current_revision:'r',revisions:{r:{_number:1}},permitted_labels:{'Code-Review':['-2','-1','0','1','2']},editStatus:{edit:{commit:{commit:'draft'},base_revision:'r'}}};
- f.update({connected:true,surface:'discussion',detail});assert.ok(!f.app.innerHTML.includes('<select id="label-'));assert.equal((f.app.innerHTML.match(/data-action="score"/g)||[]).length,6);
+ f.update({connected:true,surface:'discussion',detail});assert.ok(!f.app.innerHTML.includes('<select id="label-'));assert.equal((f.app.innerHTML.match(/data-action="score"/g)||[]).length,5);
  for(const action of ['rebase','compareEdit','discardEdit'])assert.ok(f.app.innerHTML.includes(`data-action="${action}"`));
  assert.ok(f.app.innerHTML.includes('class="review-float"'));assert.ok(f.app.innerHTML.indexOf('class="card composer"')<f.app.innerHTML.indexOf('class="ratings"'));
  f.update({connected:true,detail});assert.ok(f.app.innerHTML.includes('value="edit"'));assert.ok(f.app.innerHTML.includes('Edit（已保存草稿）'));
+});
+
+
+test('Code-Review and Verified have no unchanged-score button and show neutral score when no vote exists',()=>{
+ const f=surfaceFixture();f.update({connected:true,surface:'discussion',detail:{id:'c',current_revision:'r',revisions:{r:{_number:1}},permitted_labels:{'Code-Review':['-1','0','1'],Verified:['-1','0','1'],Custom:['0','1']}}});
+ assert.ok(!f.app.innerHTML.includes('data-label="Code-Review" data-value=""'));assert.ok(!f.app.innerHTML.includes('data-label="Verified" data-value=""'));
+ assert.ok(f.app.innerHTML.includes('data-label="Custom" data-value=""'));assert.ok(f.app.innerHTML.includes('data-label="Code-Review" data-value="0" aria-pressed="true"'));
+});
+
+
+test('comment colors/default folding and thread counts follow final resolution, excluding global notes',()=>{
+ const f=surfaceFixture();const comments={'code.c':[{id:'resolved-root',unresolved:true,updated:'1',message:'Resolved root'},{id:'resolved-reply',in_reply_to:'resolved-root',unresolved:false,updated:'2',message:'Resolved reply'},{id:'open-root',unresolved:true,message:'Open root'}],'/PATCHSET_LEVEL':[{id:'global',message:'Global note'}]};
+ const detail={id:'c',current_revision:'r',revisions:{r:{_number:1}},comments,files:{'code.c':{}}};
+ f.update({connected:true,surface:'discussion',detail});
+ assert.ok(/data-thread-key="[^"]*resolved-root" data-thread-state="resolved" >/.test(f.app.innerHTML));
+ assert.ok(/data-thread-key="[^"]*open-root" data-thread-state="unresolved" open/.test(f.app.innerHTML));
+ assert.ok(/data-thread-key="[^"]*global" data-thread-state="global" open/.test(f.app.innerHTML));
+ assert.ok(f.app.innerHTML.includes('thread-unresolved'));assert.ok(f.app.innerHTML.includes('thread-resolved'));
+ f.update({connected:true,surface:'sidebar',detail});assert.ok(f.app.innerHTML.includes('1(1) 条代码评论'));
+ f.update({connected:true,surface:'files',detail});assert.ok(f.app.innerHTML.includes('>1(1)</span>'));
+});
+test('current-user scores are preselected and all issue statuses color both detail headers',()=>{
+ const f=surfaceFixture(), detail={id:'c',status:'NEW',current_revision:'r',revisions:{r:{_number:1}},labels:{'Code-Review':{all:[{_account_id:9,value:-1},{_account_id:7,value:2}]}},permitted_labels:{'Code-Review':['-2','-1','0','1','2']}};
+ f.update({connected:true,surface:'discussion',accountId:7,detail});assert.ok(f.app.innerHTML.includes('data-label="Code-Review" data-value="2" aria-pressed="true"'));assert.ok(!f.app.innerHTML.includes('data-label="Code-Review" data-value="-1" aria-pressed="true"'));
+ for(const surface of ['sidebar','discussion'])for(const [state,tone] of [[{status:'NEW'},'open'],[{status:'NEW',work_in_progress:true},'wip'],[{status:'NEW',submittable:true},'ready'],[{status:'MERGED'},'merged'],[{status:'ABANDONED'},'abandoned']]){
+  f.update({connected:true,surface,detail:{...detail,...state}});assert.ok(f.app.innerHTML.includes(`class="badge status status-${tone}"`));
+ }
 });

@@ -76,8 +76,12 @@ class Workbench {
     this.configure();
     this.documents = new Map(); this.threads = new Map(); this.selected = null; this.busy = false; this.edits = new ChangeEdits(this, vscode);
     this.commentDecoration = vscode.window.createTextEditorDecorationType({
-      gutterIconPath: vscode.Uri.joinPath(context.extensionUri, 'media', 'comment.svg'), gutterIconSize: 'contain',
+      gutterIconPath: vscode.Uri.joinPath(context.extensionUri, 'media', 'comment-unresolved.svg'), gutterIconSize: 'contain',
       overviewRulerColor: new vscode.ThemeColor('gerrit.commentMarker'), overviewRulerLane: vscode.OverviewRulerLane.Full
+    });
+    this.resolvedCommentDecoration = vscode.window.createTextEditorDecorationType({
+      gutterIconPath: vscode.Uri.joinPath(context.extensionUri,'media','comment-resolved.svg'),gutterIconSize:'contain',
+      overviewRulerColor:new vscode.ThemeColor('gerrit.resolvedCommentMarker'),overviewRulerLane:vscode.OverviewRulerLane.Full
     });
     this.controller = vscode.comments.createCommentController('gerrit', 'Gerrit');
     this.updateNativeCommentLanguage();
@@ -111,7 +115,7 @@ class Workbench {
     this.tasksView?.dispose();
     this.disposal = Promise.allSettled([this.nativeFiles.dispose(), this.pathIndex.dispose(), this.reviewProgress.saving]);
     this.gateway?.dispose(); this.discussion?.dispose(); this.clearThreads(); this.controller.dispose();
-    this.edits.dispose(); this.commentDecoration.dispose(); this.status.dispose(); this.output.dispose();
+    this.edits.dispose(); this.commentDecoration.dispose(); this.resolvedCommentDecoration.dispose(); this.status.dispose(); this.output.dispose();
     return this.disposal;
   }
   clearThreads() { for (const thread of this.threads.keys()) thread.dispose(); this.threads.clear(); }
@@ -889,7 +893,7 @@ class Workbench {
     }
     if (m.type === 'applySearchUpdates') return this.applySearchUpdates();
     if (m.type === 'refresh') return this.refreshCurrent();
-    if (m.type === 'open') { this.lockSearch(); this.parentTrail = []; return this.load(String(m.id)); }
+    if (m.type === 'open') { this.lockSearch(); this.parentTrail = []; await this.load(String(m.id)); return this.openDiscussion(); }
     if (m.type === 'back') { this.parentTrail = []; this.contextController?.abort(); this.selected = null; delete this.model.detail; this.clearThreads(); this.render(); return; }
     const s = this.selected; if (!s || m.id !== s.id || m.rev !== s.rev) throw new Error(tr('页面已更新，请重新选择变更后操作'));
     if (m.type === 'reviewerAdd') return addReviewer(this,m);
@@ -1108,10 +1112,10 @@ class Workbench {
       const range = c.range ? new vscode.Range(c.range.start_line - 1, c.range.start_character, c.range.end_line - 1, c.range.end_character) : c.line ? new vscode.Range(c.line - 1, 0, c.line - 1, 0) : undefined;
       const thread = this.controller.createCommentThread(uri, range, group.map(item => ({ body: item.message, mode: vscode.CommentMode.Preview, author: { name: item.author?.name || item.author?.username || tr('Gerrit 用户') } })));
       thread.contextValue = 'gerritReply';
-      thread.label = tr`${info.label || info.side} · 发布后立即可见`;
-      thread.collapsibleState = this.setting('comments.expandThreads', true) ? vscode.CommentThreadCollapsibleState.Expanded : vscode.CommentThreadCollapsibleState.Collapsed;
+      thread.label = tr`${info.label || info.side} · ${group.at(-1).unresolved ? tr('未解决') : tr('已解决')} · 发布后立即可见`;
+      thread.collapsibleState = group.at(-1).unresolved ? vscode.CommentThreadCollapsibleState.Expanded : vscode.CommentThreadCollapsibleState.Collapsed;
       thread.state = group.at(-1).unresolved ? vscode.CommentThreadState.Unresolved : vscode.CommentThreadState.Resolved;
-      this.threads.set(thread, { ...info, parent: group.at(-1), commentIds: group.map(item => item.id) });
+      this.threads.set(thread, { ...info, parent: group.at(-1), unresolved: !!group.at(-1).unresolved, rootId:c.id, commentIds: group.map(item => item.id) });
     }
     this.updateDecorations();
   }
@@ -1136,12 +1140,16 @@ class Workbench {
     if (!this.documents || !this.commentDecoration) return;
     for (const editor of vscode.window.visibleTextEditors || []) {
       const info = this.documents.get(editor.document.uri.toString());
-      const marks = this.commentPoints(info).filter(([line]) => line < editor.document.lineCount).map(([line, comments]) => ({
-        range: new vscode.Range(line, 0, line, editor.document.lineAt(line).text.length),
-        hoverMessage: tr`${comments.length} 条 Gerrit 评论；使用编辑器右上角“本文件评论”查看位置和跳转。`,
-        renderOptions: { after: { contentText: `  💬 ${comments.length}`, color: new vscode.ThemeColor('gerrit.commentMarker'), margin: '0 0 0 1em' } }
-      }));
-      editor.setDecorations(this.commentDecoration, marks);
+      const statuses=new Map();
+      for(const [thread,meta] of this.threads)if(thread.uri.toString()===editor.document.uri.toString())for(const id of meta.commentIds||[])statuses.set(id,{root:meta.rootId||id,unresolved:meta.unresolved});
+      const unresolvedMarks=[],resolvedMarks=[];
+      for(const [line,comments] of this.commentPoints(info).filter(([line])=>line<editor.document.lineCount)){
+        const roots=new Map(comments.map(comment=>{const status=statuses.get(comment.id)||{root:comment.id,unresolved:!!comment.unresolved};return[status.root,status.unresolved];}));
+        const unresolved=[...roots.values()].filter(Boolean).length,resolved=roots.size-unresolved,color=unresolved?'gerrit.commentMarker':'gerrit.resolvedCommentMarker';
+        const mark={range:new vscode.Range(line,0,line,editor.document.lineAt(line).text.length),hoverMessage:tr`未解决 ${unresolved} · 已解决 ${resolved}；使用“本文件评论”查看位置和跳转。`,renderOptions:{after:{contentText:`  💬 ${unresolved}(${resolved})`,color:new vscode.ThemeColor(color),margin:'0 0 0 1em'}}};
+        (unresolved?unresolvedMarks:resolvedMarks).push(mark);
+      }
+      editor.setDecorations(this.commentDecoration,unresolvedMarks);editor.setDecorations(this.resolvedCommentDecoration,resolvedMarks);
     }
   }
   async navigateComment(direction) {

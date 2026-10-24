@@ -4,6 +4,11 @@
 
 ## 1.1.0
 
+- Keep 1.1.0: cards open/reuse discussions directly; conflict links are blue and underlined, with state-coloured detail badges.
+- Combine review submission/current votes into one collapsible right-centred window at all widths. Preselect the account's current vote; selecting it again does nothing. Remove unchanged-score controls for Code-Review / Verified.
+- Colour resolved/unresolved discussions and code markers; default to resolved collapsed, unresolved expanded and global comments expanded. Remove the comment-expansion setting.
+- Show unresolved(resolved) thread counts such as 2(5) in the workbench and comparison list, without counting replies twice.
+
 - Keep 1.1.0: inline reviewer/group autocomplete and removal, direct score buttons, and a sticky review column without overlap.
 - Compare saved Edit against any PS / Base in either direction; discard an entire draft and restart on the same PS, with dirty-buffer protection.
 - Always expose Rebase for your own Open / WIP changes; the server validates the operation.

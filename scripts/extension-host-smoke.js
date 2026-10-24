@@ -14,7 +14,7 @@ async function run() {
     const commands = await vscode.commands.getCommands(true);
     assert.ok(commands.includes('workbench.view.extension.gerrit'), 'Legacy Gerrit container fixture must be present');
     assert.ok(commands.includes('workbench.view.extension.gerritWorkbench'), 'Our container must remain separate');
-    assert.equal(extension.packageJSON.contributes.configuration.properties['gerrit.comments.expandThreads'].default,true);
+    assert.ok(!extension.packageJSON.contributes.configuration.properties['gerrit.comments.expandThreads']);
     for (const key of ['commitInfo.defaultExpanded','relationChain.defaultExpanded']) assert.ok(!extension.packageJSON.contributes.configuration.properties['gerrit.'+key]);
     assert.ok(['Gerrit 对比差异','Gerrit Comparison'].includes(extension.packageJSON.contributes.viewsContainers.panel[0].title));
     for (const id of ['gerrit.connect', 'gerrit.refresh', 'gerrit.logs', 'gerrit.comment', 'gerrit.fileComments', 'gerrit.tasks', 'gerrit.openLeftFile', 'gerrit.openRightFile', 'gerrit.openThisFile']) assert.ok(commands.includes(id), `${id} must be registered`);
@@ -44,9 +44,9 @@ async function run() {
 
     // Render a representative review with the shipped script inside a real Webview.
     const fixture = {
-      connected: true, surface: 'discussion', panelExpansion: {sidebar:{commit:true,relation:false},discussion:{commit:true,relation:false}}, resultNavigation: { previous: true, next: true, index: 2, total: 3 }, user: 'Reviewer', server: 'https://review.example.invalid',
+      connected: true, surface: 'discussion', accountId:7, panelExpansion: {sidebar:{commit:true,relation:false},discussion:{commit:true,relation:false}}, resultNavigation: { previous: true, next: true, index: 2, total: 3 }, user: 'Reviewer', server: 'https://review.example.invalid',
       detail: { id: 'fixture', _number: 142, subject: 'Improve boot device initialization', status: 'NEW', project: 'team/firmware', branch: 'main',
-        owner: { name: 'Alex' }, current_revision: 'a'.repeat(40), change_id: 'Ifixture',
+        conflictStatus:{state:'completed',changes:[{id:'conflicting',_number:143,subject:'Conflicting change'}]}, owner: { name: 'Alex' }, current_revision: 'a'.repeat(40), change_id: 'Ifixture',
         created: '2026-10-20 01:02:03', updated: '2026-10-21 07:08:09',
         revisions: { ['a'.repeat(40)]: { _number: 3, previousPatch: {number:2,unchanged:true}, files: {'Boot/Device.c':{},'Library/Init.c':{}}, commit: { message: 'Improve boot device initialization\n\nKeep initialization deterministic.', author: { name: 'Alex', email: 'alex@example.invalid' }, committer: { name: 'Alex' }, parents: [{ commit: 'b'.repeat(40) }] } }, ['e'.repeat(40)]: { _number: 2, files: {'/COMMIT_MSG':{}} } },
         parentTargets: { ['b'.repeat(40)]: { status: 'found', changes: [{ id: 'parent-fixture', number: 141, patch: 1 }] } },
@@ -60,11 +60,11 @@ async function run() {
     const panel = vscode.window.createWebviewPanel('gerrit.smoke.review', 'Review UI smoke', vscode.ViewColumn.Active, { enableScripts: true, localResourceRoots: [extension.extensionUri] });
     const nonce = require('node:crypto').randomBytes(16).toString('hex');
     const media = name => panel.webview.asWebviewUri(vscode.Uri.joinPath(extension.extensionUri, 'media', name));
-    let reviewAction, reviewerAddAction, reviewerRemoveAction, fileAction, searchAction, patchAction, cancelAction, compareAction, navigationAction, metadataAction, relatedAction, parentAction, childAction, patchSearchAction, singleAction, openLinkAction, comparisonReturnAction, readAction, ancestorAction, taskCancelAction, taskRetryAction, updatesAction;
+    const reviewActions=[];let reviewAction, reviewerAddAction, reviewerRemoveAction, fileAction, searchAction, patchAction, cancelAction, compareAction, navigationAction, metadataAction, relatedAction, parentAction, childAction, patchSearchAction, singleAction, openLinkAction, comparisonReturnAction, readAction, ancestorAction, taskCancelAction, taskRetryAction, updatesAction;
     const reviewResult = new Promise((resolve, reject) => {
       const timeout = setTimeout(() => reject(new Error('Review Webview fixture did not render')), 15000);
       panel.webview.onDidReceiveMessage(message => {
-        if(message.type==='review')reviewAction=message;
+        if(message.type==='review'){reviewAction=message;reviewActions.push(message);}
         if(message.type==='reviewerAdd')reviewerAddAction=message;
         if(message.type==='reviewerRemove')reviewerRemoveAction=message;
         if(message.type==='reviewerSuggest')panel.webview.postMessage({type:'reviewerSuggestions',id:message.id,rev:message.rev,requestId:message.requestId,clientId:message.clientId,items:[{id:'9',kind:'account',name:'Suggested dev'}]});
@@ -98,12 +98,15 @@ async function run() {
         if (!document.querySelector('.discussion-layout') || !document.querySelector('#review') || !document.querySelector('.thread')) throw new Error('Review sections missing');
 
         if(document.querySelector('select[data-label]'))throw new Error('Scoring still uses dropdowns');
+        if(document.querySelector('[data-label="Code-Review"][data-value=""]'))throw new Error('Unchanged score button remains');
         const score=document.querySelector('[data-action="score"][data-value="1"]');score.click();
         if(score.getAttribute('aria-pressed')!=='true'||score.getBoundingClientRect().width>80)throw new Error('Direct score choice failed');
         document.getElementById('review').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));
-        const own={...initialModel,detail:{...initialModel.detail,mine:true,reviewers:{REVIEWER:[{_account_id:8,name:'Existing reviewer'}]},editStatus:{edit:{commit:{commit:'draft'},base_revision:initialModel.detail.current_revision}}}};
+        score.click();if(score.getAttribute('aria-pressed')!=='true'||draft().labels['Code-Review']!==1)throw new Error('Clicking selected score changes it');
+        const own={...initialModel,detail:{...initialModel.detail,mine:true,labels:{...initialModel.detail.labels,'Code-Review':{all:[{_account_id:7,name:'Me',value:1}]}},reviewers:{REVIEWER:[{_account_id:8,name:'Existing reviewer'}]},editStatus:{edit:{commit:{commit:'draft'},base_revision:initialModel.detail.current_revision}}}};
         window.dispatchEvent(new MessageEvent('message',{data:{type:'state',model:own}}));
         if(!document.querySelector('[data-action="rebase"]')||!document.querySelector('[data-action="discardEdit"]'))throw new Error('Rebase or discard not discoverable');
+        const currentScoreButton=document.querySelector('[data-label="Code-Review"][data-value="1"]');if(currentScoreButton.getAttribute('aria-pressed')!=='true')throw new Error('Own current score is not selected');currentScoreButton.click();document.getElementById('review').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));
         const reviewerInput=document.getElementById('reviewer-query');reviewerInput.value='dev';reviewerInput.dispatchEvent(new Event('input',{bubbles:true}));
         await new Promise(resolve=>setTimeout(resolve,250));
         const pick=document.querySelector('[data-action="reviewerPick"]');if(!pick||!pick.textContent.includes('Suggested dev'))throw new Error('Inline reviewer suggestion missing');pick.click();
@@ -111,9 +114,13 @@ async function run() {
         window.dispatchEvent(new MessageEvent('message',{data:{type:'state',model:initialModel}}));
 
         if (document.getElementById('app').textContent.includes('提交时间')) throw new Error('Obsolete timestamp');
+
+        const conflictLink=document.querySelector('.conflict-link'),probe=document.createElement('a');probe.textContent='link';document.body.append(probe);
+        if(!conflictLink||getComputedStyle(conflictLink).color!==getComputedStyle(probe).color||!getComputedStyle(conflictLink).textDecorationLine.includes('underline'))throw new Error('Conflict navigation is not styled as a link');probe.remove();
+
         const thread = document.querySelector('.thread:has([data-action="locate"])');
         const global=[...document.querySelectorAll('.thread')].find(item=>item.textContent.includes('Whole change comment'));
-        if (!global || global.querySelector('[data-action="locate"]')) throw new Error('Global comment exposes code navigation');
+        if (!global || !global.open || global.querySelector('[data-action="locate"]')) throw new Error('Global comment exposes code navigation');
         if (!thread.querySelector('.markdown-body strong')) throw new Error('Markdown not rendered');
         thread.open = false;
         if (!thread.querySelector('.thread-snippet').textContent.includes('Could we check') || thread.getBoundingClientRect().height > 55) throw new Error('Collapsed discussion is not one line');
@@ -138,10 +145,16 @@ async function run() {
         if (!replyInput.hidden || !replyPreview.querySelector('strong')) throw new Error('Reply blur preview failed');
 
         if (document.querySelector('.unscored').open || !document.querySelector('.unscored').textContent.includes('Waiting')) throw new Error('Unscored reviewers are not folded');
-        if(innerWidth>650 && getComputedStyle(document.querySelector('.review-float')).position!=='sticky')throw new Error('Review pane does not follow scrolling');
+        if(getComputedStyle(document.querySelector('.review-float')).position!=='fixed')throw new Error('Review window is not viewport anchored');
         const ratings = document.querySelector('.ratings'); const composer = document.querySelector('.composer');
         if (getComputedStyle(composer).position !== 'static' || composer.getBoundingClientRect().bottom > ratings.getBoundingClientRect().top) throw new Error('Composer overlaps current votes');
-        window.scrollTo(0, document.body.scrollHeight);
+        const floating = document.querySelector('.review-float'), beforeScroll = floating.getBoundingClientRect();
+        if(getComputedStyle(document.getElementById('app')).position==='fixed')document.getElementById('app').scrollTop=document.getElementById('app').scrollHeight;else window.scrollTo(0, document.body.scrollHeight);
+        await new Promise(resolve=>requestAnimationFrame(resolve));
+        const afterScroll=floating.getBoundingClientRect();
+        if(Math.abs(beforeScroll.top-afterScroll.top)>1||afterScroll.top<0||afterScroll.bottom>innerHeight+1)throw new Error('Review window moves outside viewport');
+        if(innerWidth>760&&document.querySelector('.discussion-layout').getBoundingClientRect().right>afterScroll.left)throw new Error('Review window covers discussions');
+
         if (composer.getBoundingClientRect().bottom > ratings.getBoundingClientRect().top) throw new Error('Scrolling overlaps current votes');
         if (!document.querySelector('.chain-node') || !document.getElementById('app').textContent.includes('旧 PS')) throw new Error('Relation chain missing');
 
@@ -268,7 +281,7 @@ async function run() {
     `;
     panel.webview.html = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${panel.webview.cspSource}; script-src 'nonce-${nonce}'"><link rel="stylesheet" href="${media('style.css')}"></head><body><header><div id="account"></div></header><div id="notice"></div><main id="app"></main><script nonce="${nonce}" src="${media('vendor/markdown-it.min.js')}"></script><script nonce="${nonce}" src="${media('i18n.js')}"></script><script nonce="${nonce}" src="${media('main.js')}"></script><script nonce="${nonce}">${fixtureScript}</script></body></html>`;
     await reviewResult;
-    assert.equal(reviewAction?.labels?.['Code-Review'],1);assert.equal(reviewerAddAction?.index,0);assert.equal(reviewerRemoveAction?.accountId,'8');
+    assert.equal(reviewActions[0]?.labels?.['Code-Review'],1);assert.ok(!Object.hasOwn(reviewActions[1]?.labels||{},'Code-Review'));assert.equal(reviewerAddAction?.index,0);assert.equal(reviewerRemoveAction?.accountId,'8');
     assert.equal(openLinkAction?.url,'https://docs.example/guide');
     assert.equal(navigationAction?.direction, '-1'); assert.equal(navigationAction?.id, 'fixture');
     assert.equal(metadataAction?.kind, 'author'); assert.equal(relatedAction, undefined, 'Expansion must never issue a loading request');
@@ -290,6 +303,7 @@ async function run() {
     assert.equal(searchAction?.branch, 'main'); assert.equal(searchAction?.owner, 'self'); panel.dispose();
 
 
+    await require('./review-layout-smoke').run(extension);
     const { NativeFiles } = require(require('node:path').join(extension.extensionPath, 'src', 'native-files.js'));
     const originals = new NativeFiles(vscode);
     const excelFixture = process.env.GERRIT_EXCEL_FIXTURES;

@@ -4,6 +4,11 @@
 
 ## 1.1.0
 
+- 本批保持 1.1.0：卡片直接打开复用的评审讨论；冲突链接蓝色加下划线，详情状态文字跟随问题状态颜色。
+- 发布评审和当前评分合并为右侧居中、宽窄一致、可收起的浮窗；默认显示当前账号评分，重复点击当前分值无变化，移除 Code-Review / Verified 的“不修改评分”。
+- 解决 / 未解决代码评论分别着色，默认按状态折叠 / 展开，全局评论默认展开；代码页同步区分状态，移除评论展开设置。
+- 工作台、对比列表采用未解决(已解决)线程数，如 2(5)，避免把回复重复计数。
+
 - 本批仍为 1.1.0：评审人员/组改为页面内输入补全与直接删除，评分改为分值按钮，评审表单侧栏随滚动并避免遮挡。
 - 比较版本加入已保存 Edit，可与任意 PS / Base 双向查看；增加整份 Edit 废弃及同 PS 再编辑，未保存内容保护。
 - 自己的 Open / WIP 固定提供 Rebase，操作由服务器验证。
@@ -188,6 +193,11 @@
 
 
 ## 1.1.0
+
+- Keep 1.1.0: cards open/reuse discussions directly; conflict links are blue and underlined, with state-coloured detail badges.
+- Combine review submission/current votes into one collapsible right-centred window at all widths. Preselect the account's current vote; selecting it again does nothing. Remove unchanged-score controls for Code-Review / Verified.
+- Colour resolved/unresolved discussions and code markers; default to resolved collapsed, unresolved expanded and global comments expanded. Remove the comment-expansion setting.
+- Show unresolved(resolved) thread counts such as 2(5) in the workbench and comparison list, without counting replies twice.
 
 - Keep 1.1.0: inline reviewer/group autocomplete and removal, direct score buttons, and a sticky review column without overlap.
 - Compare saved Edit against any PS / Base in either direction; discard an entire draft and restart on the same PS, with dirty-buffer protection.

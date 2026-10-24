@@ -22,7 +22,6 @@
   "extension.contributes.configuration.properties.gerrit.defaultQuery.description": "连接时默认使用的 Gerrit 查询。支持 owner:self、is:merged 等表达式。",
   "extension.contributes.configuration.properties.gerrit.pageSize.description": "变更列表每页条数，修改后从第一页重新加载。",
   "extension.contributes.configuration.properties.gerrit.requestTimeout.description": "HTTP 请求超时，单位毫秒。",
-  "extension.contributes.configuration.properties.gerrit.comments.expandThreads.description": "打开 diff 时自动展开代码中的已有评论；默认显示行号旁的评论图标，可点击或悬停查看。",
   "extension.contributes.configuration.properties.gerrit.diff.openBeside.description": "在右侧分屏打开文件对比（Open Beside）。关闭时使用当前编辑器区域；开启时在旁边新建或复用一个独立编辑器区域。",
   "extension.contributes.configuration.properties.gerrit.logLevel.description": "Gerrit Workbench 输出频道日志级别。记录请求路径、状态、耗时及 Git 操作结果，不记录认证头、Cookie、请求正文或响应正文。",
   "extension.contributes.configuration.properties.gerrit.language.enumDescriptions.0": "中文",
@@ -31,5 +30,6 @@
   "command.edit": "编辑右侧文件（Gerrit Edit）",
   "command.saveEdit": "保存 Edit 草稿",
   "command.publishEdit": "发布 Edit 为新 PS",
-  "command.discardEdit": "废弃 Edit 草稿"
+  "command.discardEdit": "废弃 Edit 草稿",
+  "color.resolvedCommentMarker": "已解决 Gerrit 评论的代码标记颜色"
 }

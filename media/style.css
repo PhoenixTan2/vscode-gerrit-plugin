@@ -193,8 +193,16 @@ body:has(.review-shell)>header{padding-bottom:7px;margin-bottom:8px}
 .negative-mark{display:inline-block;color:var(--vscode-errorForeground);border:1px solid currentColor;border-radius:4px;padding:1px 4px;font-size:11px;margin:2px 4px}
 
 
-/* Sticky side column reserves its grid space, so it cannot obscure discussions. */
-.review-shell .discussion-layout .review-float{position:sticky;top:8px;align-self:start;max-height:calc(100vh - 16px);overflow-y:auto;scrollbar-gutter:stable;padding:0 3px 2px 0;box-sizing:border-box}.review-shell .review-float .composer{margin:0 0 10px;box-shadow:0 3px 10px #0002}.composer .score-option{width:auto}.review-float .ratings>h2{margin-top:8px}@media(max-width:650px){.review-shell .discussion-layout .review-float{position:static;max-height:none;overflow:visible;width:100%;padding:0}}
+/* The review window is anchored to the viewport, outside the discussion grid. */
 
 /* Final state palette: brown WIP, orange negative votes (-1/-2 alike). */
 .change.state-wip{border-left-color:#9b7653}.negative-vote,.negative-mark.negative-vote,.score-option.negative-vote{color:var(--vscode-charts-orange,#d89a35)}.change.state-negative{border-left-color:var(--vscode-charts-orange,#d89a35)}.score-option.selected.negative-vote{border-color:var(--vscode-charts-orange,#d89a35);box-shadow:inset 0 0 0 1px var(--vscode-charts-orange,#d89a35);background:var(--vscode-inputValidation-warningBackground)}
+
+.conflict-info .conflict-link{color:var(--vscode-textLink-foreground,#3794ff);text-decoration:underline;text-underline-offset:2px}.conflict-info .conflict-link:hover{color:var(--vscode-textLink-activeForeground,#4daafc)}
+
+.thread.thread-unresolved{border-left:3px solid var(--vscode-charts-orange,#d89a35)}.thread.thread-resolved{border-left:3px solid var(--vscode-testing-iconPassed,#73c991)}.thread-unresolved>.thread-summary>.badge{color:var(--vscode-charts-orange,#d89a35);border-color:currentColor}.thread-resolved>.thread-summary>.badge{color:var(--vscode-testing-iconPassed,#73c991);border-color:currentColor}
+
+/* One right-centred review window, with identical placement at every width. */
+.review-shell{--review-pane-width:280px;padding-right:calc(var(--review-pane-width) + 16px)}.review-shell .discussion-layout{display:block}.review-shell>.review-float{position:fixed;top:50%;right:12px;transform:translateY(-50%);width:min(var(--review-pane-width),calc(100% - 24px));max-height:calc(100vh - 24px);max-height:calc(100dvh - 24px);display:flex;flex-direction:column;z-index:3;border:1px solid var(--border);border-radius:9px;background:var(--surface);box-shadow:0 4px 18px #0003;padding:0;overflow:hidden}.review-window-heading{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:7px 9px;flex-shrink:0;border-bottom:1px solid var(--border)}.review-window-heading button{padding:2px 7px}.review-window-body{overflow-y:auto;overscroll-behavior:contain;min-height:0;scrollbar-gutter:stable;padding:8px}.review-shell .review-float .composer{margin:0 0 10px}.composer .score-option{width:auto}.review-float .ratings>h2{margin-top:8px}.review-shell>.review-window-collapsed{width:auto}.review-window-collapsed .review-window-heading{border-bottom:0}.review-shell:has(>.review-window-collapsed){padding-right:0}@media(max-width:760px){.review-shell{padding-right:0}}
+
+.status.status-open{color:var(--vscode-charts-blue,#3794ff);border-color:currentColor}.status.status-wip{color:#9b7653;border-color:currentColor}.status.status-ready{color:#e779b4;border-color:currentColor}.status.status-merged{color:var(--vscode-testing-iconPassed,#73c991);border-color:currentColor}.status.status-abandoned{color:var(--vscode-testing-iconFailed,#f48771);border-color:currentColor}

@@ -350,11 +350,6 @@
           "maximum": 120000,
           "description": "%extension.contributes.configuration.properties.gerrit.requestTimeout.description%"
         },
-        "gerrit.comments.expandThreads": {
-          "type": "boolean",
-          "default": true,
-          "description": "%extension.contributes.configuration.properties.gerrit.comments.expandThreads.description%"
-        },
         "gerrit.diff.openBeside": {
           "type": "boolean",
           "default": false,
@@ -395,6 +390,15 @@
           "light": "#A15C00",
           "highContrast": "#FFFF00",
           "highContrastLight": "#8F4200"
+        }
+      },
+      {
+        "id": "gerrit.resolvedCommentMarker",
+        "description": "%color.resolvedCommentMarker%",
+        "defaults": {
+          "dark": "#73C991",
+          "light": "#287B3D",
+          "highContrast": "#73C991"
         }
       }
     ],

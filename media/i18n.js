@@ -4,6 +4,15 @@
 })(globalThis, function () {
   'use strict';
   const messages = {
+  "展开": "Expand",
+  "收起": "Collapse",
+  "评审与评分": "Review and votes",
+  "代码评论：未解决(已解决)。讨论与评分、Commit 信息、单个 Patch 代码和本地下载。": "Code threads: unresolved(resolved). Discussion, scores, Commit, patch files and downloads.",
+  "所有 PS 的讨论线程：未解决(已解决)": "Discussion threads across all PS: unresolved(resolved)",
+  "未解决(已解决)": "Unresolved(resolved)",
+  "；使用“本文件评论”查看位置和跳转。": "; use File comments to inspect locations and navigate.",
+
+  "发布评审和当前评分": "Post review and current votes",
   "可合入": "Ready to submit",
   "Base（另一侧 PS / Edit 的第一父提交）": "Base (first parent of the opposite PS / Edit)",
   "可比较 PS、已保存的 Edit 或 Base。Edit 发布为 PS 后才能添加代码评论。": "Compare patch sets, saved Edit or Base. Publish the Edit as a PS before adding code comments.",

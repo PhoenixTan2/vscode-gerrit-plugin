@@ -4,11 +4,25 @@
 
 Connect, upload commits, review changes, comment on code, reply and vote from VS Code. Normal workflows use the sidebar, editor buttons and file panel without opening the Command Palette.
 
+## Review reading and comment states
+
+Clicking a search-result card opens the review discussion directly and reuses the existing discussion tab. Comparisons remain in the workbench; returning does not repeat the search.
+
+Post review and current votes share one floating window centred on the right at every viewport width. It scrolls internally. Collapse reduces it to a title bar; expanding retains unsent comments and score choices.
+
+Code-Review / Verified show score buttons without an unchanged-score option. The current account's existing vote is preselected, or 0 when there is no vote. Clicking the selected score leaves it unchanged. Different scores are sent only by Post review; unchanged votes are omitted from the request.
+
+Discussion threads use orange for unresolved and green for resolved. Resolved threads start collapsed, unresolved threads expanded, and global comments expanded. Manual folding is retained until the resolution state changes. Code views distinguish states through coloured gutter icons, inline counts and overview-ruler markers; native thread labels also name the state. The default-expand-comments setting was removed; other settings remain.
+
+Workbench and comparison code-comment counts use **unresolved(resolved)**, such as **2(5)** for two unresolved and five resolved code discussion threads. The latest comment determines each thread's state. Replies are not counted again and global comments are excluded from code-thread counts.
+
+Conflicting-change links use link blue and underlines. Status text beside the change number uses blue for Open, brown for WIP, pink for ready to submit, green for merged and red for abandoned. Negative votes retain a separate orange indicator without overriding server eligibility.
+
 ## In-page review controls and state colors
 
 On your own Open / WIP changes, type a name, email or group name directly in the discussion's **Reviewers** box. Select a suggestion to add a person or group; use × next to an existing reviewer to remove them. Keyboard navigation is supported. Stale suggestions cannot add a different person, and sidebar/discussion suggestions are isolated. Reviewer updates preserve the review comment being edited.
 
-Choose permitted scores using direct buttons, including **Leave score unchanged**. Selecting a score does not send it; choose **Post review** to publish. Scores and the comment editor appear in a sticky side column that follows page scrolling. Tall panels scroll internally without covering discussions or current votes. Narrow windows use normal vertical layout.
+Score buttons preselect your current vote. Code-Review / Verified have no unchanged-score button; clicking the selected value does nothing. Post review and current votes share one collapsible right-centred window at every viewport width, with internal scrolling.
 
 The workbench comparison selectors include **Edit (saved draft)** for comparison against any PS or Base in either direction. **Compare saved edit** compares the draft to its original PS. Save local edits first; comparisons create no PS. Code comments require publishing the Edit as a PS. **Discard edit** deletes the whole private draft without changing published PS revisions. Dirty local buffers block discard until saved or undone. You can start a fresh Edit on the same PS afterwards.
 
@@ -112,7 +126,6 @@ Upload staged changes or the existing HEAD through the sidebar or Source Control
 | `gerrit.defaultQuery` | `is:open` | Initial query |
 | `gerrit.pageSize` | 50 | 10–100 changes per page |
 | `gerrit.requestTimeout` | 30000 | HTTP timeout in milliseconds |
-| `gerrit.comments.expandThreads` | true | Expand native inline comments |
 | `gerrit.diff.openBeside` | false | Open comparisons in a separate editor group on the right |
 | `gerrit.logLevel` | `info` | off/error/info/debug |
 

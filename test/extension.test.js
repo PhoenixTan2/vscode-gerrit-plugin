@@ -590,7 +590,7 @@ test('new matches remain pending after opening a result until explicitly merged'
     entered(); await gate; return [{id:'second',subject:'test',updated:'2'}];
   };
   await app.handle({type:'search',query:'is:open',message:'test'}); await scanning;
-  app.load = async id => { app.selected = {id,rev:'r'}; };
+  app.load = async id => { app.selected = {id,rev:'r'}; }; app.openDiscussion=async()=>{};
   await app.handle({type:'open',id:'first'});
   release(); await app.searchJob.promise;
   assert.deepEqual(Array.from(app.searchResults.rows, x=>x.id), ['first']);
@@ -887,4 +887,23 @@ test('Rebase is usable for own open changes even when the server omitted the act
  const {app,vscode}=fixture(),calls=[];Object.assign(app.selected.change,{status:'NEW',actions:{}});app.model.detail={mine:true};
  vscode.window.showQuickPick=async()=>({input:{base:'123'}});app.api.action=async(...args)=>calls.push(args);app.load=async()=>{};
  await app.handle({type:'action',id:app.selected.id,rev:'abc',action:'rebase'});assert.equal(calls[0][1],'rebase');assert.equal(calls[0][2].base,'123');
+});
+
+
+test('clicking a result card loads its change then opens the reused discussion without requerying',async()=>{
+ const {app}=fixture(), calls=[];app.lockSearch=()=>calls.push('lock');app.parentTrail=[{number:1}];
+ app.load=async id=>calls.push(['load',id]);app.openDiscussion=()=>calls.push('discussion');app.refresh=()=>{throw Error('Do not requery');};
+ await app.handle({type:'open',id:'selected'});assert.deepEqual(calls,['lock',['load','selected'],'discussion']);assert.equal(app.parentTrail.length,0);
+});
+
+
+test('native code threads use final resolved status for folding, labels and colored code markers',async()=>{
+ const {app,vscode,created}=fixture(),uri={toString:()=> 'gerrit:states'},info={id:app.selected.id,rev:'abc',path:'code.c',side:'REVISION'};
+ app.documents.set(uri.toString(),info);app.selected.comments={'code.c':[{id:'root',line:2,unresolved:true,updated:'1',message:'old'},{id:'reply',in_reply_to:'root',line:2,unresolved:false,updated:'2',message:'resolved'},{id:'open',line:4,unresolved:true,message:'open'}]};
+ const decorations=new Map();vscode.window.visibleTextEditors=[{document:{uri,lineCount:8,lineAt:()=>({text:'code'})},setDecorations:(type,marks)=>decorations.set(type,marks)}];
+ await app.attach(uri,info);assert.equal(created[0].collapsibleState,vscode.CommentThreadCollapsibleState.Collapsed);assert.equal(created[1].collapsibleState,vscode.CommentThreadCollapsibleState.Expanded);
+ assert.ok(created[0].label.includes('已解决'));assert.ok(created[1].label.includes('未解决'));
+ assert.equal(decorations.get(app.resolvedCommentDecoration).length,1);assert.equal(decorations.get(app.commentDecoration).length,1);
+ assert.ok(decorations.get(app.resolvedCommentDecoration)[0].renderOptions.after.contentText.includes('0(1)'));
+ assert.ok(!require('../package.json').contributes.configuration.properties['gerrit.comments.expandThreads']);
 });

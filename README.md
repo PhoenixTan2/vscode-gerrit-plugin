@@ -4,11 +4,25 @@
 
 在 VS Code 中完成 Gerrit 连接、提交、代码评审、评论、回复、评分和变更管理。常用功能通过侧边栏、编辑器按钮和右键菜单操作，无需 Ctrl+Shift+P。
 
+## 评审阅读与评论状态
+
+点击检索结果卡片直接打开评审讨论，复用现有讨论标签；工作台仍保留版本比较，返回时不重跑检索。
+
+“发布评审”和“当前评分”放在同一个右侧居中浮窗中，宽窄窗口的位置一致，内部独立滚动。点“收起”可临时缩成标题条，展开后保留尚未发送的评论和评分选择。
+
+Code-Review / Verified 只显示实际分值按钮，移除“不修改评分”。默认高亮当前账号已有评分，无评分时显示 0；点击当前分数不取消、不产生变更。选择不同分数后，点击“发布评审”才发送；与已有评分相同的项不重复提交。
+
+讨论页用橙色区分未解决线程、绿色区分已解决线程。已解决默认折叠、未解决默认展开，全局评论默认展开；可手动收起或展开，解决状态改变后采用对应的新默认值。代码页用不同颜色的行号旁图标、行尾数量和滚动条标记区分状态，原生评论标签也显示已解决 / 未解决。删除“默认展开代码评论”设置，其他设置仍保留。
+
+工作台和对比差异的代码评论数采用 **未解决(已解决)** 格式，例如 **2(5)** 表示 2 个未解决、5 个已解决的代码讨论线程。按线程最后一条评论的状态统计，回复不重复计数，全局评论不计入代码讨论数。
+
+冲突提交链接使用链接蓝色和下划线。详情页编号旁的状态文字也按问题状态显示颜色：Open 蓝、WIP 棕、可合入粉、已合入绿、已废弃红；负分另以橙色提示，不改变服务器的可合入判断。
+
 ## 讨论页内操作与状态颜色
 
 自己的 Open / WIP 提交在评审讨论的“评审人员”框内直接输入姓名、邮箱或组名，选择下方候选即可添加人员或整组成员；点击已有人员旁的 × 删除。支持键盘切换候选；请求过期后不会误加其他人员，工作台和讨论页的候选相互隔离。人员管理只更新对应区域，不打断正在输入的评审评论。
 
-评分改为直接点击允许的分值按钮，含“不修改评分”；点击分值仅选择，点击“发布评审”才发送。评分与评论位于独立的浮动侧栏，跟随页面滚动；侧栏过高时内部滚动，不遮住讨论或当前评分。窄窗口改为普通纵向布局。
+评分直接点击允许的分值按钮，默认显示当前账号评分；Code-Review / Verified 不再显示“不修改评分”，重复点击当前分值不改变评分。发布评审与当前评分统一放入右侧居中的组合浮窗，宽窄窗口一致，可收起并在内部滚动。
 
 工作台的版本对比可选择 **Edit（已保存草稿）**，与任意 PS 或 Base 双向对比；也可点“查看 Edit 改动”直接对比草稿与其原 PS。需先保存本地 Edit，比较不会生成 PS。Edit 快照不提供代码评论，发布后可对新 PS 评论。“废弃 Edit”删除整份服务器草稿，不影响已发布的 PS；未保存内容存在时先停止废弃，请先保存或在编辑器中撤销改动。废弃后可在同一 PS 开始新的 Edit。
 
@@ -80,7 +94,7 @@ Gerrit 的评审人员属于整笔变更，不按 Code-Review、Verified 独立�
 | 文件已读进度 | 下方文件面板勾选已读，按服务器、账号、变更和 PS 保存在本机；新 PS 与此前浏览过的最近 PS 比较，继承未变文件的已读状态，修改及重命名文件需重新确认。“查看版本间变化”打开两版比较；该标记不发布到 Gerrit，也不改变“我已评审”状态 |
 | 状态与评审标记 | `NEW` 显示为“评审中”，表示尚未关闭或合入；Open 卡片分别标出“我已评审”“我未评审”，与是否已合入是两个维度；卡片按标签去重相同分数，多个 0 分仅显示一次；左边框用蓝色表示评审中、棕色表示 WIP、橙色表示负分、绿色表示已合入、红色表示已废弃、粉色表示“可合入”（服务器 submittable 为 true 且非 WIP；评审条件满足，实际合入仍需权限） |
 | 时间与 Commit 信息 | 提交卡片显示最后更新；详情和讨论页依次显示创建时间、最后更新时间，统一为本地时区的 `YYYY-MM-DD HH:mm:ss`。Commit 信息紧跟最后更新时间，显示完整消息、SHA、Change-Id、作者和父提交 |
-| 独立评审讨论 | 详情“打开评审讨论”，在当前编辑器组打开标签页，包含所有 Patch set 的讨论、评分和活动记录；代码讨论可折叠并记住状态，收起时单行显示评论首行，活动记录收起时也显示首行 |
+| 独立评审讨论 | 详情“打开评审讨论”，点击卡片即在当前编辑器组打开标签页，包含所有 Patch set 的讨论、评分和活动记录；代码讨论可折叠并记住状态，收起时单行显示评论首行，活动记录收起时也显示首行 |
 | 按检索结果导航 | 工作台详情和评审讨论均提供“上一条 / 下一条”，按当前检索顺序切换，支持跨页并复用结果缓存；当前变更不在检索结果中时禁用 |
 | 父子提交导航 | 预先查询父 SHA，仅关联可见 Gerrit 变更时显示直达链接，优先当前分支；准确打开父 SHA 所在 PS。父提交路径提供“返回子提交”和多层面包屑，可直接返回任一层并恢复比较及代码浏览状态，保留检索结果；父 SHA 无关联或查询失败时只显示文本 |
 | 历史 PS | Commit 信息、比较与默认代码浏览定位所查看 PS；最新评分明确标注，历史 PS 需点击“切换到最新 PS 评审”才可发布整体评审或操作整笔变更；行内回复保留原 PS |
@@ -142,11 +156,10 @@ Message 的评论包含匹配由插件补充：Gerrit 原生评论索引没有�
 | `gerrit.defaultQuery` | `is:open` | 默认查询 |
 | `gerrit.pageSize` | 50 | 每页 10–100 条 |
 | `gerrit.requestTimeout` | 30000 | HTTP 超时毫秒数 |
-| `gerrit.comments.expandThreads` | true | 默认展开代码评论线程 |
 | `gerrit.diff.openBeside` | false | Open Beside：在右侧独立编辑器区域打开 diff；关闭时使用当前区域 |
 | `gerrit.logLevel` | `info` | off / error / info / debug |
 
-评论标记颜色可通过 VS Code `workbench.colorCustomizations` 中的 `gerrit.commentMarker` 定制。
+评论标记颜色可通过 VS Code `workbench.colorCustomizations` 中的 `gerrit.commentMarker`（未解决）和 `gerrit.resolvedCommentMarker`（已解决）定制。
 
 右上角输出按钮打开 **输出 → Gerrit Workbench**。日志记录请求方法、路径、状态、耗时和 Git 操作结果，不记录认证头、Cookie、请求 / 响应正文；已知凭据和常见敏感字段脱敏。日志仍包含服务器和项目路径，分享前可自行隐藏。
 
@@ -184,11 +197,25 @@ Markdown 渲染使用离线打包的 markdown-it 15.0.3（MIT），许可证位�
 
 Connect, upload commits, review changes, comment on code, reply and vote from VS Code. Normal workflows use the sidebar, editor buttons and file panel without opening the Command Palette.
 
+## Review reading and comment states
+
+Clicking a search-result card opens the review discussion directly and reuses the existing discussion tab. Comparisons remain in the workbench; returning does not repeat the search.
+
+Post review and current votes share one floating window centred on the right at every viewport width. It scrolls internally. Collapse reduces it to a title bar; expanding retains unsent comments and score choices.
+
+Code-Review / Verified show score buttons without an unchanged-score option. The current account's existing vote is preselected, or 0 when there is no vote. Clicking the selected score leaves it unchanged. Different scores are sent only by Post review; unchanged votes are omitted from the request.
+
+Discussion threads use orange for unresolved and green for resolved. Resolved threads start collapsed, unresolved threads expanded, and global comments expanded. Manual folding is retained until the resolution state changes. Code views distinguish states through coloured gutter icons, inline counts and overview-ruler markers; native thread labels also name the state. The default-expand-comments setting was removed; other settings remain.
+
+Workbench and comparison code-comment counts use **unresolved(resolved)**, such as **2(5)** for two unresolved and five resolved code discussion threads. The latest comment determines each thread's state. Replies are not counted again and global comments are excluded from code-thread counts.
+
+Conflicting-change links use link blue and underlines. Status text beside the change number uses blue for Open, brown for WIP, pink for ready to submit, green for merged and red for abandoned. Negative votes retain a separate orange indicator without overriding server eligibility.
+
 ## In-page review controls and state colors
 
 On your own Open / WIP changes, type a name, email or group name directly in the discussion's **Reviewers** box. Select a suggestion to add a person or group; use × next to an existing reviewer to remove them. Keyboard navigation is supported. Stale suggestions cannot add a different person, and sidebar/discussion suggestions are isolated. Reviewer updates preserve the review comment being edited.
 
-Choose permitted scores using direct buttons, including **Leave score unchanged**. Selecting a score does not send it; choose **Post review** to publish. Scores and the comment editor appear in a sticky side column that follows page scrolling. Tall panels scroll internally without covering discussions or current votes. Narrow windows use normal vertical layout.
+Score buttons preselect your current vote. Code-Review / Verified have no unchanged-score button; clicking the selected value does nothing. Post review and current votes share one collapsible right-centred window at every viewport width, with internal scrolling.
 
 The workbench comparison selectors include **Edit (saved draft)** for comparison against any PS or Base in either direction. **Compare saved edit** compares the draft to its original PS. Save local edits first; comparisons create no PS. Code comments require publishing the Edit as a PS. **Discard edit** deletes the whole private draft without changing published PS revisions. Dirty local buffers block discard until saved or undone. You can start a fresh Edit on the same PS afterwards.
 
@@ -292,7 +319,6 @@ Upload staged changes or the existing HEAD through the sidebar or Source Control
 | `gerrit.defaultQuery` | `is:open` | Initial query |
 | `gerrit.pageSize` | 50 | 10–100 changes per page |
 | `gerrit.requestTimeout` | 30000 | HTTP timeout in milliseconds |
-| `gerrit.comments.expandThreads` | true | Expand native inline comments |
 | `gerrit.diff.openBeside` | false | Open comparisons in a separate editor group on the right |
 | `gerrit.logLevel` | `info` | off/error/info/debug |
 

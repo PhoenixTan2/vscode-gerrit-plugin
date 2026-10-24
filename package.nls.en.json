@@ -22,7 +22,6 @@
   "extension.contributes.configuration.properties.gerrit.defaultQuery.description": "Initial Gerrit query. Supports expressions such as owner:self and is:merged.",
   "extension.contributes.configuration.properties.gerrit.pageSize.description": "Changes per page. Changing this reloads results from page one.",
   "extension.contributes.configuration.properties.gerrit.requestTimeout.description": "HTTP request timeout in milliseconds.",
-  "extension.contributes.configuration.properties.gerrit.comments.expandThreads.description": "Expand existing inline comments when opening a comparison. Gutter markers remain available when collapsed.",
   "extension.contributes.configuration.properties.gerrit.diff.openBeside.description": "Open comparisons in a separate editor group on the right. When disabled, use the current editor group.",
   "extension.contributes.configuration.properties.gerrit.logLevel.description": "Gerrit Workbench output level. Logs request paths, status, elapsed time and Git results; never authentication headers, cookies or request/response bodies.",
   "extension.contributes.configuration.properties.gerrit.language.enumDescriptions.0": "Chinese",
@@ -31,5 +30,6 @@
   "command.edit": "Edit modified file (Gerrit Edit)",
   "command.saveEdit": "Save Gerrit edit",
   "command.publishEdit": "Publish edit as new PS",
-  "command.discardEdit": "Discard Gerrit edit"
+  "command.discardEdit": "Discard Gerrit edit",
+  "color.resolvedCommentMarker": "Code marker color for resolved Gerrit comments"
 }
