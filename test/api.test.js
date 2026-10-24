@@ -188,3 +188,18 @@ test('oversized advertised responses fail before downloading their bodies', asyn
     await assert.rejects(api.bytes('id','rev','huge.bin'),/32MB/);
   } finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }
 });
+
+
+test('reviewer APIs encode identifiers, suggest accounts and groups, and handle confirmed group additions', async () => {
+  const api = new GerritApi(url, 'user', 'http-key');
+  await api.suggestReviewers('p/main~I1', 'dev & team');
+  assert.equal(received.at(-1).url, '/gerrit/a/changes/p%2Fmain~I1/suggest_reviewers?q=dev%20%26%20team&n=20');
+  await api.reviewers('p/main~I1'); assert.equal(received.at(-1).method, 'GET');
+  await api.addReviewer('p/main~I1', 'group-uuid', true);
+  assert.deepEqual(received.at(-1).body, {reviewer: 'group-uuid', state: 'REVIEWER', confirmed: true});
+  await api.removeReviewer('p/main~I1', 42);
+  assert.equal(received.at(-1).method, 'DELETE');
+  assert.ok(received.at(-1).url.endsWith('/reviewers/42'));
+  const controller = new AbortController(); controller.abort();
+  await assert.rejects(api.suggestReviewers('change', 'name', {signal:controller.signal}), {name:'AbortError'});
+});

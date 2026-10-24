@@ -4,9 +4,23 @@
 
 Connect, upload commits, review changes, comment on code, reply and vote from VS Code. Normal workflows use the sidebar, editor buttons and file panel without opening the Command Palette.
 
+## Upload branches and reviewers
+
+Uploads read live branches from the selected Git remote. Prefill the local branch only when it exists remotely; otherwise start empty. Type to filter suggestions case-insensitively. Outgoing commits and Change-Ids are still checked and confirmed before pushing.
+
+Your own Open / WIP changes show a **Reviewers · Code-Review / Verified** section in the workbench and discussion page. Choose **Manage people / groups** to search by name, email or group name. Groups expand into members; large groups require confirmation when requested by the server. Removing a reviewer warns that their existing votes will also be removed and remains subject to server permissions. Switch historical views to the latest PS before managing reviewers.
+
+Gerrit assigns reviewers to a whole change, not separately to Code-Review and Verified. Adding reviewers does not grant voting rights; server project configuration controls label permissions. Votes remain displayed per label.
+
+## Excel original-file comparison
+
+Binary snapshots retain their exact bytes and filename extension. VS Code opens the old and new copies in separate editor groups as preview tabs. Gerrit Workbench does not render spreadsheets or calculate cell differences.
+
+Install [Office Viewer](https://marketplace.visualstudio.com/items?itemName=cweijan.vscode-office) for xls / xlsx / xlsm or [Excel Viewer](https://marketplace.visualstudio.com/items?itemName=GrapeCity.gc-excelviewer) for xlsx / xlsm separately. If a binary warning remains, right-click the tab, choose **Reopen Editor With...**, select the viewer and make it the default. The extension follows VS Code editor associations without overriding other formats. Rendering of complex formulas, charts and macros depends on the viewer. Files exceeding the response limit remain unavailable.
+
 ## Install and connect
 
-Install `gerrit-workbench-1.0.0.vsix` using Extensions → **Install from VSIX**, then open the Gerrit Workbench activity icon. Enter a server root such as `http://192.168.1.10` or `https://review.example.com:8443`. Do not append `/gerrit` unless your server is actually deployed at that prefix. Dashboard URLs are also accepted.
+Install `gerrit-workbench-1.1.0.vsix` using Extensions → **Install from VSIX**, then open the Gerrit Workbench activity icon. Enter a server root such as `http://192.168.1.10` or `https://review.example.com:8443`. Do not append `/gerrit` unless your server is actually deployed at that prefix. Dashboard URLs are also accepted.
 
 Choose one authentication method per connection:
 
@@ -73,6 +87,6 @@ Toolbar settings and output buttons open extension settings and the Gerrit Workb
 
 ## Development and local delivery
 
-Run `python scripts/verify.py`, then `python scripts/package.py`. Optionally run `python scripts/verify_host.py --vsix gerrit-workbench-1.0.0.vsix` for an isolated real VS Code host check. Node.js or VS Code's bundled Node runtime and Python are required. Local Git tests require Git. The packager validates the new archive before removing older project VSIX files and includes only runtime assets and documentation.
+Run `python scripts/verify.py`, then `python scripts/package.py`. Optionally run `python scripts/verify_host.py --vsix gerrit-workbench-1.1.0.vsix` for an isolated real VS Code host check. Node.js or VS Code's bundled Node runtime and Python are required. Local Git tests require Git. The packager validates the new archive before removing older project VSIX files and includes only runtime assets and documentation.
 
 This is a local delivery; no remote repository or Marketplace publication is configured. See [release checks](RELEASE.en.md). MIT license; bundled markdown-it license is documented in [third-party notices](THIRD_PARTY_NOTICES.md).

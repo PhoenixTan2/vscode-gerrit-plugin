@@ -25,6 +25,7 @@ test('real Git fetch and refs/for push preserve target branch and workspace edit
     await git(local, ['-c', 'core.hooksPath=', 'commit', '--allow-empty', '-m', 'base']);
     await git(local, ['remote', 'add', 'origin', remote]);
     await git(local, ['push', '--', 'origin', 'HEAD:refs/heads/main']);
+    assert.deepEqual(require('../src/suggestions').remoteBranches(await git(local, ['ls-remote', '--heads', '--', 'origin'])), ['main']);
     const base = await git(local, ['rev-parse', 'HEAD']);
     await git(local, ['-c', 'core.hooksPath=', 'commit', '--allow-empty', '-m', 'review\n\nChange-Id: I1234567890123456789012345678901234567890']);
     await fs.writeFile(path.join(local, 'untouched.txt'), 'uncommitted');

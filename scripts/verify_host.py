@@ -13,6 +13,8 @@ import zipfile
 root = Path(__file__).resolve().parents[1]
 parser = argparse.ArgumentParser()
 parser.add_argument('--vsix', type=Path, help='Validate the packaged extension instead of workspace sources')
+parser.add_argument('--viewer-vsix', type=Path, help='Optional third-party Excel viewer VSIX, installed only in the isolated profile')
+parser.add_argument('--hold-excel', type=int, default=0, choices=range(0,61), metavar='0..60', help='Keep Excel tabs visible briefly for visual inspection')
 options = parser.parse_args()
 candidates = [Path(os.environ.get('ProgramFiles', 'C:/Program Files')) / 'Microsoft VS Code/Code.exe', Path(os.environ.get('LOCALAPPDATA', '')) / 'Programs/Microsoft VS Code/Code.exe']
 code = next((p for p in candidates if p.is_file()), None)
@@ -30,9 +32,37 @@ if options.vsix:
                 sys.exit('Unsafe VSIX member path')
         archive.extractall(extracted)
     development = extracted / 'extension'
+if options.viewer_vsix:
+    with zipfile.ZipFile(options.viewer_vsix.resolve()) as archive:
+        viewer = json.loads(archive.read('extension/package.json'))
+        import re
+        identity = f"{viewer['publisher']}.{viewer['name']}-{viewer['version']}"
+        if not re.fullmatch(r'[A-Za-z0-9_.-]+', identity):
+            sys.exit('Invalid viewer identity')
+        destination = temporary / 'extensions' / identity
+        for item in archive.infolist():
+            if not item.filename.startswith('extension/') or item.is_dir():
+                continue
+            relative = item.filename[len('extension/'):]
+            target = (destination / relative).resolve()
+            if not target.is_relative_to(destination.resolve()):
+                sys.exit('Unsafe viewer VSIX member path')
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(archive.read(item))
+    # Valid OOXML fixtures, generated only for the integration test.
+    from excel_fixture import workbook
+    fixtures = temporary / 'excel-fixtures'
+    fixtures.mkdir()
+    (fixtures / 'old.xlsx').write_bytes(workbook('OLD', 10))
+    (fixtures / 'new.xlsx').write_bytes(workbook('NEW', 20))
+
 env = os.environ.copy()
 env.pop('ELECTRON_RUN_AS_NODE', None)
 env['GERRIT_HOST_SMOKE_RESULT'] = str(result)
+if options.viewer_vsix:
+    env['GERRIT_EXCEL_FIXTURES'] = str(fixtures)
+    env['GERRIT_EXCEL_HOLD'] = str(options.hold_excel)
+    env['GERRIT_EXCEL_VIEWER'] = f"{viewer['publisher']}.{viewer['name']}"
 # Reproduce an installed Gerrit extension owning the old generic container ID.
 legacy = temporary / 'extensions' / 'smoke-test.legacy-gerrit-1.0.0'
 legacy.mkdir(parents=True)
@@ -45,7 +75,7 @@ legacy.mkdir(parents=True)
 args = [str(code), '--new-window', '--disable-workspace-trust', '--skip-welcome', '--skip-release-notes', '--disable-updates', '--user-data-dir=' + str(temporary / 'profile'), '--extensions-dir=' + str(temporary / 'extensions'), '--extensionDevelopmentPath=' + str(development), '--extensionTestsPath=' + str(root / 'scripts/extension-host-smoke.js')]
 with (temporary / 'process.log').open('w', encoding='utf-8') as log:
     process = subprocess.Popen(args, env=env, stdout=log, stderr=log)
-    deadline = time.monotonic() + 120
+    deadline = time.monotonic() + 120 + options.hold_excel
     while not result.is_file() and time.monotonic() < deadline:
         time.sleep(1)
     if not result.is_file():
@@ -72,3 +102,6 @@ for attempt in range(10):
             raise
         time.sleep(0.2)
 print(f"Real Extension Host OK: VS Code {report['vscode']}, Gerrit Workbench {report['extension']}")
+
+if options.viewer_vsix:
+    print(f"Excel integration OK: {viewer['publisher']}.{viewer['name']} {viewer['version']}; {report.get('excel')}")

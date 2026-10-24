@@ -95,6 +95,10 @@ class GerritApi {
       req.on('error', error => { this.log('error', `${method} ${url.pathname} → ${error.code || tr('请求失败')} (${Date.now() - started} ms)`); reject(error); }); if (data) req.write(data); req.end();
     });
   }
+  suggestReviewers(id, query, {signal} = {}) { return this.request(`/changes/${enc(id)}/suggest_reviewers?q=${enc(query)}&n=20`, 'GET', undefined, false, {signal}); }
+  reviewers(id) { return this.request(`/changes/${enc(id)}/reviewers/`); }
+  addReviewer(id, reviewer, confirmed = false) { return this.request(`/changes/${enc(id)}/reviewers`, 'POST', {reviewer, state: 'REVIEWER', ...(confirmed ? {confirmed: true} : {})}); }
+  removeReviewer(id, account) { return this.request(`/changes/${enc(id)}/reviewers/${enc(account)}`, 'DELETE'); }
   self() { return this.request('/accounts/self'); }
   list(query, start = 0, { search = false, signal } = {}) { return this.request(`/changes/?q=${enc(query)}&n=${this.pageSize}&S=${start}&o=DETAILED_LABELS&o=DETAILED_ACCOUNTS&o=REVIEWED&o=SUBMITTABLE${search ? '&o=ALL_REVISIONS&o=ALL_COMMITS&o=MESSAGES' : ''}`, 'GET', undefined, false, { signal }); }
   detail(id) { return this.request(`/changes/${enc(id)}/detail?o=ALL_REVISIONS&o=ALL_COMMITS&o=DETAILED_LABELS&o=DETAILED_ACCOUNTS&o=MESSAGES&o=CURRENT_ACTIONS&o=REVIEWED&o=SUBMITTABLE&o=ALL_FILES`); }

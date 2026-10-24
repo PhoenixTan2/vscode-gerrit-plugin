@@ -2,6 +2,13 @@
 
 **中文** | [English](#english)
 
+## 1.1.0
+
+- 上传目标从远端现有分支补全，同名本地分支默认填入，忽略大小写筛选。
+- 自己的未关闭提交支持按输入搜索并添加评审人员或组、移除人员；确认大组添加及已有评分移除，历史 PS 禁止修改。
+- 新增人员管理入口支持中英文，标签打分权限仍由服务器控制。
+- 补充 Excel 第三方编辑器对照说明与隔离宿主验证；保留 VS Code ^1.95.0 兼容范围。
+
 ## 1.0.0
 
 - 将已验证的 0.16.0 功能集定版为稳定版 1.0.0，取消扩展预览标记。
@@ -169,6 +176,13 @@
 
 [返回中文 / Back to Chinese](#更新记录)
 
+
+## 1.1.0
+
+- Complete upload targets from live remote branches; prefill matching local branches and filter case-insensitively.
+- Search and add reviewers or groups and remove reviewers on your own open changes. Confirm large groups and removal of existing votes; historical views cannot modify reviewers.
+- Localize reviewer controls in Chinese and English; label permissions remain server-controlled.
+- Document third-party Excel comparison and isolated host validation; keep VS Code ^1.95.0 compatibility.
 
 ## 1.0.0
 

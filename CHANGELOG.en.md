@@ -2,6 +2,13 @@
 
 [中文](CHANGELOG.md) | **English**
 
+## 1.1.0
+
+- Complete upload targets from live remote branches; prefill matching local branches and filter case-insensitively.
+- Search and add reviewers or groups and remove reviewers on your own open changes. Confirm large groups and removal of existing votes; historical views cannot modify reviewers.
+- Localize reviewer controls in Chinese and English; label permissions remain server-controlled.
+- Document third-party Excel comparison and isolated host validation; keep VS Code ^1.95.0 compatibility.
+
 ## 1.0.0
 
 - Finalize the validated 0.16.0 feature set as stable 1.0.0; remove the extension preview flag.

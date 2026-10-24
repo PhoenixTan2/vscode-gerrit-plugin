@@ -11,6 +11,8 @@ const { NativeFiles } = require('./native-files');
 const { PathIndex } = require('./path-index');
 const { ReviewProgress } = require('./review-progress');
 const { git, pushRef } = require('./git');
+const {chooseBranch} = require('./suggestions');
+const {manageReviewers} = require('./reviewers');
 const { comparisonPlan, comparisonFiles } = require('./comparison');
 const { Logger } = require('./log');
 const { BrowserGateway } = require('./browser');
@@ -825,6 +827,7 @@ class Workbench {
     if (m.type === 'open') { this.lockSearch(); this.parentTrail = []; return this.load(String(m.id)); }
     if (m.type === 'back') { this.parentTrail = []; this.contextController?.abort(); this.selected = null; delete this.model.detail; this.clearThreads(); this.render(); return; }
     const s = this.selected; if (!s || m.id !== s.id || m.rev !== s.rev) throw new Error(tr('页面已更新，请重新选择变更后操作'));
+    if (m.type === 'manageReviewers') return manageReviewers(this, vscode);
     if (m.type === 'fileRead') return this.markFileRead(String(m.path), String(m.fileRev), !!m.read);
     if (m.type === 'returnAncestor') return this.returnChild(Number(m.index));
     if (m.type === 'parentOpen') return this.openParent(String(m.sha || ''));
@@ -1120,7 +1123,7 @@ class Workbench {
     }
     const remotes = (await this.runGit(cwd, ['remote'])).split('\n').filter(Boolean);
     const remote = await vscode.window.showQuickPick(remotes, { title: tr('选择 Gerrit Git remote'), ignoreFocusOut: true }); if (!remote) return;
-    const branch = await vscode.window.showInputBox({ title: tr('目标分支（例如 main / master）'), value: await this.runGit(cwd, ['branch', '--show-current']), ignoreFocusOut: true }); if (!branch) return;
+    const branch = await chooseBranch(vscode, (...args) => this.runGit(...args), cwd, remote); if (!branch) return;
     const mode = await vscode.window.showQuickPick([{ label: tr('发布为待评审'), wip: false }, { label: tr('上传为 WIP，稍后发布'), wip: true }], { title: tr('上传方式'), ignoreFocusOut: true }); if (!mode) return;
     const ref = pushRef(branch, mode.wip);
     await this.runGit(cwd, ['check-ref-format', `refs/heads/${branch}`]);

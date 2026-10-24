@@ -264,7 +264,9 @@ async function run() {
 
     const { NativeFiles } = require(require('node:path').join(extension.extensionPath, 'src', 'native-files.js'));
     const originals = new NativeFiles(vscode);
-    const oldBytes = Buffer.from([0,255,80,75,3,4,1]), newBytes = Buffer.from([0,255,80,75,3,4,2]);
+    const excelFixture = process.env.GERRIT_EXCEL_FIXTURES;
+    const oldBytes = excelFixture ? fs.readFileSync(require('node:path').join(excelFixture,'old.xlsx')) : Buffer.from([0,255,80,75,3,4,1]);
+    const newBytes = excelFixture ? fs.readFileSync(require('node:path').join(excelFixture,'new.xlsx')) : Buffer.from([0,255,80,75,3,4,2]);
     await originals.openPair([
       {bytes:oldBytes,path:'workbook.xlsx',label:'PS 1'},
       {bytes:newBytes,path:'workbook.xlsx',label:'PS 2'}
@@ -275,6 +277,13 @@ async function run() {
     const tabs = vscode.window.tabGroups.all.flatMap(group=>group.tabs.filter(tab=>uris.some(uri=>tab.input?.uri?.toString()===uri.toString())).map(tab=>({tab,column:group.viewColumn})));
     assert.ok(tabs.every(item=>item.tab.isPreview), 'Binary comparisons should use preview tabs');
     assert.equal(tabs.length,2); assert.notEqual(tabs[0].column,tabs[1].column,'Originals must open in two native groups');
+    if (excelFixture) {
+      const viewer = vscode.extensions.getExtension(process.env.GERRIT_EXCEL_VIEWER);
+      assert.ok(viewer?.isActive, 'The third-party viewer must activate');
+      for (const {tab} of tabs) assert.ok(tab.input instanceof vscode.TabInputCustom, 'XLSX must open in a real custom editor, not a binary text tab');
+      console.log('Excel custom editors: ' + tabs.map(({tab})=>tab.input.viewType).join(', '));
+      if (Number(process.env.GERRIT_EXCEL_HOLD)) await new Promise(resolve=>setTimeout(resolve, Number(process.env.GERRIT_EXCEL_HOLD)*1000));
+    }
     await vscode.window.tabGroups.close(tabs.map(item=>item.tab));
     await originals.dispose();
 
@@ -312,7 +321,7 @@ async function run() {
     }
 
     await vscode.commands.executeCommand('gerrit.logs');
-    fs.writeFileSync(process.env.GERRIT_HOST_SMOKE_RESULT, JSON.stringify({ ok: true, vscode: vscode.version, extension: extension.packageJSON.version }));
+    fs.writeFileSync(process.env.GERRIT_HOST_SMOKE_RESULT, JSON.stringify({ ok: true, vscode: vscode.version, extension: extension.packageJSON.version, excel: process.env.GERRIT_EXCEL_VIEWER ? 'valid old/new XLSX opened in custom editors in two preview groups' : undefined }));
     console.log('Real Extension Host activation and sidebar smoke test passed');
   } catch (error) {
     fs.writeFileSync(process.env.GERRIT_HOST_SMOKE_RESULT, JSON.stringify({ ok: false, message: error.stack || error.message }));
