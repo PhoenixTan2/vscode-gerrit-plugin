@@ -4,8 +4,13 @@
 
 ## 1.1.0
 
+- 本批保持 1.1.0：自己的最新 PS 支持只读左侧 / 可编辑右侧的 Edit diff；多文件保存到同一草稿，统一发布为一笔新 PS，检测服务器并发编辑。
+- 工作台、讨论页增加发布 / Rebase 和冲突提示，展示并跳转互相冲突的未合入提交。
+- 关系链紧凑显示、移除重复父 SHA 和无编号节点、标记旧 PS；两个页面的 Commit / 关系链折叠状态持久化，移除默认展开设置。
+- 移除额外确认告警，评论导航使用上下箭头气泡图标；新增原生 Edit 宿主与后台响应竞态测试。
+
 - 上传目标从远端现有分支补全，同名本地分支默认填入，忽略大小写筛选。
-- 自己的未关闭提交支持按输入搜索并添加评审人员或组、移除人员；确认大组添加及已有评分移除，历史 PS 禁止修改。
+- 自己的未关闭提交支持按输入搜索并添加评审人员或组、移除人员；按服务器协议自动确认组添加，移除人员同时移除其评分，历史 PS 禁止修改。
 - 新增人员管理入口支持中英文，标签打分权限仍由服务器控制。
 - 补充 Excel 第三方编辑器对照说明与隔离宿主验证；保留 VS Code ^1.95.0 兼容范围。
 
@@ -179,8 +184,13 @@
 
 ## 1.1.0
 
+- Keep version 1.1.0 for this batch: edit your latest PS in a native diff with immutable left and writable right sides. Save multiple files into one draft and publish one new PS, with server-edit concurrency checks.
+- Add publish/rebase controls and background merge/conflicting-change indicators with detail links.
+- Compact related nodes, omit duplicate parent SHAs and anonymous nodes, mark old patch sets, persist Commit/relation expansion per surface and remove default-expansion settings.
+- Remove extra confirmation warnings, use directional comment-bubble icons, and add native Edit host and background-race checks.
+
 - Complete upload targets from live remote branches; prefill matching local branches and filter case-insensitively.
-- Search and add reviewers or groups and remove reviewers on your own open changes. Confirm large groups and removal of existing votes; historical views cannot modify reviewers.
+- Search and add reviewers or groups and remove reviewers on your own open changes. Handle group confirmation automatically; removing reviewers also removes their votes; historical views cannot modify reviewers.
 - Localize reviewer controls in Chinese and English; label permissions remain server-controlled.
 - Document third-party Excel comparison and isolated host validation; keep VS Code ^1.95.0 compatibility.
 

@@ -16,7 +16,8 @@
   "activationEvents": [
     "onView:gerrit.dashboard",
     "onFileSystem:gerrit",
-    "onView:gerrit.changedFiles"
+    "onView:gerrit.changedFiles",
+    "onFileSystem:gerrit-edit"
   ],
   "capabilities": {
     "untrustedWorkspaces": {
@@ -104,12 +105,12 @@
       {
         "command": "gerrit.previousComment",
         "title": "%extension.contributes.commands.8.title%",
-        "icon": "$(arrow-up)"
+        "icon": "media/comment-previous.svg"
       },
       {
         "command": "gerrit.nextComment",
         "title": "%extension.contributes.commands.9.title%",
-        "icon": "$(arrow-down)"
+        "icon": "media/comment-next.svg"
       },
       {
         "command": "gerrit.fileComments",
@@ -160,6 +161,21 @@
         "command": "gerrit.replyEn",
         "title": "Reply",
         "icon": "$(send)"
+      },
+      {
+        "command": "gerrit.edit",
+        "title": "%command.edit%",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "gerrit.saveEdit",
+        "title": "%command.saveEdit%",
+        "icon": "$(save)"
+      },
+      {
+        "command": "gerrit.publishEdit",
+        "title": "%command.publishEdit%",
+        "icon": "$(cloud-upload)"
       }
     ],
     "menus": {
@@ -232,18 +248,33 @@
         },
         {
           "command": "gerrit.openLeftFile",
-          "when": "resourceScheme == gerrit && activeEditor == workbench.editors.textDiffEditor",
+          "when": "resourceScheme == gerrit && activeEditor == workbench.editors.textDiffEditor && !gerritEditing",
           "group": "navigation@1"
         },
         {
           "command": "gerrit.openRightFile",
-          "when": "resourceScheme == gerrit && activeEditor == workbench.editors.textDiffEditor",
+          "when": "resourceScheme == gerrit && activeEditor == workbench.editors.textDiffEditor && !gerritEditing",
           "group": "navigation@1"
         },
         {
           "command": "gerrit.openThisFile",
-          "when": "resourceScheme == gerrit && activeEditor == workbench.editors.textDiffEditor",
+          "when": "resourceScheme == gerrit && activeEditor == workbench.editors.textDiffEditor && !gerritEditing",
           "group": "navigation@1"
+        },
+        {
+          "command": "gerrit.edit",
+          "when": "gerritCanEdit && activeEditor == workbench.editors.textDiffEditor",
+          "group": "navigation@0"
+        },
+        {
+          "command": "gerrit.saveEdit",
+          "when": "gerritEditing && resourceScheme == gerrit-edit",
+          "group": "navigation@0"
+        },
+        {
+          "command": "gerrit.publishEdit",
+          "when": "gerritEditing && resourceScheme == gerrit-edit",
+          "group": "navigation@0"
         }
       ],
       "comments/commentThread/context": [
@@ -329,16 +360,6 @@
           ],
           "default": "info",
           "description": "%extension.contributes.configuration.properties.gerrit.logLevel.description%"
-        },
-        "gerrit.commitInfo.defaultExpanded": {
-          "type": "boolean",
-          "default": true,
-          "description": "%extension.contributes.configuration.properties.gerrit.commitInfo.defaultExpanded.description%"
-        },
-        "gerrit.relationChain.defaultExpanded": {
-          "type": "boolean",
-          "default": true,
-          "description": "%extension.contributes.configuration.properties.gerrit.relationChain.defaultExpanded.description%"
         },
         "gerrit.language": {
           "type": "string",

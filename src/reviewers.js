@@ -32,11 +32,9 @@ async function manageReviewers(app, vscode) {
       load: async (query, signal) => query.trim() ? (await api.suggestReviewers(selected.id, query.trim(), {signal})).map(reviewerSuggestion).filter(Boolean) : []
     });
     if (!choice) return; valid();
-    let confirmed = false;
-    if (choice.confirm) { confirmed = await app.confirm(tr`将组 ${choice.name} 的成员添加为评审人员？`, tr('添加组成员')); if (!confirmed) return; valid(); }
+    const confirmed = !!choice.confirm;
     let result = await api.addReviewer(selected.id, choice.reviewer, confirmed);
     if (result?.confirm && !confirmed) {
-      if (!await app.confirm(tr`将组 ${choice.name} 的成员添加为评审人员？`, tr('添加组成员'))) return;
       valid(); result = await api.addReviewer(selected.id, choice.reviewer, true);
     }
     if (result?.error || result?.confirm) throw new Error(result.error || tr('服务器未确认添加评审人员'));
@@ -48,7 +46,6 @@ async function manageReviewers(app, vscode) {
       detail: Object.entries(account.approvals || {}).map(([label, vote]) => `${label}: ${vote}`).join(' · '), value: account._account_id
     })), { title: tr('选择要移除的评审人员'), ignoreFocusOut: true });
     if (!choice) return; valid();
-    if (!await app.confirm(tr`移除 ${choice.label}？该人员已有的评分也会被移除。`, tr('移除评审人员'))) return;
     valid(); await api.removeReviewer(selected.id, choice.value);
   }
   if (!app.disposed && app.api === api && app.selected === selected) await app.load(selected.id);

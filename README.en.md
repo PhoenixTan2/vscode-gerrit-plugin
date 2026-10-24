@@ -4,11 +4,25 @@
 
 Connect, upload commits, review changes, comment on code, reply and vote from VS Code. Normal workflows use the sidebar, editor buttons and file panel without opening the Command Palette.
 
+## Edit, publish and rebase
+
+Open a text diff of the latest PS of your own Open / WIP change and choose **Edit** in the editor toolbar. The left Base / selected PS stays read-only; only the right Edit side is writable. Use **Save Gerrit edit** or Ctrl+S to save a private server-side draft, without a local repository or target-branch changes.
+
+**All files in one change share one Edit draft.** Edit and save multiple files; saving does not create a PS. When finished, choose **Publish edit as new PS**. It saves every open dirty Edit file for that change, then publishes the whole draft as one new PS. Files are never published individually. A failed save or remaining dirty buffer stops publication and retains editor content. Newer patch sets or edits changed in another window are not overwritten. Reconcile them and reopen the edit. Saved drafts can be continued in Gerrit Web; save unsaved content before closing the window.
+
+The workbench and discussion expose permitted actions: publish WIP for review, Rebase, submit and publish an Edit. Rebase can preserve dependencies automatically, use the target branch tip, or use an entered change number / SHA / ref. An old Edit must be rebased onto the latest PS before publication. All writes remain subject to server permissions.
+
+Uploads, publishing, submission, abandonment and reviewer changes no longer show extra confirmation warnings. Necessary target/mode/rebase inputs and failure messages remain.
+
+Commit and relation panels remember expansion separately for the workbench and discussion, across changes and restarts. The default-expansion settings were removed. Compact related changes show numbered Gerrit nodes, mark outdated patch sets and omit repeated parent-SHA rows. Parent navigation remains in commit metadata.
+
+Background conflict checks distinguish target-branch merge conflicts from conflicts with unmerged changes; conflicting changes link to details. Unsupported checks are explicitly marked unavailable. Comment navigation uses directional comment-bubble icons distinct from diff-change navigation.
+
 ## Upload branches and reviewers
 
-Uploads read live branches from the selected Git remote. Prefill the local branch only when it exists remotely; otherwise start empty. Type to filter suggestions case-insensitively. Outgoing commits and Change-Ids are still checked and confirmed before pushing.
+Uploads read live branches from the selected Git remote. Prefill the local branch only when it exists remotely; otherwise start empty. Type to filter suggestions case-insensitively. Outgoing commits and Change-Ids are still checked before pushing, without a confirmation warning.
 
-Your own Open / WIP changes show a **Reviewers · Code-Review / Verified** section in the workbench and discussion page. Choose **Manage people / groups** to search by name, email or group name. Groups expand into members; large groups require confirmation when requested by the server. Removing a reviewer warns that their existing votes will also be removed and remains subject to server permissions. Switch historical views to the latest PS before managing reviewers.
+Your own Open / WIP changes show a **Reviewers · Code-Review / Verified** section in the workbench and discussion page. Choose **Manage people / groups** to search by name, email or group name. Groups expand into members; server-required group confirmation is handled automatically. Removing reviewers also removes their votes and remains subject to server permissions. Switch historical views to the latest PS before managing reviewers.
 
 Gerrit assigns reviewers to a whole change, not separately to Code-Review and Verified. Adding reviewers does not grant voting rights; server project configuration controls label permissions. Votes remain displayed per label.
 
@@ -67,7 +81,7 @@ Downloads use the Gerrit-advertised SSH URL and your local OpenSSH key/agent and
 
 Open a local Git repository whose remote project matches the change. The extension fetches the selected change ref, verifies FETCH_HEAD against its SHA, then creates `change-<number>` and checks it out. It checks uncommitted files, unsaved editors and existing branches before checkout. It never clones, overwrites branches, stashes or forces checkout. Downloads and uploads are serialized per repository.
 
-Upload staged changes or the existing HEAD through the sidebar or Source Control upload button. The destination is `refs/for/<branch>`, optionally WIP. Install Gerrit's commit-msg hook first; every uploaded commit needs a valid Change-Id. Remote/branch/commit choices are confirmed before pushing.
+Upload staged changes or the existing HEAD through the sidebar or Source Control upload button. The destination is `refs/for/<branch>`, optionally WIP. Install Gerrit's commit-msg hook first; every uploaded commit needs a valid Change-Id. Remote and branch choices are used directly after commit validation, without a confirmation warning.
 
 ## Settings
 
@@ -77,9 +91,7 @@ Upload staged changes or the existing HEAD through the sidebar or Source Control
 | `gerrit.defaultQuery` | `is:open` | Initial query |
 | `gerrit.pageSize` | 50 | 10–100 changes per page |
 | `gerrit.requestTimeout` | 30000 | HTTP timeout in milliseconds |
-| `gerrit.commitInfo.defaultExpanded` | true | Expand commit details |
 | `gerrit.comments.expandThreads` | true | Expand native inline comments |
-| `gerrit.relationChain.defaultExpanded` | true | Expand related changes |
 | `gerrit.diff.openBeside` | false | Open comparisons in a separate editor group on the right |
 | `gerrit.logLevel` | `info` | off/error/info/debug |
 

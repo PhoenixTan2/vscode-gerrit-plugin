@@ -4,8 +4,13 @@
 
 ## 1.1.0
 
+- Keep version 1.1.0 for this batch: edit your latest PS in a native diff with immutable left and writable right sides. Save multiple files into one draft and publish one new PS, with server-edit concurrency checks.
+- Add publish/rebase controls and background merge/conflicting-change indicators with detail links.
+- Compact related nodes, omit duplicate parent SHAs and anonymous nodes, mark old patch sets, persist Commit/relation expansion per surface and remove default-expansion settings.
+- Remove extra confirmation warnings, use directional comment-bubble icons, and add native Edit host and background-race checks.
+
 - Complete upload targets from live remote branches; prefill matching local branches and filter case-insensitively.
-- Search and add reviewers or groups and remove reviewers on your own open changes. Confirm large groups and removal of existing votes; historical views cannot modify reviewers.
+- Search and add reviewers or groups and remove reviewers on your own open changes. Handle group confirmation automatically; removing reviewers also removes their votes; historical views cannot modify reviewers.
 - Localize reviewer controls in Chinese and English; label permissions remain server-controlled.
 - Document third-party Excel comparison and isolated host validation; keep VS Code ^1.95.0 compatibility.
 

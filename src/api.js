@@ -85,6 +85,8 @@ class GerritApi {
             const hint = { 401: tr`HTTP 401：${authHint}请求地址：${url.origin}${url.pathname}`, 403: tr('没有执行此操作的权限，或登录会话已失效，请检查权限并重新连接'), 409: tr('变更状态冲突，请刷新后重试') }[res.statusCode];
             const error = new Error(hint || `Gerrit HTTP ${res.statusCode}: ${text.slice(0, 300)}`);
             error.logMessage = `${method} ${url.pathname} → HTTP ${res.statusCode}`;
+            error.statusCode = res.statusCode;
+            if (res.statusCode === 409) error.message += '\n' + text.slice(0, 1200);
             return reject(error);
           }
           if (raw) return resolve(text);
@@ -99,6 +101,25 @@ class GerritApi {
   reviewers(id) { return this.request(`/changes/${enc(id)}/reviewers/`); }
   addReviewer(id, reviewer, confirmed = false) { return this.request(`/changes/${enc(id)}/reviewers`, 'POST', {reviewer, state: 'REVIEWER', ...(confirmed ? {confirmed: true} : {})}); }
   removeReviewer(id, account) { return this.request(`/changes/${enc(id)}/reviewers/${enc(account)}`, 'DELETE'); }
+  edit(id, {signal} = {}) { return this.request(`/changes/${enc(id)}/edit?list`, 'GET', undefined, false, {signal}); }
+  async editBytes(id, path) { return this.decodeBytes(await this.request(`/changes/${enc(id)}/edit/${enc(path)}`, 'GET', undefined, true)); }
+  putEditFile(id, path, bytes) { return this.request(`/changes/${enc(id)}/edit/${enc(path)}`, 'PUT', {binary_content: `data:application/octet-stream;base64,${bytes.toString('base64')}`}); }
+  publishEdit(id) { return this.request(`/changes/${enc(id)}/edit:publish`, 'POST', {}); }
+  rebaseEdit(id) { return this.request(`/changes/${enc(id)}/edit:rebase`, 'POST', {}); }
+  mergeable(id, rev, {signal} = {}) { return this.request(this.revision(id, rev, '/mergeable'), 'GET', undefined, false, {signal}); }
+  async conflicts(number, {signal} = {}) {
+    if (!Number.isSafeInteger(number) || number <= 0) throw new Error(tr('无效的 Gerrit 号'));
+    const result = [];
+    for (let start = 0; ; start += 100) {
+      const rows = await this.request(`/changes/?q=${enc(`is:open conflicts:${number}`)}&n=100&S=${start}&o=CURRENT_REVISION`, 'GET', undefined, false, {signal});
+      result.push(...rows);
+      if (!rows.length || !rows.at(-1)._more_changes) return result;
+    }
+  }
+  changeHeads(numbers, {signal} = {}) {
+    if (!numbers.length || numbers.some(n => !Number.isSafeInteger(n) || n <= 0) || numbers.length > 20) throw new Error(tr('无效的 Gerrit 号'));
+    return this.request(`/changes/?q=${enc(numbers.map(n => `change:${n}`).join(' OR '))}&n=100&o=CURRENT_REVISION`, 'GET', undefined, false, {signal});
+  }
   self() { return this.request('/accounts/self'); }
   list(query, start = 0, { search = false, signal } = {}) { return this.request(`/changes/?q=${enc(query)}&n=${this.pageSize}&S=${start}&o=DETAILED_LABELS&o=DETAILED_ACCOUNTS&o=REVIEWED&o=SUBMITTABLE${search ? '&o=ALL_REVISIONS&o=ALL_COMMITS&o=MESSAGES' : ''}`, 'GET', undefined, false, { signal }); }
   detail(id) { return this.request(`/changes/${enc(id)}/detail?o=ALL_REVISIONS&o=ALL_COMMITS&o=DETAILED_LABELS&o=DETAILED_ACCOUNTS&o=MESSAGES&o=CURRENT_ACTIONS&o=REVIEWED&o=SUBMITTABLE&o=ALL_FILES`); }
@@ -115,6 +136,9 @@ class GerritApi {
   review(id, rev, input) { return this.request(this.revision(id, rev, '/review'), 'POST', { drafts: 'KEEP', ...input }); }
   async bytes(id, rev, path, base = false) {
     const raw = await this.request(this.revision(id, rev, `/files/${enc(path)}/content${base ? '?parent=1' : ''}`), 'GET', undefined, true);
+    return this.decodeBytes(raw);
+  }
+  decodeBytes(raw) {
     const encoded = raw.replace(/\s/g, '');
     if (!/^[A-Za-z0-9+/]*={0,2}$/.test(encoded) || encoded.replace(/=+$/, '').length % 4 === 1) throw new Error(tr('服务器未返回有效的 Base64 文件内容'));
     const bytes = Buffer.from(encoded, 'base64');
@@ -127,7 +151,7 @@ class GerritApi {
     return result.text;
   }
   action(id, action, input = {}) {
-    if (!['ready', 'abandon', 'submit'].includes(action)) throw new Error(tr('未知变更操作'));
+    if (!['ready', 'abandon', 'submit', 'rebase'].includes(action)) throw new Error(tr('未知变更操作'));
     return this.request(`/changes/${enc(id)}/${action}`, 'POST', input);
   }
 }

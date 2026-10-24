@@ -23,6 +23,11 @@ before(async () => {
         if (req.method === 'POST' && req.headers['x-gerrit-auth'] !== 'test+csrf') { res.writeHead(403); res.end('XSRF validation failed'); return; }
         res.end(")]}'\n" + JSON.stringify({ _account_id: 1, username: 'user' })); return;
       }
+      if (req.url.includes('/changes/edit-test/edit/')) {
+        if (req.method === 'GET') res.end(Buffer.from('editable\n').toString('base64'));
+        else {res.writeHead(204);res.end();} return;
+      }
+      if (req.url.includes('/rebase-conflict')) {res.writeHead(409);res.end('merge conflict(s): src/conflict.c');return;}
       if (req.url.includes('/denied')) { res.writeHead(403); res.end('secret internal details'); return; }
       if (req.url.includes('/redirect')) { res.writeHead(302, { Location: 'http://example.invalid' }); res.end(); return; }
       if (req.url.includes('/invalid')) { res.end('<html>Login</html>'); return; }
@@ -202,4 +207,27 @@ test('reviewer APIs encode identifiers, suggest accounts and groups, and handle 
   assert.ok(received.at(-1).url.endsWith('/reviewers/42'));
   const controller = new AbortController(); controller.abort();
   await assert.rejects(api.suggestReviewers('change', 'name', {signal:controller.signal}), {name:'AbortError'});
+});
+
+
+test('edit content uses the Gerrit data-URL body and publish/rebase endpoints preserve identifiers',async()=>{
+  const api=new GerritApi(url,'user','http-key');
+  await api.edit('p/main~I1');assert.ok(received.at(-1).url.endsWith('/p%2Fmain~I1/edit?list'));
+  assert.equal((await api.editBytes('edit-test','src/a c.c')).toString(),'editable\n');
+  await api.putEditFile('edit-test','src/a c.c',Buffer.from('中文\n'));
+  assert.equal(received.at(-1).method,'PUT');
+  assert.ok(received.at(-1).url.endsWith('/edit/src%2Fa%20c.c'));
+  assert.deepEqual(received.at(-1).body,{binary_content:'data:application/octet-stream;base64,'+Buffer.from('中文\n').toString('base64')});
+  await api.publishEdit('p/main~I1');assert.ok(received.at(-1).url.endsWith('/p%2Fmain~I1/edit:publish'));
+  await api.rebaseEdit('p/main~I1');assert.ok(received.at(-1).url.endsWith('/p%2Fmain~I1/edit:rebase'));
+  await api.action('p/main~I1','rebase',{base:''});assert.deepEqual(received.at(-1).body,{base:''});
+  await assert.rejects(api.action('rebase-conflict','rebase'),error=>error.statusCode===409&&error.message.includes('src/conflict.c'));
+});
+test('conflict lookup pages all results and mergeability is pinned to a revision',async()=>{
+  const api=new GerritApi(url,'user','http-key');
+  await api.mergeable('p/main~I1','sha');assert.ok(received.at(-1).url.endsWith('/p%2Fmain~I1/revisions/sha/mergeable'));
+  const calls=[];api.request=async path=>{calls.push(path);return calls.length===1?[{id:'a',_more_changes:true}]:[{id:'b'}];};
+  const rows=await api.conflicts(42);assert.deepEqual(rows.map(row=>row.id),['a','b']);
+  assert.ok(calls[0].includes('q=is%3Aopen%20conflicts%3A42'));assert.ok(calls[1].includes('S=100'));
+  await assert.rejects(api.conflicts('42 OR status:merged'),/无效/);
 });

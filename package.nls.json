@@ -25,9 +25,10 @@
   "extension.contributes.configuration.properties.gerrit.comments.expandThreads.description": "打开 diff 时自动展开代码中的已有评论；默认显示行号旁的评论图标，可点击或悬停查看。",
   "extension.contributes.configuration.properties.gerrit.diff.openBeside.description": "在右侧分屏打开文件对比（Open Beside）。关闭时使用当前编辑器区域；开启时在旁边新建或复用一个独立编辑器区域。",
   "extension.contributes.configuration.properties.gerrit.logLevel.description": "Gerrit Workbench 输出频道日志级别。记录请求路径、状态、耗时及 Git 操作结果，不记录认证头、Cookie、请求正文或响应正文。",
-  "extension.contributes.configuration.properties.gerrit.commitInfo.defaultExpanded.description": "进入变更详情时默认展开 Commit 信息。",
-  "extension.contributes.configuration.properties.gerrit.relationChain.defaultExpanded.description": "进入变更详情或评审讨论时默认展开关系链；内容始终提前后台加载，当前变更内保留手动展开/收起状态。",
   "extension.contributes.configuration.properties.gerrit.language.enumDescriptions.0": "中文",
   "extension.contributes.configuration.properties.gerrit.language.description": "插件页面和对话框语言。命令和原生设置标题跟随 VS Code 显示语言。",
-  "extension.contributes.colors.0.description": "Gerrit 评论的行号图标、代码标记、滚动条和缩略图标记颜色。"
+  "extension.contributes.colors.0.description": "Gerrit 评论的行号图标、代码标记、滚动条和缩略图标记颜色。",
+  "command.edit": "编辑右侧文件（Gerrit Edit）",
+  "command.saveEdit": "保存 Edit 草稿",
+  "command.publishEdit": "发布 Edit 为新 PS"
 }

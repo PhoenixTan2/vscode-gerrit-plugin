@@ -14,7 +14,8 @@ async function run() {
     const commands = await vscode.commands.getCommands(true);
     assert.ok(commands.includes('workbench.view.extension.gerrit'), 'Legacy Gerrit container fixture must be present');
     assert.ok(commands.includes('workbench.view.extension.gerritWorkbench'), 'Our container must remain separate');
-    for (const key of ['comments.expandThreads', 'commitInfo.defaultExpanded', 'relationChain.defaultExpanded']) assert.equal(extension.packageJSON.contributes.configuration.properties['gerrit.'+key].default, true);
+    assert.equal(extension.packageJSON.contributes.configuration.properties['gerrit.comments.expandThreads'].default,true);
+    for (const key of ['commitInfo.defaultExpanded','relationChain.defaultExpanded']) assert.ok(!extension.packageJSON.contributes.configuration.properties['gerrit.'+key]);
     assert.ok(['Gerrit 对比差异','Gerrit Comparison'].includes(extension.packageJSON.contributes.viewsContainers.panel[0].title));
     for (const id of ['gerrit.connect', 'gerrit.refresh', 'gerrit.logs', 'gerrit.comment', 'gerrit.fileComments', 'gerrit.tasks', 'gerrit.openLeftFile', 'gerrit.openRightFile', 'gerrit.openThisFile']) assert.ok(commands.includes(id), `${id} must be registered`);
     await vscode.commands.executeCommand('workbench.view.extension.gerritWorkbench');
@@ -43,7 +44,7 @@ async function run() {
 
     // Render a representative review with the shipped script inside a real Webview.
     const fixture = {
-      connected: true, surface: 'discussion', commitInfoExpanded: true, resultNavigation: { previous: true, next: true, index: 2, total: 3 }, user: 'Reviewer', server: 'https://review.example.invalid',
+      connected: true, surface: 'discussion', panelExpansion: {sidebar:{commit:true,relation:false},discussion:{commit:true,relation:false}}, resultNavigation: { previous: true, next: true, index: 2, total: 3 }, user: 'Reviewer', server: 'https://review.example.invalid',
       detail: { id: 'fixture', _number: 142, subject: 'Improve boot device initialization', status: 'NEW', project: 'team/firmware', branch: 'main',
         owner: { name: 'Alex' }, current_revision: 'a'.repeat(40), change_id: 'Ifixture',
         created: '2026-10-20 01:02:03', updated: '2026-10-21 07:08:09',
@@ -320,6 +321,7 @@ async function run() {
       await vscode.window.tabGroups.close(navTabs);navProvider.dispose();
     }
 
+    await require('./edit-host-smoke').run(extension);
     await vscode.commands.executeCommand('gerrit.logs');
     fs.writeFileSync(process.env.GERRIT_HOST_SMOKE_RESULT, JSON.stringify({ ok: true, vscode: vscode.version, extension: extension.packageJSON.version, excel: process.env.GERRIT_EXCEL_VIEWER ? 'valid old/new XLSX opened in custom editors in two preview groups' : undefined }));
     console.log('Real Extension Host activation and sidebar smoke test passed');

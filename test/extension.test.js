@@ -3,12 +3,12 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
-function fixture() {
+function fixture({globalState} = {}) {
   const commands = new Map(); const executed = []; const created = []; const panels = []; const settings = {};
   const controller = { dispose() {}, createCommentThread(uri, range, comments) { const thread = { uri, range, comments, dispose() { this.disposed = true; } }; created.push(thread); return thread; } };
   class Range { constructor(a, b, c, d) { this.start = { line: a, character: b }; this.end = { line: c, character: d }; this.isEmpty = a === c && b === d; } }
   const api = {
-    comments: { createCommentController: () => controller }, Range,
+    comments: { createCommentController: () => controller }, Range, EventEmitter: class {constructor(){this.event=()=>({dispose(){}});}fire(){}dispose(){}}, Disposable: class {dispose(){}},
     StatusBarAlignment: { Left: 1 }, CommentMode: { Preview: 0 }, CommentThreadState: { Resolved: 1, Unresolved: 0 }, CommentThreadCollapsibleState: { Expanded: 1, Collapsed: 0 },
     window: { createStatusBarItem: () => ({ show() {}, dispose() {} }), createOutputChannel: () => ({ appendLine() {}, show() {}, dispose() {} }), registerWebviewViewProvider() {},
       createTextEditorDecorationType: options => ({ options, dispose() {} }), onDidChangeVisibleTextEditors() {}, onDidChangeTextEditorSelection() {}, onDidChangeActiveTextEditor() {}, visibleTextEditors: [], setStatusBarMessage() {}, showInformationMessage() {},
@@ -22,10 +22,10 @@ function fixture() {
     MarkdownString: class { constructor() { this.value = ''; } appendText(text) { this.value += text; } },
     Hover: class { constructor(contents) { this.contents = contents; } },
     languages: { registerHoverProvider() {} },
-    workspace: { getConfiguration: () => ({ get: (key, value) => settings[key] ?? value }), onDidChangeConfiguration() {}, registerTextDocumentContentProvider() {} },
+    workspace: { getConfiguration: () => ({ get: (key, value) => settings[key] ?? value }), onDidChangeConfiguration() {}, registerTextDocumentContentProvider() {}, registerFileSystemProvider() {} },
     commands: { registerCommand(name, handler) { commands.set(name, handler); }, executeCommand: async (...args) => { if (args[0] !== 'setContext') return executed.push(args); }, getCommands: async () => ['workbench.action.browser.open'] }
   };
-  const context = { subscriptions: [] };
+  const context = { subscriptions: [], globalState };
   const module = { exports: {} };
   vm.runInNewContext(fs.readFileSync(require.resolve('../src/extension'), 'utf8'), {
     module, Buffer, URL, AbortController, require: name => name === 'vscode' ? api : name.startsWith('./') ? require('../src/' + name.slice(2)) : require(name)
@@ -188,11 +188,11 @@ test('comment decorations use public VS Code gutter/overview API without Minimap
   assert.equal(app.commentDecoration.options.minimap, undefined);
   assert.ok(app.commentDecoration.options.gutterIconPath);
 });
-test('changes are displayed newest update first and Commit expansion follows settings', async () => {
+test('changes are displayed newest update first and Commit expansion follows persisted state', async () => {
   const { app, settings } = fixture(); app.selected = null;
   app.api.list = async () => [{ id: 'old', updated: '2026-01-01 12:00:00' }, { id: 'new', updated: '2026-02-01 12:00:00' }];
-  settings['commitInfo.defaultExpanded'] = true;
-  await app.refresh(); assert.equal(app.model.changes[0].id, 'new'); assert.equal(app.model.commitInfoExpanded, true);
+  app.panelExpansion.sidebar = {commit:true};
+  await app.refresh(); assert.equal(app.model.changes[0].id, 'new'); assert.equal(app.model.panelExpansion.sidebar?.commit ?? true, true);
 });
 
 test('background download releases global busy state, pins target and completes without awaiting notification', async () => {
@@ -440,9 +440,9 @@ test('ordinary navigation fetches each result page once and reuses pages in both
   await app.navigateResult(1); assert.deepEqual(requested, [0, 2]);
 });
 
-test('relation default expansion is supplied by settings and loading only updates its own region', async () => {
+test('relation expansion is supplied by persisted state and loading only updates its own region', async () => {
   const { app, settings } = fixture(); const sent = [];
-  settings['relationChain.defaultExpanded'] = true; app.render(); assert.equal(app.model.relationChainExpanded, true);
+  app.panelExpansion.sidebar = {relation:true}; app.render(); assert.equal(app.model.panelExpansion.sidebar.relation, true);
   app.model.detail = {}; app.api.related = async () => ({ changes: [] }); app.send = message => sent.push(message);
   app.render = () => { throw new Error('must preserve active editor'); };
   await app.loadRelated(); assert.equal(sent[0].type, 'relatedState');
@@ -469,12 +469,12 @@ function familyFixture() {
   return { ...f, changes, queries, childSha, oldChild, parentSha, latestParent, grandSha };
 }
 test('context preloads while collapsed without holding busy and ignores superseded responses', async () => {
-  const { app, settings } = familyFixture(); settings['relationChain.defaultExpanded'] = false; let finish;
+  const { app, settings } = familyFixture(); app.panelExpansion.sidebar = {relation:false}; let finish;
   const gate = new Promise(resolve => { finish = resolve; });
   app.api.related = async (id, rev) => { if (id === 'child') await gate; return { changes: [{ commit: { commit: rev } }] }; };
   const messages = []; app.send = message => messages.push(message);
   await app.run(() => app.load('child'));
-  assert.equal(app.busy, false); assert.equal(app.model.relationChainExpanded, false);
+  assert.equal(app.busy, false); assert.equal(app.model.panelExpansion.sidebar.relation, false);
   assert.equal(app.model.detail.related.status, 'loading');
   const oldJob = app.contextJob;
   await app.load('parent'); await app.contextJob; finish(); await oldJob;
@@ -648,7 +648,7 @@ test('connection defaults to web password, documents exclusive modes and skips H
   let chosen; app.createApi = (url, user, secret, mode) => { chosen = mode; return { self: async () => ({ username: user }) }; };
   await app.connect();
   assert.equal(chosen, 'webPassword'); assert.ok(inputs[0].prompt.includes('http://192.168.1.10'));
-  assert.ok(picks[0].options.title.includes('二选一')); assert.equal(app.model.commitInfoExpanded, true); assert.equal(app.model.relationChainExpanded, true);
+  assert.ok(picks[0].options.title.includes('二选一')); assert.equal(app.model.panelExpansion.sidebar?.commit ?? true, true); assert.equal(app.model.panelExpansion.sidebar?.relation ?? true, true);
 });
 
 test('oversized comparisons reject before content fetch and return opens review discussion', async () => {
@@ -799,4 +799,72 @@ test('first-line native comment activation redirects but revisiting an explicit 
  const event={textEditor:{document:{uri}},selections:[range]};
  app.rememberStandalone(uri);await app.followNativeComment(event,true);assert.equal(calls.length,0);
  app.explicitStandaloneTabs=new WeakSet();await app.followNativeComment(event,true);assert.deepEqual(calls,[['a.c','root']]);
+});
+
+
+test('fold preferences persist per surface without rerendering an active draft, even while busy',async()=>{
+  const {app}=fixture(), saved=[];app.busy=true;
+  app.context.globalState={update:async(...args)=>saved.push(args)};
+  app.render=()=>{throw new Error('Do not redraw');};
+  await app.receiveMessage({}, {type:'foldState',surface:'discussion',panel:'commit',expanded:false});
+  assert.equal(app.panelExpansion.discussion.commit,false);assert.equal(saved[0][0],'panelExpansion');
+  await app.receiveMessage({}, {type:'foldState',surface:'sidebar',panel:'relation',expanded:true});
+  assert.equal(app.panelExpansion.sidebar.relation,true);assert.equal(app.panelExpansion.discussion.commit,false);
+  await app.receiveMessage({}, {type:'foldState',surface:'__proto__',panel:'relation',expanded:false});assert.equal(saved.length,2);
+});
+test('merge conflict results and draft status load in background, and stale results are discarded',async()=>{
+  const {app}=fixture();app.selected.change={status:'NEW',_number:42};app.model.detail={mine:true};
+  let finish;app.api.mergeable=()=>new Promise(resolve=>{finish=resolve;});
+  app.api.conflicts=async()=>[{id:'conflict',_number:43,subject:'Other change'}];app.api.edit=async()=>({base_revision:'abc',commit:{commit:'edit'}});
+  const sent=[];app.send=message=>sent.push(message);
+  app.loadChangeStatus();assert.equal(app.busy,false);assert.equal(app.model.detail.conflictStatus.state,'loading');
+  finish({mergeable:false,conflicts:['src/conflict.c']});await app.changeStatusJob;
+  assert.equal(app.model.detail.conflictStatus.mergeable,false);assert.equal(app.model.detail.conflictStatus.changes[0]._number,43);assert.ok(app.model.detail.editStatus.edit);
+  app.loadChangeStatus();const pending=app.changeStatusJob;app.model.detail={};finish({mergeable:true});await pending;
+  assert.equal(sent.length,1);
+});
+test('ready, submit and rebase execute without confirmation popups and preserve selected rebase input',async()=>{
+  const {app,vscode}=fixture(), calls=[];app.model.detail={mine:true};app.selected.change.actions={ready:{enabled:true},submit:{enabled:true},rebase:{enabled:true}};
+  vscode.window.showWarningMessage=()=>{throw new Error('No warning dialogs');};
+  app.api.action=async(...args)=>calls.push(args);app.load=async()=>{};
+  for(const action of ['ready','submit']) await app.handle({type:'action',id:app.selected.id,rev:app.selected.rev,action});
+  vscode.window.showQuickPick=async()=>({input:{base:''}});
+  await app.handle({type:'action',id:app.selected.id,rev:app.selected.rev,action:'rebase'});
+  assert.deepEqual(calls.map(call=>call[1]),['ready','submit','rebase']);assert.equal(calls[2][2].base,'');
+});
+
+
+test('fold state survives extension reconstruction without the removed settings',async()=>{
+  const values=new Map();const globalState={get:(key,fallback)=>values.get(key)??fallback,update:async(key,value)=>values.set(key,structuredClone(value))};
+  const first=fixture({globalState});
+  await first.app.receiveMessage({}, {type:'foldState',surface:'discussion',panel:'relation',expanded:false});
+  const second=fixture({globalState});assert.equal(second.app.model.panelExpansion.discussion.relation,false);
+  const properties=require('../package.json').contributes.configuration.properties;
+  assert.ok(!('gerrit.commitInfo.defaultExpanded' in properties));assert.ok(!('gerrit.relationChain.defaultExpanded' in properties));
+});
+test('new conflict checks cancel old requests on the same page and reject their late responses',async()=>{
+  const {app}=fixture();app.selected.change={status:'NEW',_number:42};app.model.detail={};const requests=[];
+  app.api.mergeable=(_,__,{signal})=>new Promise(resolve=>requests.push({signal,resolve}));app.api.conflicts=async()=>[];
+  app.loadChangeStatus();const first=app.changeStatusJob;app.loadChangeStatus();
+  assert.equal(requests[0].signal.aborted,true);
+  requests[1].resolve({mergeable:true});await app.changeStatusJob;requests[0].resolve({mergeable:false});await first;
+  assert.equal(app.model.detail.conflictStatus.mergeable,true);
+});
+test('upload goes directly to push after target choices without a warning dialog',async()=>{
+  const {app,vscode}=fixture(), calls=[];
+  vscode.workspace.isTrusted=true;vscode.workspace.workspaceFolders=[{name:'repo',uri:{fsPath:'repo'}}];
+  vscode.ProgressLocation={Notification:15};
+  vscode.window.showWarningMessage=()=>{throw new Error('No warning popups');};
+  vscode.window.showQuickPick=async items=>typeof items[0]==='string'?'origin':items[0];
+  vscode.window.withProgress=async(_,fn)=>fn({}, {onCancellationRequested:()=>({dispose(){}})});
+  vscode.window.createQuickPick=()=>{
+    const callbacks={};let timer;const picker={items:[],selectedItems:[],onDidChangeValue:fn=>{callbacks.change=fn;return {dispose(){}};},onDidAccept:fn=>{callbacks.accept=fn;return {dispose(){}};},onDidHide:()=>({dispose(){}}),
+      dispose(){clearTimeout(timer);},show(){const accept=()=>{if(picker.busy||!picker.items.length){timer=setTimeout(accept,2);return;}picker.selectedItems=[picker.items[0]];callbacks.accept();};timer=setTimeout(accept,2);}};return picker;
+  };
+  app.runGit=async(_,args)=>{calls.push(args);
+    if(args[0]==='rev-parse')return '/repo';if(args[0]==='ls-remote')return 'abc\trefs/heads/main';if(args[0]==='branch')return 'main';
+    if(args[0]==='remote')return args.length===1?'origin':'https://review.example.invalid/p';
+    if(args[0]==='rev-list')return 'a'.repeat(40);if(args[0]==='show')return 'Subject\n\nChange-Id: I'+'a'.repeat(40);return '';
+  };
+  await app.push();assert.ok(calls.some(args=>args[0]==='push'&&args.at(-1)==='HEAD:refs/for/main'));
 });

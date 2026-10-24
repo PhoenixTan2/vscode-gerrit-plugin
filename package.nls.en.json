@@ -25,9 +25,10 @@
   "extension.contributes.configuration.properties.gerrit.comments.expandThreads.description": "Expand existing inline comments when opening a comparison. Gutter markers remain available when collapsed.",
   "extension.contributes.configuration.properties.gerrit.diff.openBeside.description": "Open comparisons in a separate editor group on the right. When disabled, use the current editor group.",
   "extension.contributes.configuration.properties.gerrit.logLevel.description": "Gerrit Workbench output level. Logs request paths, status, elapsed time and Git results; never authentication headers, cookies or request/response bodies.",
-  "extension.contributes.configuration.properties.gerrit.commitInfo.defaultExpanded.description": "Expand commit information when opening change details.",
-  "extension.contributes.configuration.properties.gerrit.relationChain.defaultExpanded.description": "Expand related changes by default. Content preloads in the background; manual expand/collapse choices are preserved within the change.",
   "extension.contributes.configuration.properties.gerrit.language.enumDescriptions.0": "Chinese",
   "extension.contributes.configuration.properties.gerrit.language.description": "Language for extension views and dialogs. Native command and settings titles follow the VS Code display language.",
-  "extension.contributes.colors.0.description": "Color of Gerrit comment gutter icons, code markers, scrollbar and minimap indicators."
+  "extension.contributes.colors.0.description": "Color of Gerrit comment gutter icons, code markers, scrollbar and minimap indicators.",
+  "command.edit": "Edit modified file (Gerrit Edit)",
+  "command.saveEdit": "Save Gerrit edit",
+  "command.publishEdit": "Publish edit as new PS"
 }

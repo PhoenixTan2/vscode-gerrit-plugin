@@ -4,11 +4,25 @@
 
 在 VS Code 中完成 Gerrit 连接、提交、代码评审、评论、回复、评分和变更管理。常用功能通过侧边栏、编辑器按钮和右键菜单操作，无需 Ctrl+Shift+P。
 
+## Edit、发布与 Rebase
+
+打开自己的 Open / WIP 提交的最新 PS 文本 diff，点击编辑器右上角 **Edit**。左侧 Base / 已选 PS 始终只读，只有右侧 Edit 可修改。使用右上角“保存 Edit 草稿”或 Ctrl+S 保存到 Gerrit 私有草稿，不依赖本地仓库，也不会直接改目标分支。
+
+**同一提交的所有文件共用一份 Edit 草稿。** 可以依次编辑多个文件，保存不会生成 PS。修改全部完成后点“发布 Edit 为新 PS”，插件先保存该提交所有已打开且有修改的 Edit 文件，再把整份草稿发布为一笔新 PS；不会逐文件发布。某个文件保存失败或仍有未保存改动时停止发布，内容保留在编辑器中。最新 PS 或服务器草稿被其他窗口更新时拒绝覆盖，需先处理变动后重开。保存过的草稿可在 Gerrit Web 继续处理；未保存内容应在关闭窗口前保存。
+
+工作台和评审讨论都提供当前权限允许的“发布为待评审”（WIP → 评审）、Rebase、“合入分支”及 Edit 发布入口。Rebase 可自动沿用依赖关系、直接基于目标分支，或输入 Gerrit 号 / SHA / ref。旧 Edit 需要先 Rebase Edit 到最新 PS，再发布。操作使用服务器权限校验；不提供绕过权限或强制合入。
+
+推送、发布、合入、废弃和人员管理不再弹出额外确认告警。仍保留目标分支、上传方式、Rebase 目标等必要输入，以及失败时的错误提示。
+
+Commit 信息、关系链分别记住工作台和评审讨论中的展开 / 收起状态，跨变更和重启保留；不再提供默认展开设置。关系链只显示有 Gerrit 编号的关联节点，移除重复父 SHA 行；非最新 PS 显示旧版本标记，Commit 信息中的父提交导航仍保留。
+
+冲突检查在后台运行，区分与目标分支的合并冲突及与其他未合入提交的冲突；点击冲突提交可进入详情。若服务器不支持相关接口，明确显示检查不可用。评论导航改为带上下箭头的评论气泡，区别于更改导航。
+
 ## 上传分支与评审人员
 
-上传时读取所选 Git remote 的真实分支。同名远端分支存在时默认填入本地分支，否则留空；输入时忽略大小写筛选候选。选择后仍会检查待推送提交、Change-Id 并确认上传。
+上传时读取所选 Git remote 的真实分支。同名远端分支存在时默认填入本地分支，否则留空；输入时忽略大小写筛选候选。选择后仍会检查待推送提交和 Change-Id，通过后上传。
 
-自己的 Open / WIP 提交在工作台、评审讨论中提供“评审人员 · Code-Review / Verified”折叠栏，点击“管理人员 / 组”即可按姓名、邮箱或组名搜索并添加。组展开为成员，大组按服务器要求确认。移除人员前会提示已有评分也会被移除；实际操作受服务器权限控制。历史 PS 需切回最新 PS 再管理。
+自己的 Open / WIP 提交在工作台、评审讨论中提供“评审人员 · Code-Review / Verified”折叠栏，点击“管理人员 / 组”即可按姓名、邮箱或组名搜索并添加。组展开为成员，按服务器协议自动确认组添加。移除人员同时移除其已有评分；实际操作受服务器权限控制。历史 PS 需切回最新 PS 再管理。
 
 Gerrit 的评审人员属于整笔变更，不按 Code-Review、Verified 独立分配；添加人员不会授予打分权限。标签权限由服务器项目配置控制，评分仍按标签显示。
 
@@ -52,7 +66,7 @@ Gerrit 的评审人员属于整笔变更，不按 Code-Review、Verified 独立�
 | 元信息跳转检索 | 点击作者、提交者、仓库、分支或 Owner 回到检索页，清除旧筛选并显示对应结果；作者 / 提交者按 Commit 身份检索，分支同时限定仓库 |
 | 任意版本比较 | 仅在左侧工作台选择左右 PS / Base，左右选项排除另一侧已选版本，选择变化后自动比较，支持立即交换左右；Base 表示另一侧 PS 的第一父提交。改动文件统一在下方面板查看 |
 | 修改文件面板 | 打开变更或执行比较后，下方“Gerrit 对比差异”面板列出全部修改文件；支持路径筛选、增删行数和各 PS 评论总数，点击文件在编辑器中打开对应 diff，默认使用可复用的临时预览标签；双击标签可保留。“返回评审讨论”打开当前变更的讨论页并切换到讨论页签；成功打开文件差异后自动标记当前 PS 已读，可手动取消。类型 A / D / M / R / C / W 分色显示；大文件限制提示与路径同一行。根据 Gerrit 文件大小预判两侧 Base64 响应预算，超过 32MB 的文件置灰并阻止读取；大小元数据缺失时无法提前判定，响应头 Content-Length 超限则立即终止读取。可点击底部“Gerrit 对比差异”页签展开面板 |
-| Relation chain | 工作台和评审页始终以折叠栏显示关系链，进入变更后即后台加载所查看 PS 的依赖 / 后继提交，展开仅控制显示；`gerrit.relationChain.defaultExpanded` 控制默认展开或收起（默认展开），当前变更内保留手动折叠状态。显示状态、SHA、PS 及父提交；提示旧 PS，点击有变更编号的节点打开该变更最新 PS。无变更编号的 Git 提交仅展示 |
+| Relation chain | 工作台和评审页始终以折叠栏显示关系链，进入变更后即后台加载所查看 PS 的依赖 / 后继提交，展开仅控制显示；分别记住工作台和评审讨论的折叠状态，跨重启保留。显示状态、SHA、PS；提示旧 PS，移除重复父提交行及无编号 Git 节点。点击节点打开该变更最新 PS。 |
 | 非文本文件 | 先读取原始字节并尝试 UTF-8 / UTF-16 解码，不因 Gerrit 的 binary 标记直接拒绝。能解码为文本则使用原生 diff；其他格式仅缓存只读原文件，再由 VS Code 在旧版 / 新版两个编辑器组尝试打开，具体预览能力取决于已安装的文件扩展。新增 / 删除侧显示不存在提示 |
 | 查看版本文件 / 查找此版本中的文件 | 选择 PS 默认显示改动文件；相比上一笔 PS 无代码差异的版本在选择框标注（后台比较相邻 PS，忽略 Commit 消息等虚拟文件），仍可下载、查看 Commit 及查找未修改文件；按文件名或路径查找该版本全部文件（含未修改的头文件），忽略大小写。无需打开对应仓库，空窗口或其他仓库工作区都能使用；不搜索代码正文或未提交内容。首次查找通过 SSH 在插件独立临时 bare 缓存中读取版本路径，优先浅取并过滤 blob，不 checkout 或改动当前工作区；需要 Git 和可用 SSH 认证。找到的文件由 Gerrit 读取所选 PS 的原内容；断开连接或退出插件时清理缓存 |
 | SSH 下载 | 评审页“代码与下载”选择 PS → “下载到本地”，在已打开的对应项目仓库中后台 fetch / checkout，不选择目录、不 clone |
@@ -85,7 +99,7 @@ Message 的评论包含匹配由插件补充：Gerrit 原生评论索引没有�
 
 下载前和 checkout 前检查未提交文件、未保存编辑器和已有分支。已有同名分支时会提示先重命名或删除，不自动覆盖、stash 或强制切换。同一仓库的插件下载 / 上传不会并发执行；其他浏览和评审操作可继续使用。下载阶段、结果及失败原因显示在代码页和输出频道，完成通知无需关闭即可继续使用插件。SSH 下载不使用 HTTP 密码或 HTTP Key。
 
-上传入口为侧边栏“上传本地提交”或源代码管理的云上传按钮。可提交已暂存内容后上传，也可只上传已有 HEAD；不自动暂存、不强推、不自动修改已有提交。先 fetch 目标分支、检查整组待上传 commit 的 Change-Id，再确认 remote 与 commit 清单。上传使用 `refs/for/<branch>`，支持 WIP；Gerrit submit 合入为独立操作。
+上传入口为侧边栏“上传本地提交”或源代码管理的云上传按钮。可提交已暂存内容后上传，也可只上传已有 HEAD；不自动暂存、不强推、不自动修改已有提交。先 fetch 目标分支、检查整组待上传 commit 的 Change-Id，再使用选定的 remote 和分支推送，不再弹出确认告警。上传使用 `refs/for/<branch>`，支持 WIP；Gerrit submit 合入为独立操作。
 
 初次使用 Gerrit 的仓库请按服务器的 **Clone with commit-msg hook** 说明安装 hook。缺少 Change-Id 时，安装后通过终端 amend 对应 commit，再上传。
 
@@ -107,9 +121,7 @@ Message 的评论包含匹配由插件补充：Gerrit 原生评论索引没有�
 | `gerrit.defaultQuery` | `is:open` | 默认查询 |
 | `gerrit.pageSize` | 50 | 每页 10–100 条 |
 | `gerrit.requestTimeout` | 30000 | HTTP 超时毫秒数 |
-| `gerrit.commitInfo.defaultExpanded` | true | Commit 信息默认展开 / 收起 |
 | `gerrit.comments.expandThreads` | true | 默认展开代码评论线程 |
-| `gerrit.relationChain.defaultExpanded` | true | 关系链默认展开 / 收起 |
 | `gerrit.diff.openBeside` | false | Open Beside：在右侧独立编辑器区域打开 diff；关闭时使用当前区域 |
 | `gerrit.logLevel` | `info` | off / error / info / debug |
 
@@ -151,11 +163,25 @@ Markdown 渲染使用离线打包的 markdown-it 15.0.3（MIT），许可证位�
 
 Connect, upload commits, review changes, comment on code, reply and vote from VS Code. Normal workflows use the sidebar, editor buttons and file panel without opening the Command Palette.
 
+## Edit, publish and rebase
+
+Open a text diff of the latest PS of your own Open / WIP change and choose **Edit** in the editor toolbar. The left Base / selected PS stays read-only; only the right Edit side is writable. Use **Save Gerrit edit** or Ctrl+S to save a private server-side draft, without a local repository or target-branch changes.
+
+**All files in one change share one Edit draft.** Edit and save multiple files; saving does not create a PS. When finished, choose **Publish edit as new PS**. It saves every open dirty Edit file for that change, then publishes the whole draft as one new PS. Files are never published individually. A failed save or remaining dirty buffer stops publication and retains editor content. Newer patch sets or edits changed in another window are not overwritten. Reconcile them and reopen the edit. Saved drafts can be continued in Gerrit Web; save unsaved content before closing the window.
+
+The workbench and discussion expose permitted actions: publish WIP for review, Rebase, submit and publish an Edit. Rebase can preserve dependencies automatically, use the target branch tip, or use an entered change number / SHA / ref. An old Edit must be rebased onto the latest PS before publication. All writes remain subject to server permissions.
+
+Uploads, publishing, submission, abandonment and reviewer changes no longer show extra confirmation warnings. Necessary target/mode/rebase inputs and failure messages remain.
+
+Commit and relation panels remember expansion separately for the workbench and discussion, across changes and restarts. The default-expansion settings were removed. Compact related changes show numbered Gerrit nodes, mark outdated patch sets and omit repeated parent-SHA rows. Parent navigation remains in commit metadata.
+
+Background conflict checks distinguish target-branch merge conflicts from conflicts with unmerged changes; conflicting changes link to details. Unsupported checks are explicitly marked unavailable. Comment navigation uses directional comment-bubble icons distinct from diff-change navigation.
+
 ## Upload branches and reviewers
 
-Uploads read live branches from the selected Git remote. Prefill the local branch only when it exists remotely; otherwise start empty. Type to filter suggestions case-insensitively. Outgoing commits and Change-Ids are still checked and confirmed before pushing.
+Uploads read live branches from the selected Git remote. Prefill the local branch only when it exists remotely; otherwise start empty. Type to filter suggestions case-insensitively. Outgoing commits and Change-Ids are still checked before pushing, without a confirmation warning.
 
-Your own Open / WIP changes show a **Reviewers · Code-Review / Verified** section in the workbench and discussion page. Choose **Manage people / groups** to search by name, email or group name. Groups expand into members; large groups require confirmation when requested by the server. Removing a reviewer warns that their existing votes will also be removed and remains subject to server permissions. Switch historical views to the latest PS before managing reviewers.
+Your own Open / WIP changes show a **Reviewers · Code-Review / Verified** section in the workbench and discussion page. Choose **Manage people / groups** to search by name, email or group name. Groups expand into members; server-required group confirmation is handled automatically. Removing reviewers also removes their votes and remains subject to server permissions. Switch historical views to the latest PS before managing reviewers.
 
 Gerrit assigns reviewers to a whole change, not separately to Code-Review and Verified. Adding reviewers does not grant voting rights; server project configuration controls label permissions. Votes remain displayed per label.
 
@@ -214,7 +240,7 @@ Downloads use the Gerrit-advertised SSH URL and your local OpenSSH key/agent and
 
 Open a local Git repository whose remote project matches the change. The extension fetches the selected change ref, verifies FETCH_HEAD against its SHA, then creates `change-<number>` and checks it out. It checks uncommitted files, unsaved editors and existing branches before checkout. It never clones, overwrites branches, stashes or forces checkout. Downloads and uploads are serialized per repository.
 
-Upload staged changes or the existing HEAD through the sidebar or Source Control upload button. The destination is `refs/for/<branch>`, optionally WIP. Install Gerrit's commit-msg hook first; every uploaded commit needs a valid Change-Id. Remote/branch/commit choices are confirmed before pushing.
+Upload staged changes or the existing HEAD through the sidebar or Source Control upload button. The destination is `refs/for/<branch>`, optionally WIP. Install Gerrit's commit-msg hook first; every uploaded commit needs a valid Change-Id. Remote and branch choices are used directly after commit validation, without a confirmation warning.
 
 ## Settings
 
@@ -224,9 +250,7 @@ Upload staged changes or the existing HEAD through the sidebar or Source Control
 | `gerrit.defaultQuery` | `is:open` | Initial query |
 | `gerrit.pageSize` | 50 | 10–100 changes per page |
 | `gerrit.requestTimeout` | 30000 | HTTP timeout in milliseconds |
-| `gerrit.commitInfo.defaultExpanded` | true | Expand commit details |
 | `gerrit.comments.expandThreads` | true | Expand native inline comments |
-| `gerrit.relationChain.defaultExpanded` | true | Expand related changes |
 | `gerrit.diff.openBeside` | false | Open comparisons in a separate editor group on the right |
 | `gerrit.logLevel` | `info` | off/error/info/debug |
 

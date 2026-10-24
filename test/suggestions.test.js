@@ -53,26 +53,25 @@ test('reviewer management adds groups with server-driven confirmation and refres
   f.picker.selectedItems=f.picker.items;f.events.Accept();await done;
   assert.deepEqual(f.changes,[['c','g',false],['c','g',true],['load','c']]);
 });
-test('group confirmation cancellation, foreign owners and stale pages never mutate reviewers', async () => {
+test('server-required group confirmation is automatic; foreign owners and stale pages never mutate reviewers', async () => {
   const f=reviewerFixture();f.app.api.suggestReviewers=async()=>[{group:{id:'g',name:'Team'},confirm:true}];
-  f.app.confirm=async()=>false;
+  f.app.confirm=async()=>{throw new Error('No confirmation popup');};
   const done=manageReviewers(f.app,f.vscode);await until(()=>f.events.ChangeValue);
   f.events.ChangeValue('Team');await until(()=>f.picker.items.length===1);f.picker.selectedItems=f.picker.items;f.events.Accept();await done;
-  assert.deepEqual(f.changes,[]);
+  assert.deepEqual(f.changes,[['c','g',true],['load','c']]); f.changes.length=0;
   f.app.user._account_id=2;await assert.rejects(manageReviewers(f.app,f.vscode),/自己的/);
   f.app.user._account_id=1;f.app.model.detail.viewRevision='old';await assert.rejects(manageReviewers(f.app,f.vscode),/历史/);
   delete f.app.model.detail.viewRevision;
   f.vscode.window.showQuickPick=async()=>{f.app.selected={};return {value:'add'};};
   await assert.rejects(manageReviewers(f.app,f.vscode),/页面已更新/);assert.deepEqual(f.changes,[]);
 });
-test('individual removal uses server reviewer IDs and requires vote-removal confirmation', async () => {
-  const f=reviewerFixture(); let step=0, confirmed=false;
+test('individual removal uses server reviewer IDs without a confirmation popup', async () => {
+  const f=reviewerFixture(); let step=0;
   f.vscode.window.showQuickPick=async items=>++step===1?{value:'remove'}:items[0];
   f.app.api.reviewers=async()=>[{_account_id:42,name:'Reviewer',approvals:{'Code-Review':'+1',Verified:'0'}}];
-  f.app.confirm=async message=>{assert.ok(message.includes('评分'));return confirmed;};
+  f.app.confirm=async()=>{throw new Error('No confirmation popup');};
   f.app.api.removeReviewer=async(...args)=>f.changes.push(args);
-  await manageReviewers(f.app,f.vscode);assert.deepEqual(f.changes,[]);
-  confirmed=true;step=0;await manageReviewers(f.app,f.vscode);assert.deepEqual(f.changes,[['c',42],['load','c']]);
+  await manageReviewers(f.app,f.vscode);assert.deepEqual(f.changes,[['c',42],['load','c']]);
   assert.equal(reviewerSuggestion({account:{_account_id:2,name:'A'}}).value.reviewer,'2');
 });
 

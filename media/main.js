@@ -110,7 +110,8 @@ function parentLink(d, sha) {
 }
 const displaySubject = d => d.viewRevision && d.viewRevision !== d.current_revision ? d.revisions?.[d.viewRevision]?.commit?.subject || (d.revisions?.[d.viewRevision]?.commit?.message ? firstLine(d.revisions[d.viewRevision].commit.message) : d.subject) : d.subject;
 
-function commitInfo(d, expanded = model.commitInfoExpanded) {
+const panelExpanded = panel => state.panelExpansion?.[model.surface || 'sidebar']?.[panel] ?? model.panelExpansion?.[model.surface || 'sidebar']?.[panel] ?? true;
+function commitInfo(d, expanded = panelExpanded('commit')) {
   const focus = d.viewRevision || d.current_revision;
   const commit = d.revisions?.[focus]?.commit || {};
   return tr`<details id="commit-info" class="commit-info" ${expanded ? 'open' : ''}><summary>${icon('commit')}Commit 信息<span class="muted">PS ${e(d.revisions?.[focus]?._number)}${focus === d.current_revision ? tr(' · 最新') : tr` · 历史版本（最新 PS ${e(d.revisions?.[d.current_revision]?._number)}）`} · ${e(focus?.slice(0, 10))}</span></summary><pre>${e(commit.message || d.subject)}</pre><dl class="metadata"><dt>SHA</dt><dd class="mono">${e(focus)}</dd><dt>Change-Id</dt><dd class="mono">${e(d.change_id)}</dd><dt>作者</dt><dd>${metadataLink([commit.author?.name, commit.author?.email && `<${commit.author.email}>`].filter(Boolean).join(' '), 'author')}</dd><dt>提交者</dt><dd>${metadataLink([commit.committer?.name, commit.committer?.email && `<${commit.committer.email}>`].filter(Boolean).join(' '), 'committer')}</dd><dt>父提交</dt><dd class="mono">${(commit.parents || []).map(p => parentLink(d, p.commit)).join(' · ')}</dd></dl></details>`;
@@ -122,17 +123,31 @@ function downloadStatus() {
 
 const statusText = value => ({ NEW: tr('评审中'), MERGED: tr('已合入'), ABANDONED: tr('已废弃') }[value] || value || '—');
 function relationChain(d) {
-  const expanded = state.relations?.[relationKey()] ?? !!model.relationChainExpanded;
-  const shell = tr`<details id="relation-chain" class="relation-chain" data-relation-key="${e(relationKey())}" ${expanded ? 'open' : ''}><summary>关系链 · Relation chain <span class="muted">${!d.related || d.related.status === 'loading' ? tr('后台加载中…') : d.related.status === 'failed' ? tr('加载失败') : tr`${d.related.changes.length} 个节点`}</span></summary>`;
+  const expanded = panelExpanded('relation');
+  const shell = tr`<details id="relation-chain" class="relation-chain" data-relation-key="${e(relationKey())}" ${expanded ? 'open' : ''}><summary>关系链 <span class="muted">${!d.related || d.related.status === 'loading' ? tr('后台加载中…') : d.related.status === 'failed' ? tr('加载失败') : tr`${d.related.changes.filter(node => node._change_number).length} 个节点`}</span></summary>`;
   if (!d.related || d.related.status === 'loading') return tr`${shell}<p class="muted">关联提交正在后台加载，无需展开触发。</p></details>`;
   if (d.related.status === 'failed') return `${shell}<p class="negative">${e(d.related.error || tr('关系链加载失败'))}</p>${button(tr('重新加载'), 'related')}</details>`;
-  const nodes = d.related.changes;
-  return tr`${shell}<p class="muted">所查看 PS 的相关提交，上新下旧；点击变更打开其最新 PS。</p><div class="chain">${nodes.map(node => {
+  const nodes = d.related.changes.filter(node => node._change_number);
+  return tr`${shell}<p class="muted">所查看 PS 的关联提交，旧 PS 单独标记。</p><div class="chain">${nodes.map(node => {
     const current = node.commit?.commit === (d.viewRevision || d.current_revision);
     const old = node._revision_number && node._current_revision_number && node._revision_number !== node._current_revision_number;
     const label = node._change_number ? `#${node._change_number} · ${node.commit?.subject || ''}` : node.commit?.subject || node.commit?.commit || tr('提交');
-    return `<div class="chain-node ${current ? 'current' : ''}">${node._change_number ? button(label, 'relatedOpen', 'secondary file', `data-number="${e(node._change_number)}"`) : `<div class="chain-commit">${e(label)}</div>`}<div class="muted"><span class="mono">${e(node.commit?.commit?.slice(0, 10))}</span> ${node._revision_number ? `· PS ${e(node._revision_number)}` : ''} ${e(statusText(node.status))} ${current ? tr('<span class="badge">当前 PS</span>') : ''}${old ? tr`<span class="badge">旧 PS · 最新为 ${e(node._current_revision_number)}</span>` : ''}</div>${node.commit?.parents?.length ? tr`<div class="chain-parents muted mono">父提交 ← ${e(node.commit.parents.map(p => p.commit?.slice(0, 10)).join(', '))}</div>` : ''}</div>`;
-  }).join('') || tr('<p class="empty">此 PS 没有关联变更</p>')}</div>${button(tr('刷新关系链'), 'related')}</details>`;
+    return `<div class="chain-node ${current ? 'current' : ''}">${node._change_number ? button(label, 'relatedOpen', 'secondary file', `data-number="${e(node._change_number)}"`) : `<div class="chain-commit">${e(label)}</div>`}<div class="muted"><span class="mono">${e(node.commit?.commit?.slice(0, 10))}</span> ${node._revision_number ? `· PS ${e(node._revision_number)}` : ''} ${e(statusText(node.status))} ${current ? tr('<span class="badge">当前 PS</span>') : ''}${old ? tr`<span class="badge">旧 PS · 最新为 ${e(node._current_revision_number)}</span>` : ''}</div></div>`;
+  }).join('') || tr('<p class="empty">此 PS 没有关联变更</p>')}</div></details>`;
+}
+function changeActions(d) {
+  if (d.viewRevision && d.viewRevision !== d.current_revision) return '';
+  const actions = {...(d.revisions?.[d.current_revision]?.actions || {}), ...(d.actions || {})};
+  const edit = d.editStatus?.edit;
+  return tr`<div class="row change-actions">${d.mine && actions.ready?.enabled ? button(tr('发布为待评审'), 'ready', '') : ''}${d.mine && actions.rebase?.enabled ? button('Rebase', 'rebase') : ''}${d.mine && actions.abandon?.enabled ? button(tr('废弃'), 'abandon', 'secondary danger') : ''}${actions.submit?.enabled ? button(tr('合入分支'), 'submit') : ''}${d.mine && edit ? button(tr('发布 Edit 为新 PS'), 'publishEdit', '', edit.base_revision && edit.base_revision !== d.current_revision ? 'disabled data-unavailable="true"' : '') : ''}${d.mine && edit?.base_revision && edit.base_revision !== d.current_revision ? button(tr('Rebase Edit 到最新 PS'), 'rebaseEdit') : ''}</div>${d.mine && edit ? tr`<p class="muted">存在未发布的 Edit${edit.base_revision && edit.base_revision !== d.current_revision ? tr(' · 基于旧 PS，需先 Rebase Edit') : ''}</p>` : ''}`;
+}
+function conflictInfo(d) {
+  const status = d.conflictStatus;
+  if (!status || status.state === 'loading') return d.status === 'NEW' ? tr('<div id="conflict-info" class="muted status-check">正在检查合并冲突…</div>') : '<div id="conflict-info"></div>';
+  const conflict = status.mergeable === false;
+  const rows = status.changes || [];
+  if (!conflict && !rows.length && !status.unavailable) return '<div id="conflict-info"></div>';
+  return tr`<div id="conflict-info" class="conflict-info ${conflict || rows.length ? 'has-conflict' : ''}">${conflict ? tr('<strong>与目标分支存在合并冲突</strong>') : ''}${status.paths?.length ? `<p class="mono">${status.paths.map(e).join(' · ')}</p>` : ''}${rows.length ? tr`<details open><summary>冲突提交（${rows.length}）</summary>${rows.map(row => button(`#${row._number} · ${row.subject}`, 'conflictOpen', 'secondary conflict-link', `data-target="${e(row.id)}"`)).join('')}</details>` : ''}${status.unavailable ? tr('<p class="muted">部分冲突检查不可用，请使用刷新重试或查看 Gerrit 网页。</p>') : ''}</div>`;
 }
 function fileComparison(d) {
   const count = Object.keys(d.files || {}).filter(path => !path.startsWith('/')).length;
@@ -186,7 +201,7 @@ function discussion(d) {
     const replyKey = `${key()}::${last.id}`;
     return tr`<details class="card thread" data-thread-key="${e(`${key()}::${root.id}`)}" ${state.threadCollapsed?.[`${key()}::${root.id}`] ? '' : 'open'}><summary class="thread-summary"><b title="${e(path)}">${path === '/PATCHSET_LEVEL' ? tr('全局评论') : e(path)}${root.line ? `:${e(root.line)}` : tr(' · 文件评论')}</b><span class="thread-snippet" title="${e(firstLine(root.message))}">${markdown.renderInline(firstLine(root.message))}</span><span class="badge">${last.unresolved ? tr('未解决') : tr('已解决')}</span></summary><p class="muted">PS ${e(root.patch_set || '?')} · ${root.side === 'PARENT' ? 'Base' : 'Patch'} ${root.range ? tr`· 行 ${root.range.start_line}–${root.range.end_line}` : ''}</p>${list.map(c => `<div class="thread-message"><div class="message-byline"><span class="avatar">${e(who(c.author).slice(0, 1))}</span><b>${e(who(c.author))}</b><time>${e(time(c.updated))}</time></div><div class="message markdown-body">${md(c.message)}</div></div>`).join('')}<div class="row">${!path.startsWith('/') ? button(tr('定位到差异代码'), 'locate', 'secondary', `data-path="${e(path)}" data-comment="${e(root.id)}"`) : ''}</div><form data-form="reply" data-path="${e(path)}" data-comment="${e(last.id)}">${markdownEditor(state.replies?.[replyKey] || '', { replyKey, label: tr`回复 ${path} 的讨论`, placeholder: tr('回复这条讨论…') })}<div class="row"><button type="submit">发布回复</button></div></form></details>`;
   }).join('') || tr('<div class="empty">暂无符合筛选的代码讨论</div>')}<h2>活动记录</h2>${(d.messages || []).slice().reverse().map(m => `<details class="card activity"><summary><b>${e(who(m.author))}</b><span class="badge">PS ${e(m._revision_number)}</span><span class="activity-snippet" title="${e(firstLine(m.message))}">${markdown.renderInline(firstLine(m.message))}</span><time>${e(time(m.date))}</time></summary><div class="message markdown-body">${md(m.message)}</div></details>`).join('') || tr('<p class="muted">暂无活动</p>')}`;
-  return tr`<div class="review-shell"><div class="hero"><div class="hero-top"><span class="eyebrow">CHANGE #${e(d._number)}</span><span class="badge status">${e(changeStatus(d))}</span><div class="hero-actions"><span id="task-entry">${taskButton()}</span>${button(tr('刷新此变更'), 'refresh')}${button(tr('内置浏览器'), 'browser')}</div></div><div id="result-navigation" class="result-navigation" aria-label="检索结果导航">${resultNavigation()}${pendingSearch()}</div><h1>${e(displaySubject(d))}</h1><p class="muted">${metadataLink(d.project, 'repo')} <span class="separator">/</span> ${metadataLink(d.branch, 'branch')} <span class="separator">·</span> ${metadataLink(who(d.owner), 'owner')} <span class="badge">最新 PS ${e(d.revisions?.[d.current_revision]?._number)}</span></p>${timestamps(d)}</div>${commitInfo(d)}${relationChain(d)}<div class="discussion-layout"><section><nav class="tabs" aria-label="评审视图">${button(tr('讨论'), 'tabDiscussion', codeTab ? 'tab' : 'tab active')}${button(tr('代码与下载'), 'tabCode', codeTab ? 'tab active' : 'tab')}</nav>${codeTab ? `<div class="card code-panel" id="patch-browser">${patchBrowser(d)}</div>` : discussionBody}</section><aside><div class="ratings"><h2>当前评分 <span class="muted">最新 PS</span></h2>${reviewerManager(d)}${votes(d.labels) || tr('<p class="muted">暂无评分标签</p>')}</div><div class="card composer">${reviewForm(d)}</div></aside></div></div>`;
+  return tr`<div class="review-shell"><div class="hero"><div class="hero-top"><span class="eyebrow">CHANGE #${e(d._number)}</span><span class="badge status">${e(changeStatus(d))}</span><div class="hero-actions"><span id="task-entry">${taskButton()}</span>${button(tr('刷新此变更'), 'refresh')}${button(tr('内置浏览器'), 'browser')}</div></div><div id="result-navigation" class="result-navigation" aria-label="检索结果导航">${resultNavigation()}${pendingSearch()}</div><h1>${e(displaySubject(d))}</h1><p class="muted">${metadataLink(d.project, 'repo')} <span class="separator">/</span> ${metadataLink(d.branch, 'branch')} <span class="separator">·</span> ${metadataLink(who(d.owner), 'owner')} <span class="badge">最新 PS ${e(d.revisions?.[d.current_revision]?._number)}</span></p>${timestamps(d)}<div id="change-actions">${changeActions(d)}</div>${conflictInfo(d)}</div>${commitInfo(d)}${relationChain(d)}<div class="discussion-layout"><section><nav class="tabs" aria-label="评审视图">${button(tr('讨论'), 'tabDiscussion', codeTab ? 'tab' : 'tab active')}${button(tr('代码与下载'), 'tabCode', codeTab ? 'tab active' : 'tab')}</nav>${codeTab ? `<div class="card code-panel" id="patch-browser">${patchBrowser(d)}</div>` : discussionBody}</section><aside><div class="ratings"><h2>当前评分 <span class="muted">最新 PS</span></h2>${reviewerManager(d)}${votes(d.labels) || tr('<p class="muted">暂无评分标签</p>')}</div><div class="card composer">${reviewForm(d)}</div></aside></div></div>`;
 }
 
 
@@ -216,7 +231,7 @@ function resultNavigation() {
 function sidebarDetail(d) {
   const rev = d.revisions?.[d.current_revision]; const actions = d.viewRevision && d.viewRevision !== d.current_revision ? {} : d.actions || {};
   const commentCount = Object.values(d.comments || {}).flat().length;
-  return tr`<div class="row">${button(tr('← 返回列表'), 'back')}${button(tr('刷新此变更'), 'refresh')}${button(tr('内置浏览器'), 'browser')}</div><p><span class="badge">#${e(d._number)}</span><span class="badge status">${e(changeStatus(d))}</span>${d.work_in_progress ? '<span class="badge">WIP</span>' : ''}</p><div id="result-navigation" class="result-navigation" aria-label="检索结果导航">${resultNavigation()}${pendingSearch()}</div><h1>${e(displaySubject(d))}</h1><p class="muted">${metadataLink(d.project, 'repo')} → ${metadataLink(d.branch, 'branch')}<br>${metadataLink(who(d.owner), 'owner')} · 最新 PS ${e(rev?._number)}</p>${timestamps(d)}${commitInfo(d)}<div class="review-entry">${icon('discussion')}${button(tr`打开评审讨论（${commentCount} 条代码评论）`, 'discussion', 'wide')}<p class="muted">讨论与评分、Commit 信息、单个 Patch 代码和本地下载。</p></div><div class="row">${d.mine && actions.ready?.enabled ? button(tr('发布为待评审'), 'ready', '') : ''}${d.mine && actions.abandon?.enabled ? button(tr('废弃'), 'abandon', 'secondary danger') : ''}${actions.submit?.enabled ? button(tr('合入分支'), 'submit') : ''}</div>${reviewerManager(d)}${relationChain(d)}${fileComparison(d)}`;
+  return tr`<div class="row">${button(tr('← 返回列表'), 'back')}${button(tr('刷新此变更'), 'refresh')}${button(tr('内置浏览器'), 'browser')}</div><p><span class="badge">#${e(d._number)}</span><span class="badge status">${e(changeStatus(d))}</span>${d.work_in_progress ? '<span class="badge">WIP</span>' : ''}</p><div id="result-navigation" class="result-navigation" aria-label="检索结果导航">${resultNavigation()}${pendingSearch()}</div><h1>${e(displaySubject(d))}</h1><p class="muted">${metadataLink(d.project, 'repo')} → ${metadataLink(d.branch, 'branch')}<br>${metadataLink(who(d.owner), 'owner')} · 最新 PS ${e(rev?._number)}</p>${timestamps(d)}${commitInfo(d)}<div class="review-entry">${icon('discussion')}${button(tr`打开评审讨论（${commentCount} 条代码评论）`, 'discussion', 'wide')}<p class="muted">讨论与评分、Commit 信息、单个 Patch 代码和本地下载。</p></div><div id="change-actions">${changeActions(d)}</div>${conflictInfo(d)}${reviewerManager(d)}${relationChain(d)}${fileComparison(d)}`;
 }
 
 const searchIdentity = () => `${model.server || ''}::${model.accountId ?? model.username ?? ''}`;
@@ -298,7 +313,7 @@ app.addEventListener('click', event => {
   if (action === 'resetSearch') { submitSearch({ message: '', repo: '', branch: '', owner: '', changeNumber: '', file: '', query: 'is:open', unreviewed: false }); return; }
   if (action === 'preset') submitSearch({ query: b.dataset.query, unreviewed: ['is:merged', 'is:abandoned'].includes(b.dataset.query) ? false : !!model.unreviewed });
   else if (action === 'next' || action === 'prev') post('page', { next: action === 'next' });
-  else if (['ready', 'abandon', 'submit'].includes(action)) post('action', { ...payload(), action });
+  else if (['ready', 'abandon', 'submit', 'rebase'].includes(action)) post('action', { ...payload(), action });
   else post(action, { ...payload(), ...b.dataset });
 });
 function saveReview() {
@@ -342,9 +357,12 @@ app.addEventListener('keydown', event => {
   }
 });
 app.addEventListener('toggle', event => {
-  if (event.target.dataset?.relationKey) {
-    state.relations ||= {}; state.relations[event.target.dataset.relationKey] = event.target.open; save();
-    return;
+  const panel = event.target.id === 'commit-info' ? 'commit' : event.target.dataset?.relationKey ? 'relation' : undefined;
+  if (panel) {
+    const surface = model.surface || 'sidebar';
+    state.panelExpansion ||= {}; state.panelExpansion[surface] ||= {};
+    state.panelExpansion[surface][panel] = event.target.open; save();
+    post('foldState', {surface, panel, expanded: event.target.open}); return;
   }
   if (!event.target.dataset?.threadKey) return;
   state.threadCollapsed ||= {}; state.threadCollapsed[event.target.dataset.threadKey] = !event.target.open; save();
@@ -353,6 +371,12 @@ for (const name of ['pointerover','focusin','wheel']) app.addEventListener(name,
   if (event.target.closest?.('#inbox-results')) post('lockSearch');
 }, { passive: true });
 window.addEventListener('message', ({ data }) => {
+  if (data.type === 'changeStatus' && model.detail?.id === data.id && model.detail.current_revision === data.rev) {
+    model.detail.conflictStatus = data.conflictStatus; model.detail.editStatus = data.editStatus;
+    const conflicts = document.getElementById('conflict-info'); if (conflicts) conflicts.outerHTML = conflictInfo(model.detail);
+    const actions = document.getElementById('change-actions'); if (actions) actions.innerHTML = changeActions(model.detail);
+    setBusy(); return;
+  }
   if (data.type === 'showDiscussion' && model.surface === 'discussion' && model.detail) {
     state.tabs ||= {}; state.tabs[model.detail.id] = 'discussion'; save(); render();
   }

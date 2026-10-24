@@ -8,6 +8,7 @@ const { fileLimitReason } = require('./limits');
 const { classifyFile } = require('./files');
 const {nativeCommentTarget} = require('./comment-navigation');
 const { NativeFiles } = require('./native-files');
+const {ChangeEdits} = require('./change-edit');
 const { PathIndex } = require('./path-index');
 const { ReviewProgress } = require('./review-progress');
 const { git, pushRef } = require('./git');
@@ -29,6 +30,10 @@ function activate(context) {
     vscode.commands.registerCommand('gerrit.openThisFile', uri => app.run(() => app.openSnapshot(uri || vscode.window.activeTextEditor?.document.uri))),
     vscode.commands.registerCommand('gerrit.showFiles', () => app.showFiles()),
     vscode.workspace.registerTextDocumentContentProvider('gerrit', app),
+    vscode.workspace.registerFileSystemProvider('gerrit-edit', app.edits, {isCaseSensitive: true}),
+    vscode.commands.registerCommand('gerrit.edit', () => app.run(() => app.edits.start())),
+    vscode.commands.registerCommand('gerrit.saveEdit', () => app.run(() => app.edits.save())),
+    vscode.commands.registerCommand('gerrit.publishEdit', () => app.run(() => app.edits.publish())),
     vscode.commands.registerCommand('gerrit.connect', () => app.run(() => app.connect())),
     vscode.commands.registerCommand('gerrit.refresh', () => app.run(() => app.refreshCurrent())),
     vscode.commands.registerCommand('gerrit.push', () => app.run(() => app.push())),
@@ -66,8 +71,9 @@ class Workbench {
     this.logger = new Logger(this.output);
     this.model = { connected: false, changes: [], query: this.setting('defaultQuery', 'is:open'), start: 0 };
     this.explicitStandaloneTabs = new WeakSet(); this.patchDeltaCache = new Map(); this.backgroundJobs = new Map(); this.reviewProgress = new ReviewProgress(context.globalState); this.parentTrail = []; this.inboxPages = new Map(); this.patchPathCache = new Map(); this.downloadJobs = new Map(); this.nativeFiles = new NativeFiles(vscode); this.pathIndex = new PathIndex((...args) => this.runGit(...args));
+    this.panelExpansion = context.globalState?.get('panelExpansion', {}) || {};
     this.configure();
-    this.documents = new Map(); this.threads = new Map(); this.selected = null; this.busy = false;
+    this.documents = new Map(); this.threads = new Map(); this.selected = null; this.busy = false; this.edits = new ChangeEdits(this, vscode);
     this.commentDecoration = vscode.window.createTextEditorDecorationType({
       gutterIconPath: vscode.Uri.joinPath(context.extensionUri, 'media', 'comment.svg'), gutterIconSize: 'contain',
       overviewRulerColor: new vscode.ThemeColor('gerrit.commentMarker'), overviewRulerLane: vscode.OverviewRulerLane.Full
@@ -86,8 +92,7 @@ class Workbench {
     this.model.language = this.setting('language', 'zh-CN'); setLanguage(this.model.language);
     this.logger.level = this.setting('logLevel', 'info');
     this.model.pageSize = this.setting('pageSize', 50);
-    this.model.commitInfoExpanded = this.setting('commitInfo.defaultExpanded', true);
-    this.model.relationChainExpanded = this.setting('relationChain.defaultExpanded', true);
+    this.model.panelExpansion = this.panelExpansion;
     if (this.api) { this.api.pageSize = this.model.pageSize; this.api.timeout = this.setting('requestTimeout', 30000); }
     this.updateNativeCommentLanguage();
     this.render();
@@ -100,12 +105,12 @@ class Workbench {
   validInfo(info) { return !!(info && this.selected && info.id === this.selected.id && (this.selected.change.revisions ? this.selected.change.revisions[info.rev] : info.rev === this.selected.rev)); }
   dispose() {
     if (this.disposal) return this.disposal;
-    this.disposed = true; this.contextController?.abort(); this.cancelSearch();
+    this.disposed = true; this.contextController?.abort(); this.statusController?.abort(); this.cancelSearch();
     for (const job of this.backgroundJobs.values()) this.cancelTask(job.taskId);
     this.tasksView?.dispose();
     this.disposal = Promise.allSettled([this.nativeFiles.dispose(), this.pathIndex.dispose(), this.reviewProgress.saving]);
     this.gateway?.dispose(); this.discussion?.dispose(); this.clearThreads(); this.controller.dispose();
-    this.commentDecoration.dispose(); this.status.dispose(); this.output.dispose();
+    this.edits.dispose(); this.commentDecoration.dispose(); this.status.dispose(); this.output.dispose();
     return this.disposal;
   }
   clearThreads() { for (const thread of this.threads.keys()) thread.dispose(); this.threads.clear(); }
@@ -120,8 +125,7 @@ class Workbench {
     this.model.language = this.setting('language', 'zh-CN');
     if (this.status) this.status.tooltip = tr('打开 Gerrit 工作台');
     for (const file of Object.values(this.model.detail?.files || {})) if (file.blockedReason) file.blockedReason = tr.current(file.blockedReason);
-    this.model.commitInfoExpanded = this.setting('commitInfo.defaultExpanded', true);
-    this.model.relationChainExpanded = this.setting('relationChain.defaultExpanded', true);
+    this.model.panelExpansion = this.panelExpansion;
     this.model.downloads = this.downloadSnapshot();
     this.model.backgroundTasks = this.taskSnapshot();
     this.model.breadcrumbs = this.parentTrail.map((item, index) => ({ index, number: item.number }));
@@ -177,9 +181,23 @@ class Workbench {
   async loadRelated() {
     const s = this.selected, detail = this.model.detail, api = this.api;
     const focus = detail?.viewRevision || s.rev;
-    const related = await api.related(s.id, focus, { signal: this.contextController?.signal });
+    const signal = this.contextController?.signal;
+    const related = await api.related(s.id, focus, {signal});
     if (!Array.isArray(related?.changes)) throw new Error(tr('服务器未返回有效的 Relation chain'));
     if (this.model.detail !== detail || this.api !== api || this.disposed) return;
+    const missing = [...new Set(related.changes.filter(node => node._change_number && !node._current_revision_number).map(node => node._change_number))];
+    if (typeof api.changeHeads === 'function') for (let offset = 0; offset < missing.length; offset += 20) {
+      try {
+        const heads = await api.changeHeads(missing.slice(offset, offset + 20), {signal});
+        if (this.model.detail !== detail || this.api !== api || this.disposed) return;
+        for (const node of related.changes) {
+          const head = heads.find(item => item._number === node._change_number);
+          if (head) node._current_revision_number = head.revisions?.[head.current_revision]?._number;
+        }
+      } catch { /* Keep the chain available if an older server cannot supply summaries. */ }
+    }
+    if (this.model.detail !== detail || this.api !== api || this.disposed || signal?.aborted) return;
+    for (const node of related.changes) if (Number.isSafeInteger(node._change_number) && node._change_number === s.change._number && s.change.revisions?.[s.rev]) node._current_revision_number = s.change.revisions[s.rev]._number;
     detail.related = { rev: focus, status: 'completed', changes: related.changes };
     this.send({ type: 'relatedState', id: s.id, rev: s.rev, focusRevision: focus, related: detail.related });
   }
@@ -284,6 +302,12 @@ class Workbench {
       this.render(); webview.postMessage({ type: 'busy', value: this.busy });
       if (!this.api && !this.busy) return this.run(() => this.restore());
       return;
+    }
+    if (message?.type === 'foldState') {
+      if (!['sidebar', 'discussion'].includes(message.surface) || !['commit', 'relation'].includes(message.panel) || typeof message.expanded !== 'boolean') return;
+      this.panelExpansion[message.surface] ||= {};
+      this.panelExpansion[message.surface][message.panel] = message.expanded;
+      return this.context.globalState?.update('panelExpansion', this.panelExpansion);
     }
     if (message?.type === 'rendered') {
       if (webview === this.view?.webview) { this.sidebarReady = true; this.sidebarError = undefined; }
@@ -543,11 +567,37 @@ class Workbench {
     for (const page of this.inboxPages.values()) page.rows = page.rows.map(update);
     if (this.searchResults) this.searchResults.rows = this.searchResults.rows.map(update);
     this.model.detail = { ...change, viewRevision: focus, viewPinned: pinned, files, comments, comparison: plan, patchView, related, mine: change.owner?._account_id === this.user._account_id };
-    this.preloadContext(); this.loadFileProgress(); this.preloadPatchChanges();
+    this.preloadContext(); this.loadFileProgress(); this.preloadPatchChanges(); this.loadChangeStatus(); this.updateEditContext?.();
     if (this.discussion) this.discussion.title = tr`#${change._number} · 评审讨论`;
     // Reattach comments in any already-open snapshot for this exact patch set.
     for (const [uri, info] of this.documents) if (this.validInfo(info)) await this.attach(vscode.Uri.parse(uri), info);
     if (render) { this.render(); if (opening) await this.showFiles(); }
+  }
+  loadChangeStatus() {
+    const s = this.selected, detail = this.model.detail, api = this.api;
+    if (!s || !detail || s.change.status !== 'NEW') return;
+    this.statusController?.abort();
+    const controller = new AbortController(); this.statusController = controller;
+    const signal = controller.signal, contextSignal = this.contextController?.signal;
+    const cancel = () => controller.abort();
+    contextSignal?.addEventListener('abort', cancel, {once: true});
+    if (contextSignal?.aborted) controller.abort();
+    const active = () => this.selected === s && this.model.detail === detail && this.api === api && !signal?.aborted && !this.disposed;
+    detail.conflictStatus = {state: 'loading', changes: []};
+    const jobs = [
+      typeof api.mergeable === 'function' ? api.mergeable(s.id, s.rev, {signal}) : Promise.resolve({mergeable: s.change.mergeable}),
+      typeof api.conflicts === 'function' ? api.conflicts(s.change._number, {signal}) : Promise.resolve([]),
+      detail.mine && typeof api.edit === 'function' ? api.edit(s.id, {signal}) : Promise.resolve(undefined)
+    ];
+    this.changeStatusJob = Promise.allSettled(jobs).then(results => {
+      if (!active()) return;
+      const [merge, conflicts, edit] = results;
+      detail.conflictStatus = {state: 'completed', mergeable: merge.status === 'fulfilled' ? merge.value?.mergeable : s.change.mergeable,
+        paths: merge.status === 'fulfilled' ? merge.value?.conflicts || [] : [], changes: conflicts.status === 'fulfilled' ? conflicts.value : [],
+        unavailable: [merge, conflicts].some(result => result.status === 'rejected')};
+      if (detail.mine) detail.editStatus = edit.status === 'fulfilled' ? {loaded: true, edit: edit.value} : {loaded: false};
+      this.send({type: 'changeStatus', id: s.id, rev: s.rev, conflictStatus: detail.conflictStatus, editStatus: detail.editStatus});
+    }).finally(() => contextSignal?.removeEventListener('abort', cancel));
   }
   async compare(left, right) {
     const s = this.selected; const plan = comparisonPlan(s.change.revisions, left, right);
@@ -847,6 +897,13 @@ class Workbench {
       this.discussion?.webview.postMessage({ type: 'showDiscussion' }); return;
     }
     if (m.type === 'showFiles') return this.showFiles();
+    if (m.type === 'publishEdit') return this.edits.publish(s.id);
+    if (m.type === 'rebaseEdit') return this.edits.rebase(s.id);
+    if (m.type === 'conflictOpen') {
+      const row = this.model.detail.conflictStatus?.changes.find(row => row.id === m.target);
+      if (!row) throw new Error(tr('冲突列表已更新，请刷新'));
+      this.parentTrail = []; return this.load(row.id);
+    }
     if (m.type === 'related') return this.loadRelated();
     if (m.type === 'relatedOpen') {
       const node = this.model.detail.related?.changes.find(item => String(item._change_number) === String(m.number));
@@ -884,16 +941,31 @@ class Workbench {
       await this.postComment({ ...parent, rev, path: m.path }, text, parent.id); this.send({ type: 'replySent', comment: parent.id }); await this.load(s.id); return;
     }
     if (m.type === 'action') {
-      const action = String(m.action); const titles = { ready: tr('发布为待评审'), abandon: tr('废弃变更'), submit: tr('合入目标分支') };
-      if (!titles[action] || !s.change.actions?.[action]?.enabled) throw new Error(tr('当前状态或权限不允许此操作，请刷新'));
-      if (['ready', 'abandon'].includes(action) && !this.model.detail.mine) throw new Error(tr('此入口仅操作自己的提交'));
-      if (!await this.confirm(`${titles[action]}：#${s.change._number} ${s.change.subject}`, titles[action])) return;
+      const action = String(m.action); const titles = { ready: tr('发布为待评审'), abandon: tr('废弃变更'), submit: tr('合入目标分支'), rebase: 'Rebase' };
+      if (!titles[action] || !(s.change.actions?.[action] || s.change.revisions?.[s.rev]?.actions?.[action])?.enabled) throw new Error(tr('当前状态或权限不允许此操作，请刷新'));
+      if (['ready', 'abandon', 'rebase'].includes(action) && !this.model.detail.mine) throw new Error(tr('此入口仅操作自己的提交'));
       let message;
       if (action === 'abandon') { message = await vscode.window.showInputBox({ title: tr('废弃原因（可留空，Esc 取消）'), ignoreFocusOut: true }); if (message === undefined) return; }
-      await this.api.action(s.id, action, message ? { message } : {}); await this.load(s.id);
+      let input = message ? {message} : {};
+      if (action === 'rebase') {
+        if (this.edits?.hasDirty(s.id)) throw new Error(tr('请先保存并发布 Edit，再执行 Rebase'));
+        const target = await vscode.window.showQuickPick([
+          {label: tr('自动选择 Base（沿用依赖关系）'), input: {}},
+          {label: tr('直接基于目标分支最新提交'), input: {base: ''}},
+          {label: tr('指定提交或 PS 作为 Base'), manual: true}
+        ], {title: 'Rebase', ignoreFocusOut: true});
+        if (!target) return;
+        input = target.input;
+        if (target.manual) {
+          const base = await vscode.window.showInputBox({title: tr('输入 Gerrit 号、提交 SHA 或 ref'), ignoreFocusOut: true, validateInput: value => value.trim() && !/[\s\x00-\x1f]/.test(value) ? undefined : tr('请输入有效的 Base')});
+          if (base === undefined) return; input = {base: base.trim()};
+        }
+      }
+      try { await this.api.action(s.id, action, input); }
+      catch (error) { this.loadChangeStatus(); throw error; }
+      await this.load(s.id);
     }
   }
-  async confirm(message, button) { return await vscode.window.showWarningMessage(message, { modal: true }, button) === button; }
   provideTextDocumentContent(uri) { const doc = this.documents.get(uri.toString()); if (!doc) throw new Error(tr('此 Gerrit 快照已失效，请从工作台重新打开文件')); return doc.content; }
   async openDiff(path) {
     const s = this.selected; const file = s.files[path]; if (!file) throw new Error(tr('文件不存在'));
@@ -920,6 +992,7 @@ class Workbench {
     });
     await vscode.commands.executeCommand('vscode.diff', uris[0], uris[1], `${path} · ${sides[0].label} ↔ ${sides[1].label}`, { preview: true, viewColumn: this.setting('diff.openBeside', false) ? vscode.ViewColumn.Beside : vscode.ViewColumn.Active });
     for (const uri of uris) await this.attach(uri, this.documents.get(uri.toString()));
+    this.updateEditContext();
     return { sides, uris };
   }
   async openSnapshot(uri) {
@@ -1030,7 +1103,16 @@ class Workbench {
     }
     return [...points].sort((a, b) => a[0] - b[0]);
   }
+  updateEditContext() {
+    const input = vscode.window.tabGroups?.activeTabGroup?.activeTab?.input;
+    const info = input?.modified && this.documents?.get(input.modified.toString());
+    const s = this.selected;
+    const canEdit = !!(s && info && info.id === s.id && info.rev === s.rev && info.side === 'REVISION' && !info.empty && s.change.status === 'NEW' && Number.isInteger(this.user?._account_id) && s.change.owner?._account_id === this.user._account_id);
+    void vscode.commands.executeCommand('setContext', 'gerritCanEdit', canEdit);
+    void vscode.commands.executeCommand('setContext', 'gerritEditing', !!this.edits?.active() && !this.edits.active().session.retired);
+  }
   updateDecorations() {
+    this.updateEditContext();
     if (!this.documents || !this.commentDecoration) return;
     for (const editor of vscode.window.visibleTextEditors || []) {
       const info = this.documents.get(editor.document.uri.toString());
@@ -1131,15 +1213,13 @@ class Workbench {
     await this.runGit(cwd, ['fetch', '--no-tags', '--', remote, `refs/heads/${branch}`]);
     const commits = (await this.runGit(cwd, ['rev-list', '--reverse', 'FETCH_HEAD..HEAD'])).split('\n').filter(Boolean);
     if (!commits.length) throw new Error(tr('没有需要上传到该目标分支的新 commit'));
-    const summaries = [];
     for (const hash of commits) {
       const message = await this.runGit(cwd, ['show', '-s', '--format=%B', hash]);
       if (!/^Change-Id: I[0-9a-f]{40}\s*$/m.test(message)) throw new Error(tr`Commit ${hash.slice(0, 8)} 缺少有效 Change-Id。请安装 Gerrit commit-msg hook 并 amend 对应 commit 后重试（README 有说明）`);
-      summaries.push(`${hash.slice(0, 8)} ${message.split('\n')[0]}`);
     }
     const remoteUrl = await this.runGit(cwd, ['remote', 'get-url', '--push', remote]);
     const safeUrl = remoteUrl.replace(/(https?:\/\/)[^/@]+@/i, '$1***@');
-    if (!await this.confirm(tr`上传 ${commits.length} 个 commit 到 ${safeUrl}\n${ref}\n\n${summaries.join('\n')}`, tr('上传评审'))) return;
+    this.logger.write('info', tr`上传 ${commits.length} 个 commit 到 ${safeUrl} · ${ref}`);
     await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: tr('上传 Gerrit 评审…') }, () => this.runGit(cwd, ['push', '--', remote, ref]));
     vscode.window.showInformationMessage(tr('Gerrit 上传成功，请刷新查看最新提交'));
   }

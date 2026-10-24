@@ -17,7 +17,9 @@
 
 ## 1.1.0 本地验证
 
-- `python scripts/verify.py`：157 项测试通过，覆盖远端分支、读取取消、候选过期响应、评审人员权限、组确认、移除评分提示和双语入口。
+本批版本号不变。原生 Edit diff 验证覆盖只读 Base、右侧编辑、多文件保存到同一服务器草稿后统一发布一次，以及发布后的只读会话。冲突检查、持久化折叠、Rebase 和无确认弹窗流程均有回归测试。没有对内网既有提交执行写入验收。
+
+- `python scripts/verify.py`：176 项测试通过，覆盖远端分支、读取取消、候选过期响应、评审人员权限、组确认、移除评分提示和双语入口。
 - `python scripts/package.py` 与 `python scripts/check_release.py`：通过，只保留当前 Gerrit Workbench VSIX。
 - `python scripts/verify_host.py --vsix gerrit-workbench-1.1.0.vsix --viewer-vsix <第三方查看器.vsix>`：隔离宿主通过，VS Code 1.143.1 + Excel Viewer 4.2.58；有效旧、新 XLSX 原文件分别交给自定义编辑器，在两个组中使用预览标签打开。第三方扩展仅装入临时测试环境，不加入本插件依赖或 VSIX。
 - Excel 集成验证覆盖 XLSX 的原字节、编辑器类型和分屏打开，不覆盖所有 Excel 格式或复杂公式 / 图表的视觉正确性。本机截图运行环境不可用，未声明完成截图验收。
@@ -29,7 +31,9 @@
 
 ## 1.1.0 local validation
 
-- `python scripts/verify.py`: 157 passing tests covering remote branch selection, cancellation, stale suggestions, ownership, group confirmation, vote-removal warnings and bilingual controls.
+The version is unchanged for this batch. Native Edit integration covers immutable Base, writable right side, multiple files saved to one server draft and published once, and a retired read-only session. Regression tests cover conflict checks, persistent folding, Rebase and operations without confirmation popups. No write acceptance test was performed against existing intranet changes.
+
+- `python scripts/verify.py`: 176 passing tests covering remote branch selection, cancellation, stale suggestions, ownership, group confirmation, vote-removal warnings and bilingual controls.
 - `python scripts/package.py` and `python scripts/check_release.py`: passed; retain only the current Gerrit Workbench VSIX.
 - `python scripts/verify_host.py --vsix gerrit-workbench-1.1.0.vsix --viewer-vsix <third-party-viewer.vsix>`: passed in an isolated VS Code 1.143.1 host with Excel Viewer 4.2.58. Valid old/new XLSX snapshots opened as custom-editor preview tabs in two groups. The viewer is installed only in the temporary test profile, not bundled or required by this extension.
 - Excel integration checks exact bytes, editor type and split opening for XLSX, not every Excel format or visual correctness of complex formulas/charts. The screenshot runtime was unavailable; visual screenshot acceptance is not claimed.

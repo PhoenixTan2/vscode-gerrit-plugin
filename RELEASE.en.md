@@ -17,7 +17,9 @@ Before any future public release, confirm the real publisher ID, repository and 
 
 ## 1.1.0 local validation
 
-- `python scripts/verify.py`: 157 passing tests covering remote branch selection, cancellation, stale suggestions, ownership, group confirmation, vote-removal warnings and bilingual controls.
+The version is unchanged for this batch. Native Edit integration covers immutable Base, writable right side, multiple files saved to one server draft and published once, and a retired read-only session. Regression tests cover conflict checks, persistent folding, Rebase and operations without confirmation popups. No write acceptance test was performed against existing intranet changes.
+
+- `python scripts/verify.py`: 176 passing tests covering remote branch selection, cancellation, stale suggestions, ownership, group confirmation, vote-removal warnings and bilingual controls.
 - `python scripts/package.py` and `python scripts/check_release.py`: passed; retain only the current Gerrit Workbench VSIX.
 - `python scripts/verify_host.py --vsix gerrit-workbench-1.1.0.vsix --viewer-vsix <third-party-viewer.vsix>`: passed in an isolated VS Code 1.143.1 host with Excel Viewer 4.2.58. Valid old/new XLSX snapshots opened as custom-editor preview tabs in two groups. The viewer is installed only in the temporary test profile, not bundled or required by this extension.
 - Excel integration checks exact bytes, editor type and split opening for XLSX, not every Excel format or visual correctness of complex formulas/charts. The screenshot runtime was unavailable; visual screenshot acceptance is not claimed.

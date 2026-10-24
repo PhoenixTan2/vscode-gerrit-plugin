@@ -67,11 +67,11 @@ test('compare form and reply form retain current change identity and exact targe
 });
 test('review hub aligns creation/update dates and hosts Commit, single Patch and download controls', () => {
   const f = surfaceFixture(); const detail = { id: 'change', _number: 42, current_revision: 'rev', subject: 'test', created: '2026-01-01 00:00:00', updated: '2026-02-01 00:00:00', revisions: { rev: { _number: 2, commit: { message: 'Commit body', committer: { date: '2026-01-02' } } } }, patchView: { rev: 'rev', files: ['src/a.js'] } };
-  f.update({ connected: true, commitInfoExpanded: true, detail });
+  f.update({ connected: true, panelExpansion: {sidebar:{commit:true},discussion:{commit:true}}, detail });
   assert.ok(f.app.innerHTML.includes('class="commit-info" open'));
   assert.ok(!f.app.innerHTML.includes('data-action="download"'));
   assert.ok(!f.app.innerHTML.includes('data-action="single"'));
-  f.update({ connected: true, surface: 'discussion', commitInfoExpanded: true, detail });
+  f.update({ connected: true, surface: 'discussion', panelExpansion: {sidebar:{commit:true},discussion:{commit:true}}, detail });
   assert.ok(f.app.innerHTML.includes('Commit body'));
   assert.ok(f.app.innerHTML.includes('class="timestamps"'));
   assert.ok(f.app.innerHTML.indexOf('创建时间') < f.app.innerHTML.indexOf('最后更新'));
@@ -82,7 +82,7 @@ test('review hub aligns creation/update dates and hosts Commit, single Patch and
   f.elements['patch-revision'] = { value: 'rev' };
   f.events.click({ target: { closest: selector => selector === '.markdown-preview' ? null : ({ dataset: { action: 'download' } }) } });
   assert.equal(f.messages.at(-1).patchRev, 'rev');
-  f.update({ connected: true, surface: 'discussion', commitInfoExpanded: false, detail });
+  f.update({ connected: true, surface: 'discussion', panelExpansion: {discussion:{commit:false}}, detail });
   assert.ok(!f.app.innerHTML.includes('class="commit-info" open'));
 });
 test('download progress updates only task region and preserves review input', () => {
@@ -149,7 +149,7 @@ test('relation nodes distinguish historical PS and escape subjects without linki
   ] } } });
   assert.ok(f.app.innerHTML.includes('旧 PS · 最新为 2')); assert.ok(f.app.innerHTML.includes('&lt;dependency&gt;'));
   assert.equal((f.app.innerHTML.match(/data-action="relatedOpen"/g) || []).length, 1);
-  assert.ok(f.app.innerHTML.includes('父提交 ← base'));
+  assert.ok(!f.app.innerHTML.includes('父提交 ← base'));
 });
 test('Open cards translate NEW and distinguish personal review state, with filters sent to host', () => {
   const f = surfaceFixture();
@@ -260,7 +260,7 @@ test('relation expansion never triggers loading and background updates retain co
   const f = surfaceFixture();
   const panel = { open: true, dataset: {} }; f.elements['relation-chain'] = panel;
   f.message({ type: 'busy', value: true });
-  const model = { connected: true, relationChainExpanded: true, detail: { id: 'c', current_revision: 'r' } };
+  const model = { connected: true, panelExpansion: {sidebar:{relation:true}}, detail: { id: 'c', current_revision: 'r' } };
   f.update(model);
   assert.ok(f.app.innerHTML.includes('<details id="relation-chain"'));
   assert.ok(!f.app.innerHTML.includes('relation-unloaded'));
@@ -404,5 +404,32 @@ test('reviewer management is available only on own open latest changes in both s
       f.update({connected:true,surface,language,detail:{...detail,...override}});
       assert.ok(!f.app.innerHTML.includes('data-action="manageReviewers"'));
     }
+  }
+});
+
+
+test('compact relation chains omit anonymous parents while marking outdated patch sets',()=>{
+  const f=surfaceFixture();f.update({connected:true,detail:{id:'c',current_revision:'rev',revisions:{rev:{_number:3}},related:{status:'completed',changes:[
+    {_change_number:1,_revision_number:2,_current_revision_number:3,commit:{commit:'sha',subject:'Dependency',parents:[{commit:'base'}]}},
+    {commit:{commit:'base',subject:'Anonymous base'}}]}}});
+  assert.ok(f.app.innerHTML.includes('旧 PS · 最新为 3'));assert.ok(!f.app.innerHTML.includes('父提交 ←'));assert.ok(!f.app.innerHTML.includes('Anonymous base'));
+});
+test('folding is remembered across changes separately for workbench and discussion',()=>{
+  const f=surfaceFixture();f.update({connected:true,detail:{id:'a',current_revision:'rev'}});
+  f.events.toggle({target:{id:'commit-info',open:false}});
+  assert.equal(f.messages.at(-1).type,'foldState');assert.equal(f.messages.at(-1).panel,'commit');
+  f.update({connected:true,detail:{id:'b',current_revision:'rev'}});assert.ok(!f.app.innerHTML.includes('class="commit-info" open'));
+  f.update({connected:true,surface:'discussion',detail:{id:'b',current_revision:'rev'}});assert.ok(f.app.innerHTML.includes('class="commit-info" open'));
+});
+test('conflicting change links and edit/rebase actions appear on both surfaces without replacing review input',()=>{
+  const f=surfaceFixture();const detail={id:'c',status:'NEW',mine:true,current_revision:'rev',revisions:{rev:{_number:1}},actions:{ready:{enabled:true},rebase:{enabled:true}},editStatus:{edit:{base_revision:'rev'}}};
+  for(const surface of ['sidebar','discussion']) {
+    f.update({connected:true,surface,language:'en',detail});
+    for(const action of ['ready','rebase','publishEdit']) assert.ok(f.app.innerHTML.includes(`data-action="${action}"`));
+    const actions={};f.elements['change-actions']=actions;const conflicts={};f.elements['conflict-info']=conflicts;
+    const draft={value:'unsaved'};f.elements['review-message']=draft;
+    f.message({type:'changeStatus',id:'c',rev:'rev',conflictStatus:{state:'completed',mergeable:false,paths:['<unsafe>.c'],changes:[{id:'other',_number:2,subject:'<script>'}]},editStatus:{edit:{base_revision:'old'}}});
+    assert.ok(conflicts.outerHTML.includes('data-action="conflictOpen"'));assert.ok(conflicts.outerHTML.includes('&lt;unsafe&gt;.c'));assert.equal(draft.value,'unsaved');
+    assert.ok(actions.innerHTML.includes('data-action="rebaseEdit"'));assert.ok(actions.innerHTML.includes('disabled data-unavailable="true"'));
   }
 });
