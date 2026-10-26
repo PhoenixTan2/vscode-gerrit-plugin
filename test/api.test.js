@@ -238,3 +238,9 @@ test('saved edit revisions use normal files/content APIs and discard deletes the
  await api.bytes('c','edit','x.c');assert.ok(received.at(-1).url.endsWith('/revisions/edit/files/x.c/content'));
  await api.discardEdit('c');assert.equal(received.at(-1).method,'DELETE');assert.ok(received.at(-1).url.endsWith('/changes/c/edit'));
 });
+
+
+test('historical diff metadata requests encode filenames and revision/Base commits',async()=>{
+ const api=new GerritApi(url,'user','http-key');await api.diff('p/main~I1','new','src/a c.c','old');assert.ok(received.at(-1).url.endsWith('/revisions/new/files/src%2Fa%20c.c/diff?base=old&context=ALL'));
+ await api.commitDiff('team/repo','target-parent','src/a c.c','source-parent');assert.ok(received.at(-1).url.endsWith('/projects/team%2Frepo/commits/target-parent/files/src%2Fa%20c.c/diff?base=source-parent&context=ALL'));
+});

@@ -2,6 +2,10 @@
 
 [中文](CHANGELOG.md) | **English**
 
+## 1.1.1
+
+- Diff views load earlier PS code comments in the background and label each comment and thread with its original PS. Unchanged lines map to the displayed code. Comments on changed, deleted or unmappable lines remain file-level threads with their original location; use File comments to jump to the original PS. Replies retain the original PS, file and line. When comparing two PS versions, each side shows its own comments, with other earlier comments on the newer side to avoid duplicates.
+
 ## 1.1.0
 
 - Remove reviewer management from the workbench; keep in-page people/group controls in discussions.

@@ -2,6 +2,10 @@
 
 **中文** | [English](#english)
 
+## 1.1.1
+
+- 差异视图会异步加载此前 PS 的代码评论，并在每条评论及线程标题中标注原 PS。未改动的行会映射到当前代码；原行已修改、删除或无法准确映射时保留为文件级评论，注明原位置，可从“本文件评论”跳回原 PS。回复仍发送到评论原来的 PS、文件和行号。比较两个 PS 时，两侧各自显示本版评论，其余较早评论集中在较新一侧，避免重复。
+
 ## 1.1.0
 
 - 移除工作台中的评审人员区域，保留评审讨论页内的人员与组管理。
@@ -193,6 +197,10 @@
 
 [返回中文 / Back to Chinese](#更新记录)
 
+
+## 1.1.1
+
+- Diff views load earlier PS code comments in the background and label each comment and thread with its original PS. Unchanged lines map to the displayed code. Comments on changed, deleted or unmappable lines remain file-level threads with their original location; use File comments to jump to the original PS. Replies retain the original PS, file and line. When comparing two PS versions, each side shows its own comments, with other earlier comments on the newer side to avoid duplicates.
 
 ## 1.1.0
 

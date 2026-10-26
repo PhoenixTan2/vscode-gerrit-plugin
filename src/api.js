@@ -127,6 +127,8 @@ class GerritApi {
   revision(id, rev, path = '') { return `/changes/${enc(id)}/revisions/${enc(rev)}${path}`; }
   files(id, rev, base, { signal } = {}) { return this.request(this.revision(id, rev, `/files/?${base ? `base=${enc(base)}` : 'parent=1'}`), 'GET', undefined, false, { signal }); }
   related(id, rev, { signal } = {}) { return this.request(this.revision(id, rev, '/related'), 'GET', undefined, false, { signal }); }
+  diff(id, rev, path, base, {signal} = {}) { return this.request(this.revision(id,rev,`/files/${enc(path)}/diff?base=${enc(base)}&context=ALL`),'GET',undefined,false,{signal}); }
+  commitDiff(project, rev, path, base, {signal} = {}) { return this.request(`/projects/${enc(project)}/commits/${enc(rev)}/files/${enc(path)}/diff?base=${enc(base)}&context=ALL`,'GET',undefined,false,{signal}); }
   allComments(id, { signal } = {}) { return this.request(`/changes/${enc(id)}/comments`, 'GET', undefined, false, { signal }); }
   async treeFiles(id, rev, query) {
     if (query) return this.request(this.revision(id, rev, `/files/?q=${enc(query)}`));

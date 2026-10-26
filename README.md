@@ -6,6 +6,8 @@
 
 ## 评审阅读与评论状态
 
+差异视图会异步加载此前 PS 的代码评论，并在每条评论及线程标题中标注原 PS。未改动的行会映射到当前代码；原行已修改、删除或无法准确映射时保留为文件级评论，注明原位置，可从“本文件评论”跳回原 PS。回复仍发送到评论原来的 PS、文件和行号。比较两个 PS 时，两侧各自显示本版评论，其余较早评论集中在较新一侧，避免重复。
+
 点击检索结果卡片直接打开评审讨论，复用现有讨论标签；工作台仍保留版本比较，返回时不重跑检索。
 
 “发布评审”和“当前评分”放在同一个右侧居中浮窗中，宽窄窗口的位置一致，内部独立滚动。点“收起”可临时缩成标题条，展开后保留尚未发送的评论和评分选择。
@@ -198,6 +200,8 @@ Markdown 渲染使用离线打包的 markdown-it 15.0.3（MIT），许可证位�
 Connect, upload commits, review changes, comment on code, reply and vote from VS Code. Normal workflows use the sidebar, editor buttons and file panel without opening the Command Palette.
 
 ## Review reading and comment states
+
+Diff views load earlier PS code comments in the background and label each comment and thread with its original PS. Unchanged lines map to the displayed code. Comments on changed, deleted or unmappable lines remain file-level threads with their original location; use File comments to jump to the original PS. Replies retain the original PS, file and line. When comparing two PS versions, each side shows its own comments, with other earlier comments on the newer side to avoid duplicates.
 
 Clicking a search-result card opens the review discussion directly and reuses the existing discussion tab. Comparisons remain in the workbench; returning does not repeat the search.
 

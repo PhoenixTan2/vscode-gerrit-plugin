@@ -5,7 +5,7 @@
 本轮只准备本地 VSIX，没有公开仓库，不向 Marketplace 或 Git 远程上传。保留现有 local-tools 发布者标识，不虚构 repository / homepage / issues 地址。
 
 1. 运行 `python scripts/verify.py`，再运行 `python scripts/package.py`。
-2. 运行 `python scripts/verify_host.py --vsix gerrit-workbench-1.1.0.vsix`，验证隔离的真实 VS Code 激活、页面脚本和交互。
+2. 运行 `python scripts/verify_host.py --vsix gerrit-workbench-1.1.1.vsix`，验证隔离的真实 VS Code 激活、页面脚本和交互。
 3. 运行 `python scripts/check_release.py`，检查语言资源、双语文档、PNG 图标和包文件白名单；日志、凭据、测试与临时文件不进入安装包。
 4. 只保留当前 VSIX，并记录本地 Git commit，不推送。
 
@@ -14,6 +14,13 @@
 插件主要 API 支持 VS Code 1.95 及以上。集成浏览器命令依版本可用性检测；旧版本可能无法提供认证网页浏览，其余原生评审仍可用。英文原生命令标题跟随 VS Code 显示语言，页面和对话框由 Gerrit Language 控制。
 
 公开发布前再确认实际 publisher ID、仓库和支持地址，并在目标 Gerrit 上验收真实评论、打分、上传和状态变更。本轮自动测试使用本地模拟服务器，不代替目标环境的写入验收。
+
+## 1.1.1 本地验证
+
+- 197 项测试通过，覆盖旧评论行号映射、重命名、Base Rebase、取消、异步加载及原 PS 回复。
+- VS Code 1.143.1 中新版包激活、Webview 与原生 diff 回归通过。
+- 在隔离窗口执行了 1.1.0 → 1.1.1 → 1.1.0 的同窗口安装；设置保留，但运行代码仍为 1.1.0。**免重载升级尚未通过，新运行实例的回退兼容性也尚未验证。** 安装此包后需重载窗口；干净宿主通过不代表有状态升级通过。
+- 可用 `python scripts/verify_update.py --previous <上一版.vsix> --vsix gerrit-workbench-1.1.1.vsix` 复验；旧包放在工作区外临时目录。退出码 2 表示免重载验收未满足。没有修改内网现有 Gerrit 提交。
 
 ## 1.1.0 本地验证
 
@@ -25,7 +32,7 @@
 
 - `python scripts/verify.py`：190 项测试通过，覆盖远端分支、读取取消、候选过期响应、评审人员权限、组添加、直接删除和双语入口。
 - `python scripts/package.py` 与 `python scripts/check_release.py`：通过，只保留当前 Gerrit Workbench VSIX。
-- `python scripts/verify_host.py --vsix gerrit-workbench-1.1.0.vsix --viewer-vsix <第三方查看器.vsix>`：隔离宿主通过，VS Code 1.143.1 + Excel Viewer 4.2.58；有效旧、新 XLSX 原文件分别交给自定义编辑器，在两个组中使用预览标签打开。第三方扩展仅装入临时测试环境，不加入本插件依赖或 VSIX。
+- `python scripts/verify_host.py --vsix gerrit-workbench-1.1.1.vsix --viewer-vsix <第三方查看器.vsix>`：隔离宿主通过，VS Code 1.143.1 + Excel Viewer 4.2.58；有效旧、新 XLSX 原文件分别交给自定义编辑器，在两个组中使用预览标签打开。第三方扩展仅装入临时测试环境，不加入本插件依赖或 VSIX。
 - Excel 集成验证覆盖 XLSX 的原字节、编辑器类型和分屏打开，不覆盖所有 Excel 格式或复杂公式 / 图表的视觉正确性。本机截图运行环境不可用，未声明完成截图验收。
 - `engines.vscode` 保持 `^1.95.0`；没有提高最低版本。本轮未对内网现有提交执行添加或移除评审人员的写操作。
 
@@ -43,7 +50,7 @@ The version is unchanged for this batch. Native Edit integration covers immutabl
 
 - `python scripts/verify.py`: 190 passing tests covering remote branch selection, cancellation, stale suggestions, ownership, group confirmation, vote-removal warnings and bilingual controls.
 - `python scripts/package.py` and `python scripts/check_release.py`: passed; retain only the current Gerrit Workbench VSIX.
-- `python scripts/verify_host.py --vsix gerrit-workbench-1.1.0.vsix --viewer-vsix <third-party-viewer.vsix>`: passed in an isolated VS Code 1.143.1 host with Excel Viewer 4.2.58. Valid old/new XLSX snapshots opened as custom-editor preview tabs in two groups. The viewer is installed only in the temporary test profile, not bundled or required by this extension.
+- `python scripts/verify_host.py --vsix gerrit-workbench-1.1.1.vsix --viewer-vsix <third-party-viewer.vsix>`: passed in an isolated VS Code 1.143.1 host with Excel Viewer 4.2.58. Valid old/new XLSX snapshots opened as custom-editor preview tabs in two groups. The viewer is installed only in the temporary test profile, not bundled or required by this extension.
 - Excel integration checks exact bytes, editor type and split opening for XLSX, not every Excel format or visual correctness of complex formulas/charts. The screenshot runtime was unavailable; visual screenshot acceptance is not claimed.
 - Keep `engines.vscode` at `^1.95.0`. The minimum supported version is unchanged. No reviewer write operations were performed against existing intranet changes.
 
@@ -53,7 +60,7 @@ The version is unchanged for this batch. Native Edit integration covers immutabl
 This delivery is a local VSIX only. No public repository, Marketplace upload or Git push is configured. Keep the current local-tools publisher identity; do not invent repository, homepage or issue URLs.
 
 1. Run `python scripts/verify.py`, followed by `python scripts/package.py`.
-2. Run `python scripts/verify_host.py --vsix gerrit-workbench-1.1.0.vsix` to exercise an isolated real VS Code host and Webview workflows.
+2. Run `python scripts/verify_host.py --vsix gerrit-workbench-1.1.1.vsix` to exercise an isolated real VS Code host and Webview workflows.
 3. Run `python scripts/check_release.py` to check localization, bilingual documents, PNG icon and archive allowlisting. Exclude logs, credentials, tests and temporary files.
 4. Retain only the current VSIX and record one local Git commit. Do not push.
 

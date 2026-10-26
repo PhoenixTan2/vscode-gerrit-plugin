@@ -5,7 +5,7 @@
 This delivery is a local VSIX only. No public repository, Marketplace upload or Git push is configured. Keep the current local-tools publisher identity; do not invent repository, homepage or issue URLs.
 
 1. Run `python scripts/verify.py`, followed by `python scripts/package.py`.
-2. Run `python scripts/verify_host.py --vsix gerrit-workbench-1.1.0.vsix` to exercise an isolated real VS Code host and Webview workflows.
+2. Run `python scripts/verify_host.py --vsix gerrit-workbench-1.1.1.vsix` to exercise an isolated real VS Code host and Webview workflows.
 3. Run `python scripts/check_release.py` to check localization, bilingual documents, PNG icon and archive allowlisting. Exclude logs, credentials, tests and temporary files.
 4. Retain only the current VSIX and record one local Git commit. Do not push.
 
@@ -14,6 +14,13 @@ The comment shortcut binds bare C only in read-only Gerrit diffs. Ctrl+C does no
 Core APIs target VS Code 1.95 or later. Integrated-browser commands are detected at runtime; older versions may not support authenticated web browsing, while native review workflows remain available. Native contribution titles follow the VS Code display language; Gerrit Language controls views/dialogs.
 
 Before any future public release, confirm the real publisher ID, repository and support URLs, and acceptance-test real comments, votes, uploads and state changes against the target Gerrit. Current automated checks use local fixtures and do not replace write-operation acceptance testing.
+
+## 1.1.1 local validation
+
+- 197 tests pass, including unchanged-line mapping, renames, Base rebases, cancellation, asynchronous loading and replies on the original PS.
+- Packaged-extension activation and Webview/native diff regression passed on VS Code 1.143.1.
+- Same-window 1.1.0 → 1.1.1 → 1.1.0 installation was exercised in an isolated profile. Settings were preserved, but the active runtime remained 1.1.0. **No-window-reload update acceptance is not met; active-runtime rollback compatibility is also unverified.** Reload the window after installing this build. Clean-host checks do not prove stateful upgrade compatibility.
+- Reproduce with `python scripts/verify_update.py --previous <previous.vsix> --vsix gerrit-workbench-1.1.1.vsix`; keep the prior package outside the workspace. Exit 2 means the no-reload acceptance criterion was not met. No existing intranet change was modified.
 
 ## 1.1.0 local validation
 
@@ -25,6 +32,6 @@ The version is unchanged for this batch. Native Edit integration covers immutabl
 
 - `python scripts/verify.py`: 190 passing tests covering remote branch selection, cancellation, stale suggestions, ownership, group confirmation, vote-removal warnings and bilingual controls.
 - `python scripts/package.py` and `python scripts/check_release.py`: passed; retain only the current Gerrit Workbench VSIX.
-- `python scripts/verify_host.py --vsix gerrit-workbench-1.1.0.vsix --viewer-vsix <third-party-viewer.vsix>`: passed in an isolated VS Code 1.143.1 host with Excel Viewer 4.2.58. Valid old/new XLSX snapshots opened as custom-editor preview tabs in two groups. The viewer is installed only in the temporary test profile, not bundled or required by this extension.
+- `python scripts/verify_host.py --vsix gerrit-workbench-1.1.1.vsix --viewer-vsix <third-party-viewer.vsix>`: passed in an isolated VS Code 1.143.1 host with Excel Viewer 4.2.58. Valid old/new XLSX snapshots opened as custom-editor preview tabs in two groups. The viewer is installed only in the temporary test profile, not bundled or required by this extension.
 - Excel integration checks exact bytes, editor type and split opening for XLSX, not every Excel format or visual correctness of complex formulas/charts. The screenshot runtime was unavailable; visual screenshot acceptance is not claimed.
 - Keep `engines.vscode` at `^1.95.0`. The minimum supported version is unchanged. No reviewer write operations were performed against existing intranet changes.

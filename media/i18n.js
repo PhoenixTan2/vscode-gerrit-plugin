@@ -4,6 +4,12 @@
 })(globalThis, function () {
   'use strict';
   const messages = {
+  "历史评论加载已取消或失败": "Historical comment loading was cancelled or failed",
+  " · 历史评论": " · Historical comment",
+  " · 原行 ": " · Original line ",
+  " · 当前代码已修改或无法映射": " · Code changed or the original location cannot be mapped",
+  "（历史评论）": " (historical comment)",
+
   "展开": "Expand",
   "收起": "Collapse",
   "评审与评分": "Review and votes",

@@ -7,6 +7,7 @@ const { inboxQuery, searchPlan, scanChanges } = require('./inbox');
 const { fileLimitReason } = require('./limits');
 const { classifyFile } = require('./files');
 const {nativeCommentTarget} = require('./comment-navigation');
+const {historicalComments} = require('./historical-comments');
 const { NativeFiles } = require('./native-files');
 const {ChangeEdits} = require('./change-edit');
 const { PathIndex } = require('./path-index');
@@ -48,7 +49,7 @@ function activate(context) {
     vscode.commands.registerCommand('gerrit.nextComment', () => app.run(() => app.navigateComment(1))),
     vscode.commands.registerCommand('gerrit.previousComment', () => app.run(() => app.navigateComment(-1))),
     vscode.commands.registerCommand('gerrit.fileComments', () => app.run(() => app.navigateComment(0))),
-    vscode.commands.registerCommand('gerrit._viewStatus', () => ({ resolved: !!app.view, ready: !!app.sidebarReady, error: app.sidebarError || null, filesReady: !!app.filesReady, filesError: app.filesError || null })),
+    vscode.commands.registerCommand('gerrit._viewStatus', () => ({ resolved: !!app.view, ready: !!app.sidebarReady, error: app.sidebarError || null, filesReady: !!app.filesReady, filesError: app.filesError || null, runtimeVersion: context.extension?.packageJSON.version || require("../package.json").version })),
     vscode.window.onDidChangeVisibleTextEditors(() => app.updateDecorations()),
     vscode.window.onDidChangeTextEditorSelection(event => { void Promise.resolve().then(() => app.followNativeComment(event)); }),
     vscode.window.onDidChangeActiveTextEditor(editor => { if (editor) void Promise.resolve().then(() => app.followNativeComment({ textEditor: editor, selections: editor.selections }, true)); }),
@@ -71,6 +72,7 @@ class Workbench {
     this.output = vscode.window.createOutputChannel('Gerrit Workbench');
     this.logger = new Logger(this.output);
     this.model = { connected: false, changes: [], query: this.setting('defaultQuery', 'is:open'), start: 0 };
+    this.historicalJobs = new Map(); this.historicalDiffs = new Map();
     this.explicitStandaloneTabs = new WeakSet(); this.patchDeltaCache = new Map(); this.backgroundJobs = new Map(); this.reviewProgress = new ReviewProgress(context.globalState); this.parentTrail = []; this.inboxPages = new Map(); this.patchPathCache = new Map(); this.downloadJobs = new Map(); this.nativeFiles = new NativeFiles(vscode); this.pathIndex = new PathIndex((...args) => this.runGit(...args));
     this.panelExpansion = context.globalState?.get('panelExpansion', {}) || {};
     this.configure();
@@ -115,7 +117,7 @@ class Workbench {
     this.tasksView?.dispose();
     this.disposal = Promise.allSettled([this.nativeFiles.dispose(), this.pathIndex.dispose(), this.reviewProgress.saving]);
     this.gateway?.dispose(); this.discussion?.dispose(); this.clearThreads(); this.controller.dispose();
-    this.edits.dispose(); this.commentDecoration.dispose(); this.resolvedCommentDecoration.dispose(); this.status.dispose(); this.output.dispose();
+    this.historicalDiffs.clear(); this.historicalJobs.clear(); this.edits.dispose(); this.commentDecoration.dispose(); this.resolvedCommentDecoration.dispose(); this.status.dispose(); this.output.dispose();
     return this.disposal;
   }
   clearThreads() { for (const thread of this.threads.keys()) thread.dispose(); this.threads.clear(); }
@@ -1003,6 +1005,11 @@ class Workbench {
         editHead: rev === 'edit' ? plan.editHead : undefined,
         empty: index === 0 ? file.status === 'A' : file.status === 'D' };
     });
+    for(const side of ['REVISION','PARENT']){
+      const displayed=sides.filter(info=>info.side===side&&!info.empty&&s.change.revisions[info.rev]);
+      const newest=displayed.slice().sort((a,b)=>s.change.revisions[b.rev]._number-s.change.revisions[a.rev]._number)[0];
+      if(newest){newest.historyTarget=true;newest.historyExcluded=displayed.map(info=>s.change.revisions[info.rev]._number);}
+    }
     const bytes = await Promise.all(sides.map(info => info.empty ? Buffer.alloc(0) : this.api.bytes(s.id, info.rev, info.contentPath, info.side === 'PARENT')));
     if (plan.editHead && (await this.api.edit(s.id))?.commit?.commit !== plan.editHead) throw new Error(tr('Edit 已更新，请刷新比较后重试'));
     const decoded = bytes.map((value, index) => sides[index].empty ? { kind: 'text', text: '' } : classifyFile(value, path));
@@ -1039,7 +1046,8 @@ class Workbench {
   commentsFor(info) {
     if (!this.validInfo(info) || info.empty) return [];
     const number = this.selected.change.revisions?.[info.rev]?._number;
-    return (this.selected.comments[info.path] || []).filter(c => (c.side || 'REVISION') === info.side && (c.patch_set === undefined ? info.rev === this.selected.rev : c.patch_set === number));
+    const current=(this.selected.comments[info.path] || []).filter(c => (c.side || 'REVISION') === info.side && (c.patch_set === undefined ? info.rev === this.selected.rev : c.patch_set === number));
+    return [...current,...(info.historicalComments || [])];
   }
   commentHover(document, position) {
     const info = this.documents.get(document.uri.toString());
@@ -1047,17 +1055,25 @@ class Workbench {
     if (!comments.length) return undefined;
     const body = new vscode.MarkdownString();
     body.appendText(tr`此处有 ${comments.length} 条 Gerrit 评论（${info.label || info.side}）\n点击行号旁的评论图标展开并回复。\n\n`);
-    for (const c of comments.slice(-5)) body.appendText(`${c.author?.name || c.author?.username || tr('Gerrit 用户')}：${c.message.slice(0, 600)}\n\n`);
+    for (const c of comments.slice(-5)) body.appendText(`PS ${c._origin?.patch || c.patch_set || this.selected.change.revisions?.[info.rev]?._number || '?'} · ${c.author?.name || c.author?.username || tr('Gerrit 用户')}：${c.message.slice(0, 600)}\n\n`);
     return new vscode.Hover(body);
   }
   updateNativeCommentLanguage() {
     void vscode.commands.executeCommand('setContext', 'gerritCommentLanguage', this.model.language === 'en' ? 'en' : 'zh');
     if (!this.controller) return;
     this.controller.options = { prompt: tr('添加评论或回复…'), placeHolder: tr('输入评论，点击发布后发送') };
-    for (const [thread, info] of this.threads || []) {
-      thread.label = thread.comments.length ? tr`${tr.current(info.label) || info.side} · 发布后立即可见` : tr`新建评论 · ${tr.current(info.label) || info.side} · 发布后立即可见`;
-    }
+    for (const [thread, info] of this.threads || []) thread.label=thread.comments.length?this.commentThreadLabel(info):tr`新建评论 · ${tr.current(info.label) || info.side} · 发布后立即可见`;
   }
+  commentThreadLabel(info) {
+    const ps=this.selected?.change.revisions?.[info.rev]?._number||info.parent?.patch_set||'?';
+    const status=info.unresolved?tr('未解决'):tr('已解决');
+    if(info.historical){
+      const original=info.originLine||info.parent?.range?.start_line||info.parent?.line;
+      return tr`PS ${ps}${info.side==='PARENT'?' Base':''} · ${info.path} · 历史评论${original?tr` · 原行 ${original}`:''}${info.unmapped?tr(' · 当前代码已修改或无法映射'):''} · ${status}`;
+    }
+    return tr`${tr.current(info.label)||`PS ${ps}`} · ${status} · 发布后立即可见`;
+  }
+
   async followNativeComment(event, activation = false) {
     if (this.disposed || this.busy || this.nativeCommentNavigation) return;
     const target = nativeCommentTarget(vscode, event, this.threads, activation);
@@ -1098,30 +1114,32 @@ class Workbench {
     for (const [thread, info] of this.threads) if (thread.uri.toString() === document.uri.toString() && info.commentIds?.includes(id)) thread.collapsibleState = vscode.CommentThreadCollapsibleState.Expanded;
   }
   async attach(uri, info) {
-    for (const [thread] of this.threads) if (thread.uri.toString() === uri.toString()) { thread.dispose(); this.threads.delete(thread); }
-    const comments = this.commentsFor(info);
-    const ids = new Map(comments.map(c => [c.id, c])); const groups = new Map();
-    for (const c of comments) {
-      let root = c; const visited = new Set();
-      while (root.in_reply_to && ids.has(root.in_reply_to) && !visited.has(root.id)) { visited.add(root.id); root = ids.get(root.in_reply_to); }
-      const group = groups.get(root.id) || []; group.push(c); groups.set(root.id, group);
+    for(const [thread,meta] of this.threads)if(thread.uri.toString()===uri.toString()&&thread.comments.length){thread.dispose();this.threads.delete(thread);}
+    info.historicalComments=[];
+    this.addCommentThreads(uri,info,this.commentsFor(info));this.updateDecorations();
+    if(!info.historyTarget||!this.validInfo(info)||info.empty)return;
+    const selection=this.selected,token={};info.historyToken=token;
+    const job=historicalComments(this,info,{signal:this.contextController?.signal}).then(comments=>{
+      if(this.disposed||this.selected!==selection||this.documents.get(uri.toString())!==info||info.historyToken!==token)return;
+      info.historicalComments=comments;this.addCommentThreads(uri,info,comments);this.updateDecorations();
+    }).catch(error=>{if(error.name!=='AbortError'&&!this.disposed)this.logger.write('debug',tr('历史评论加载已取消或失败'));}).finally(()=>{if(this.historicalJobs.get(uri.toString())===job)this.historicalJobs.delete(uri.toString());});
+    this.historicalJobs.set(uri.toString(),job);
+  }
+  addCommentThreads(uri,info,comments) {
+    const ids=new Map(comments.map(comment=>[comment.id,comment])),groups=new Map();
+    for(const comment of comments){let root=comment;const seen=new Set();while(root.in_reply_to&&ids.has(root.in_reply_to)&&!seen.has(root.id)){seen.add(root.id);root=ids.get(root.in_reply_to);}const group=groups.get(root.id)||[];group.push(comment);groups.set(root.id,group);}
+    for(const group of groups.values()){
+      group.sort((a,b)=>String(a.updated).localeCompare(String(b.updated)));const first=group[0],last=group.at(-1),origin=last._origin;
+      const range=first.range?new vscode.Range(first.range.start_line-1,first.range.start_character,first.range.end_line-1,first.range.end_character):first.line?new vscode.Range(first.line-1,0,first.line-1,0):undefined;
+      const thread=this.controller.createCommentThread(uri,range,group.map(comment=>({body:comment.message,label:`PS ${comment._origin?.patch||comment.patch_set||this.selected.change.revisions?.[info.rev]?._number||'?'}`,mode:vscode.CommentMode.Preview,author:{name:comment.author?.name||comment.author?.username||tr('Gerrit 用户')}})));
+      const meta={...info,...(origin?{rev:origin.rev,path:origin.path,side:origin.side,historical:true,unmapped:group.some(comment=>comment._origin?.unmapped),originLine:first._origin?.comment.range?.start_line||first._origin?.comment.line}:{}),parent:origin?.comment||last,unresolved:!!last.unresolved,rootId:first.id,commentIds:group.map(comment=>comment.id)};
+      thread.contextValue='gerritReply';thread.label=this.commentThreadLabel(meta);thread.collapsibleState=last.unresolved?vscode.CommentThreadCollapsibleState.Expanded:vscode.CommentThreadCollapsibleState.Collapsed;thread.state=last.unresolved?vscode.CommentThreadState.Unresolved:vscode.CommentThreadState.Resolved;this.threads.set(thread,meta);
     }
-    for (const group of groups.values()) {
-      group.sort((a, b) => String(a.updated).localeCompare(String(b.updated)));
-      const c = group[0];
-      const range = c.range ? new vscode.Range(c.range.start_line - 1, c.range.start_character, c.range.end_line - 1, c.range.end_character) : c.line ? new vscode.Range(c.line - 1, 0, c.line - 1, 0) : undefined;
-      const thread = this.controller.createCommentThread(uri, range, group.map(item => ({ body: item.message, mode: vscode.CommentMode.Preview, author: { name: item.author?.name || item.author?.username || tr('Gerrit 用户') } })));
-      thread.contextValue = 'gerritReply';
-      thread.label = tr`${info.label || info.side} · ${group.at(-1).unresolved ? tr('未解决') : tr('已解决')} · 发布后立即可见`;
-      thread.collapsibleState = group.at(-1).unresolved ? vscode.CommentThreadCollapsibleState.Expanded : vscode.CommentThreadCollapsibleState.Collapsed;
-      thread.state = group.at(-1).unresolved ? vscode.CommentThreadState.Unresolved : vscode.CommentThreadState.Resolved;
-      this.threads.set(thread, { ...info, parent: group.at(-1), unresolved: !!group.at(-1).unresolved, rootId:c.id, commentIds: group.map(item => item.id) });
-    }
-    this.updateDecorations();
   }
   commentPoints(info) {
     const points = new Map();
     for (const comment of this.commentsFor(info)) {
+      if(comment._origin&&!comment.line&&!comment.range)continue;
       const line = Math.max(0, (comment.range?.start_line || comment.line || 1) - 1);
       const group = points.get(line) || []; group.push(comment); points.set(line, group);
     }
@@ -1156,10 +1174,12 @@ class Workbench {
     const editor = vscode.window.activeTextEditor;
     if (!editor) return;
     const points = this.commentPoints(this.documents.get(editor.document.uri.toString()));
-    if (!points.length) { vscode.window.showInformationMessage(tr('当前文件版本没有评论')); return; }
+    const unmapped=[...this.threads].filter(([thread,meta])=>thread.uri.toString()===editor.document.uri.toString()&&meta.historical&&meta.unmapped).map(([,meta])=>({label:tr`PS ${this.selected.change.revisions[meta.rev]._number} · 原行 ${meta.originLine||'?'}（历史评论）`,description:meta.parent?.message,original:{path:meta.path,id:meta.commentIds[0]}}));
+    if (!points.length && (!unmapped.length || direction)) { vscode.window.showInformationMessage(tr('当前文件版本没有评论')); return; }
     let point;
     if (!direction) {
-      const picked = await vscode.window.showQuickPick(points.map(([line, comments]) => ({ label: tr`行 ${line + 1} · ${comments.length} 条评论`, description: comments.map(c => `${c.author?.name || c.author?.username || tr('用户')}: ${c.message}`).join(' | ').replace(/\s+/g, ' ').slice(0, 250), point: [line, comments] })), { title: tr('本文件评论位置'), matchOnDescription: true });
+      const picked = await vscode.window.showQuickPick([...points.map(([line, comments]) => ({ label: tr`行 ${line + 1} · ${comments.length} 条评论`, description: comments.map(c => `PS ${c._origin?.patch||c.patch_set||this.selected.change.revisions[this.documents.get(editor.document.uri.toString()).rev]?._number||'?'} · ${c.author?.name || c.author?.username || tr('用户')}: ${c.message}`).join(' | ').replace(/\s+/g, ' ').slice(0, 250), point: [line, comments] })),...unmapped], { title: tr('本文件评论位置'), matchOnDescription: true });
+      if(picked?.original)return this.locateComment(picked.original.path,picked.original.id);
       point = picked?.point;
     } else {
       const current = editor.selection.active?.line ?? editor.selection.end.line;

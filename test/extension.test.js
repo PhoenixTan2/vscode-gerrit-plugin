@@ -907,3 +907,21 @@ test('native code threads use final resolved status for folding, labels and colo
  assert.ok(decorations.get(app.resolvedCommentDecoration)[0].renderOptions.after.contentText.includes('0(1)'));
  assert.ok(!require('../package.json').contributes.configuration.properties['gerrit.comments.expandThreads']);
 });
+
+
+test('old comments load without blocking diff input, label PS and reply to original positions',async()=>{
+ const {app,created,vscode,Range,sent}=fixture();app.selected.change.revisions={old:{_number:1},abc:{_number:2}};
+ app.selected.comments={'code.c':[{id:'old-comment',patch_set:1,line:2,unresolved:true,message:'History'}]};app.api.url='https://review.example.invalid';
+ let finish;app.api.diff=()=>new Promise(resolve=>{finish=resolve;});
+ const uri={toString:()=> 'gerrit:history'},info={id:app.selected.id,rev:'abc',path:'code.c',side:'REVISION',content:'inserted\na\nb\n',historyTarget:true,historyExcluded:[2]};app.documents.set(uri.toString(),info);
+ await app.attach(uri,info);assert.equal(created.length,0);
+ vscode.window.activeTextEditor={document:{uri},selection:new Range(0,0,0,0)};await app.addComment();const draft=created[0];
+ finish({meta_a:{name:'code.c'},meta_b:{name:'code.c'},content:[{b:['inserted']},{ab:['a','b']}]});await app.historicalJobs.get(uri.toString());
+ const oldThread=created[1];assert.equal(oldThread.range.start.line,2);assert.ok(oldThread.label.includes('PS 1'));assert.equal(oldThread.comments[0].label,'PS 1');assert.ok(!draft.disposed);
+ app.load=async()=>{};await app.reply({thread:oldThread,text:'Reply to history'});
+ assert.equal(sent[0][1],'old');assert.equal(sent[0][2].comments['code.c'][0].line,2);assert.equal(sent[0][2].comments['code.c'][0].in_reply_to,'old-comment');
+});
+test('both PS sides display their own comments once and only newer side gets other history',async()=>{
+ const {app}=fixture();app.selected.change.revisions={old:{_number:1},abc:{_number:3}};app.selected.comparison={left:'old',right:'abc',revision:'abc',base:'old'};app.selected.files={'code.c':{}};app.api.url='https://review.example.invalid';app.api.bytes=async()=>Buffer.from('code');
+ const result=await app.openDiff('code.c');assert.equal(result.sides[0].historyTarget,undefined);assert.equal(result.sides[1].historyTarget,true);assert.deepEqual(Array.from(result.sides[1].historyExcluded),[1,3]);
+});

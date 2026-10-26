@@ -6,6 +6,8 @@ Connect, upload commits, review changes, comment on code, reply and vote from VS
 
 ## Review reading and comment states
 
+Diff views load earlier PS code comments in the background and label each comment and thread with its original PS. Unchanged lines map to the displayed code. Comments on changed, deleted or unmappable lines remain file-level threads with their original location; use File comments to jump to the original PS. Replies retain the original PS, file and line. When comparing two PS versions, each side shows its own comments, with other earlier comments on the newer side to avoid duplicates.
+
 Clicking a search-result card opens the review discussion directly and reuses the existing discussion tab. Comparisons remain in the workbench; returning does not repeat the search.
 
 Post review and current votes share one floating window centred on the right at every viewport width. It scrolls internally. Collapse reduces it to a title bar; expanding retains unsent comments and score choices.
