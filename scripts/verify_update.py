@@ -1,5 +1,5 @@
 """Exercise installed old/new VSIX replacements in one isolated running VS Code window.
-The previous VSIX must predate the runtimeVersion health field.
+Runtime health versions are compared before and after each installation.
 A completed test can still report noWindowReload=false: do not call that acceptance passed.
 """
 from pathlib import Path
@@ -29,9 +29,9 @@ result=temporary/'result.json'
 env=os.environ.copy();env.pop('ELECTRON_RUN_AS_NODE',None)
 with zipfile.ZipFile(a.vsix.resolve()) as archive:
  next_version=json.loads(archive.read('extension/package.json'))['version']
- next_sha=hashlib.sha256(archive.read('extension/src/extension.js')).hexdigest()
+ next_sha=hashlib.sha256(b''.join(archive.read('extension/'+name) for name in ['src/api.js','src/extension.js'])).hexdigest()
 with zipfile.ZipFile(a.previous.resolve()) as archive:
- previous_sha=hashlib.sha256(archive.read('extension/src/extension.js')).hexdigest()
+ previous_sha=hashlib.sha256(b''.join(archive.read('extension/'+name) for name in ['src/api.js','src/extension.js'])).hexdigest()
 env.update(GERRIT_UPDATE_EXTENSIONS=str(extensions),GERRIT_UPDATE_PREVIOUS_VERSION=package['version'],GERRIT_UPDATE_VERSION=next_version,GERRIT_UPDATE_NEXT_SHA=next_sha,GERRIT_UPDATE_PREVIOUS_SHA=previous_sha,GERRIT_UPDATE_RESULT=str(result),GERRIT_UPDATE_NEXT=str(a.vsix.resolve()),GERRIT_UPDATE_PREVIOUS=str(a.previous.resolve()))
 args=[str(code),'--new-window','--disable-workspace-trust','--skip-welcome','--skip-release-notes','--disable-updates','--user-data-dir='+str(temporary/'profile'),'--extensions-dir='+str(extensions),'--extensionDevelopmentPath='+str(controller),'--extensionTestsPath='+str(root/'scripts/update-host-smoke.js')]
 with (temporary/'process.log').open('w',encoding='utf-8') as log:

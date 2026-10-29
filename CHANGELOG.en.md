@@ -2,6 +2,10 @@
 
 [中文](CHANGELOG.md) | **English**
 
+## 1.1.2
+
+- Website-password (HTTP reverse proxy) mode restores expired sessions using the saved credentials. It verifies identity before loading change details and before write operations. An explicit authentication rejection can trigger one re-login and one retry, shared by concurrent requests. Timeouts, dropped connections and authenticated permission denials do not replay operations. External-browser sign-in remains server-managed; reconnect if credentials stop working.
+
 ## 1.1.1
 
 - Diff views load earlier PS code comments in the background and label each comment and thread with its original PS. Unchanged lines map to the displayed code. Comments on changed, deleted or unmappable lines remain file-level threads with their original location; use File comments to jump to the original PS. Replies retain the original PS, file and line. When comparing two PS versions, each side shows its own comments, with other earlier comments on the newer side to avoid duplicates.

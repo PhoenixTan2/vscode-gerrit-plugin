@@ -65,7 +65,7 @@ test('session login reports wrong web password and prevents writes without CSRF'
   const api = new GerritApi(url.replace('/gerrit', '/no-csrf'), 'user', 'p', { authMode: 'webPassword' });
   await api.self(); const size = received.length;
   await assert.rejects(api.review('id', 'rev', { message: 'unsafe' }), /XSRF_TOKEN/);
-  assert.equal(received.length, size);
+  assert.ok(received.slice(size).every(request=>request.method==='GET'&&request.url.endsWith('/accounts/self')));
 });
 test('concurrent session requests share one login exchange', async () => {
   const api = new GerritApi(url.replace('/gerrit', '/session'), 'user', 'p', { authMode: 'webPassword' });

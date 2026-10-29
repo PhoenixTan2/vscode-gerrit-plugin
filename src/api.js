@@ -16,7 +16,7 @@ class GerritApi {
   constructor(url, username, password, { authMode = 'httpKey', timeout = 30000, pageSize = 50, log = () => {} } = {}) {
     if (!['httpKey', 'webPassword'].includes(authMode)) throw new Error(tr('不支持的认证方式'));
     this.url = normalizeUrl(url); this.auth = Buffer.from(`${username}:${password}`).toString('base64');
-    this.authMode = authMode; this.cookies = new Map(); this.sessionReady = false;
+    this.authMode = authMode; this.cookies = new Map(); this.sessionReady = false; this.sessionEpoch = 0;
     this.timeout = timeout; this.pageSize = pageSize; this.log = log;
   }
   async ensureSession() {
@@ -41,15 +41,51 @@ class GerritApi {
     })();
     try { await this.sessionPromise; } finally { this.sessionPromise = undefined; }
   }
+  resetSession(epoch) {
+    if (epoch !== this.sessionEpoch) return;
+    this.sessionEpoch++; this.sessionReady = false; this.cookies.clear();
+  }
   async request(path, method = 'GET', body, raw = false, { signal } = {}) {
     signal?.throwIfAborted();
-    if (this.authMode === 'webPassword') await this.ensureSession();
+    const session = this.authMode === 'webPassword';
+    if (session) {
+      await this.ensureSession();
+      // Public reads can succeed anonymously. Check identity before writes too,
+      // so an expired session cannot silently remove the caller's voting rights.
+      if (!['GET', 'HEAD'].includes(method)) await this.request('/accounts/self', 'GET', undefined, false, {signal});
+    }
     const url = new URL(`${this.url}${this.authMode === 'httpKey' ? '/a' : ''}${path}`);
-    signal?.throwIfAborted();
-    return this.exchange(url, method, body, raw, false, { signal });
+    const send = async () => {
+      signal?.throwIfAborted();
+      const value = await this.exchange(url, method, body, raw, false, {signal});
+      if (session && path === '/accounts/self' && !Number.isInteger(value?._account_id)) {
+        const error = new Error(tr('未能确认 Gerrit 登录身份，请重新连接')); error.statusCode = 401; throw error;
+      }
+      return value;
+    };
+    const epoch = this.sessionEpoch;
+    try { return await send(); }
+    catch (error) {
+      if (!session || signal?.aborted) throw error;
+      let expired = error.statusCode === 401;
+      if (!expired && error.statusCode === 403 && path !== '/accounts/self') {
+        try {
+          const identity = await this.exchange(new URL(`${this.url}/accounts/self`), 'GET', undefined, false, false, {signal});
+          expired = !Number.isInteger(identity?._account_id);
+        }
+        catch (probe) { expired = probe.statusCode === 401; }
+      }
+      signal?.throwIfAborted();
+      if (!expired) throw error;
+      this.resetSession(epoch);
+      await this.ensureSession();
+      // Retry only a rejected authentication request, once. Never replay on a
+      // timeout, dropped connection, 5xx or an authenticated permission denial.
+      return send();
+    }
   }
   exchange(url, method, body, raw, login = false, { signal } = {}) {
-    const started = Date.now();
+    const started = Date.now(), epoch = this.sessionEpoch;
     this.log('debug', `${method} ${url.origin}${url.pathname}`);
     const data = body === undefined ? undefined : JSON.stringify(body);
     const headers = { Authorization: `Basic ${this.auth}`, Accept: raw ? 'text/plain' : 'application/json', ...(data ? { 'Content-Type': 'application/json; charset=utf-8', 'Content-Length': Buffer.byteLength(data) } : {}) };
@@ -65,7 +101,7 @@ class GerritApi {
       const req = (url.protocol === 'https:' ? https : http).request(url, {
         method, headers, signal
       }, res => {
-        if (this.authMode === 'webPassword') for (const cookie of res.headers['set-cookie'] || []) {
+        if (this.authMode === 'webPassword' && epoch === this.sessionEpoch) for (const cookie of res.headers['set-cookie'] || []) {
           const pair = cookie.split(';', 1)[0]; const separator = pair.indexOf('=');
           const name = pair.slice(0, separator); const value = pair.slice(separator + 1);
           if (['GerritAccount', 'XSRF_TOKEN'].includes(name)) {
@@ -123,7 +159,9 @@ class GerritApi {
   }
   self() { return this.request('/accounts/self'); }
   list(query, start = 0, { search = false, signal } = {}) { return this.request(`/changes/?q=${enc(query)}&n=${this.pageSize}&S=${start}&o=DETAILED_LABELS&o=DETAILED_ACCOUNTS&o=REVIEWED&o=SUBMITTABLE${search ? '&o=ALL_REVISIONS&o=ALL_COMMITS&o=MESSAGES' : ''}`, 'GET', undefined, false, { signal }); }
-  detail(id) { return this.request(`/changes/${enc(id)}/detail?o=ALL_REVISIONS&o=ALL_COMMITS&o=DETAILED_LABELS&o=DETAILED_ACCOUNTS&o=MESSAGES&o=CURRENT_ACTIONS&o=REVIEWED&o=SUBMITTABLE&o=ALL_FILES`); }
+  async detail(id) {
+    if (this.authMode === 'webPassword') await this.self();
+    return this.request(`/changes/${enc(id)}/detail?o=ALL_REVISIONS&o=ALL_COMMITS&o=DETAILED_LABELS&o=DETAILED_ACCOUNTS&o=MESSAGES&o=CURRENT_ACTIONS&o=REVIEWED&o=SUBMITTABLE&o=ALL_FILES`); }
   revision(id, rev, path = '') { return `/changes/${enc(id)}/revisions/${enc(rev)}${path}`; }
   files(id, rev, base, { signal } = {}) { return this.request(this.revision(id, rev, `/files/?${base ? `base=${enc(base)}` : 'parent=1'}`), 'GET', undefined, false, { signal }); }
   related(id, rev, { signal } = {}) { return this.request(this.revision(id, rev, '/related'), 'GET', undefined, false, { signal }); }

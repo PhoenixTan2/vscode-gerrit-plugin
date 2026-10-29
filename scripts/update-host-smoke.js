@@ -15,15 +15,18 @@ async function run(){
   if(!extension)throw Error('Previous installed extension missing');
   await extension.activate();
   await config.update('language','en',vscode.ConfigurationTarget.Global);
-  report.phases.push({phase:'previous',health:await health()});
+  const previousHealth=await health();
+  report.phases.push({phase:'previous',health:previousHealth});
   for(const [phase,file,expected] of [['update',process.env.GERRIT_UPDATE_NEXT,true],['rollback',process.env.GERRIT_UPDATE_PREVIOUS,false]]){
    await vscode.commands.executeCommand('workbench.extensions.installExtension',vscode.Uri.file(file));
    await pause(2500);
    const current=vscode.extensions.getExtension(extension.id);
    const installedPath=path.join(process.env.GERRIT_UPDATE_EXTENSIONS,extension.id+'-'+(expected?process.env.GERRIT_UPDATE_VERSION:process.env.GERRIT_UPDATE_PREVIOUS_VERSION));
-   const disk=crypto.createHash('sha256').update(fs.readFileSync(path.join(installedPath,'src/extension.js'))).digest('hex');
+   const fingerprint=crypto.createHash('sha256');
+   for(const name of ['src/api.js','src/extension.js'])fingerprint.update(fs.readFileSync(path.join(installedPath,name)));
+   const disk=fingerprint.digest('hex');
    const state=await health();
-   const runtimeMatches=expected?state.runtimeVersion===process.env.GERRIT_UPDATE_VERSION:!state.runtimeVersion;
+   const runtimeMatches=expected?state.runtimeVersion===process.env.GERRIT_UPDATE_VERSION:state.runtimeVersion===previousHealth.runtimeVersion;
    const diskMatches=disk===(expected?process.env.GERRIT_UPDATE_NEXT_SHA:process.env.GERRIT_UPDATE_PREVIOUS_SHA);
    report.phases.push({phase,disk,registeredVersion:current.packageJSON.version,health:state,runtimeMatches,diskMatches,languagePreserved:vscode.workspace.getConfiguration('gerrit').get('language')==='en'});
   }

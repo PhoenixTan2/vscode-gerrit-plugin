@@ -4,6 +4,7 @@
 })(globalThis, function () {
   'use strict';
   const messages = {
+  "未能确认 Gerrit 登录身份，请重新连接": "Could not verify the Gerrit login identity; reconnect",
   "历史评论加载已取消或失败": "Historical comment loading was cancelled or failed",
   " · 历史评论": " · Historical comment",
   " · 原行 ": " · Original line ",

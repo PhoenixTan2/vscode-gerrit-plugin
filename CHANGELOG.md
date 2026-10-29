@@ -2,6 +2,10 @@
 
 **中文** | [English](#english)
 
+## 1.1.2
+
+- 网页登录密码（HTTP 反向代理）模式会用已保存的凭据自动恢复过期会话。打开详情和执行写操作前校验登录身份；认证请求被明确拒绝后最多重新登录并重试一次，并发请求共用一次重登。超时、网络断开和已登录状态下的权限拒绝不会自动重发操作。外部浏览器的登录状态由服务器管理；密码失效时仍需重新连接。
+
 ## 1.1.1
 
 - 差异视图会异步加载此前 PS 的代码评论，并在每条评论及线程标题中标注原 PS。未改动的行会映射到当前代码；原行已修改、删除或无法准确映射时保留为文件级评论，注明原位置，可从“本文件评论”跳回原 PS。回复仍发送到评论原来的 PS、文件和行号。比较两个 PS 时，两侧各自显示本版评论，其余较早评论集中在较新一侧，避免重复。
@@ -197,6 +201,10 @@
 
 [返回中文 / Back to Chinese](#更新记录)
 
+
+## 1.1.2
+
+- Website-password (HTTP reverse proxy) mode restores expired sessions using the saved credentials. It verifies identity before loading change details and before write operations. An explicit authentication rejection can trigger one re-login and one retry, shared by concurrent requests. Timeouts, dropped connections and authenticated permission denials do not replay operations. External-browser sign-in remains server-managed; reconnect if credentials stop working.
 
 ## 1.1.1
 
