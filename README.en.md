@@ -6,7 +6,7 @@ Connect, upload commits, review changes, comment on code, reply and vote from VS
 
 ## Automatic session recovery
 
-Website-password (HTTP reverse proxy) mode restores expired sessions using the saved credentials. It verifies identity before loading change details and before write operations. An explicit authentication rejection can trigger one re-login and one retry, shared by concurrent requests. Timeouts, dropped connections and authenticated permission denials do not replay operations. External-browser sign-in remains server-managed; reconnect if credentials stop working.
+Website-password (HTTP reverse proxy) mode automatically signs in with saved credentials; expired sessions do not require manual reconnection. Identity checks returning 403 and rejected, missing or malformed CSRF tokens also trigger one fresh login and one retry, shared by concurrent requests. A rejection after that retry reports a specific permission or credential error. Logs describe recovery without credentials. Timeouts, dropped connections and server 5xx responses never replay operations. External-browser sign-in remains server-managed; update saved credentials if the password changes.
 
 ## Review reading and comment states
 

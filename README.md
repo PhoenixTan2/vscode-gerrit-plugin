@@ -6,7 +6,7 @@
 
 ## 自动恢复登录
 
-网页登录密码（HTTP 反向代理）模式会用已保存的凭据自动恢复过期会话。打开详情和执行写操作前校验登录身份；认证请求被明确拒绝后最多重新登录并重试一次，并发请求共用一次重登。超时、网络断开和已登录状态下的权限拒绝不会自动重发操作。外部浏览器的登录状态由服务器管理；密码失效时仍需重新连接。
+网页登录密码（HTTP 反向代理）模式使用已保存的凭据自动重新登录，无需为会话过期手动重新连接。身份检查返回 403、旧 CSRF 令牌被拒绝或令牌缺失时，也会清除旧会话、重新登录并重试原请求一次，并发请求共用一次重登。重新登录后仍被拒绝才显示具体权限 / 凭据错误；日志记录自动重登过程，不记录凭据。超时、网络断开和服务器 5xx 不会自动重发操作。外部浏览器登录由服务器管理；密码变更需更新保存的凭据。
 
 ## 评审阅读与评论状态
 
@@ -205,7 +205,7 @@ Connect, upload commits, review changes, comment on code, reply and vote from VS
 
 ## Automatic session recovery
 
-Website-password (HTTP reverse proxy) mode restores expired sessions using the saved credentials. It verifies identity before loading change details and before write operations. An explicit authentication rejection can trigger one re-login and one retry, shared by concurrent requests. Timeouts, dropped connections and authenticated permission denials do not replay operations. External-browser sign-in remains server-managed; reconnect if credentials stop working.
+Website-password (HTTP reverse proxy) mode automatically signs in with saved credentials; expired sessions do not require manual reconnection. Identity checks returning 403 and rejected, missing or malformed CSRF tokens also trigger one fresh login and one retry, shared by concurrent requests. A rejection after that retry reports a specific permission or credential error. Logs describe recovery without credentials. Timeouts, dropped connections and server 5xx responses never replay operations. External-browser sign-in remains server-managed; update saved credentials if the password changes.
 
 ## Review reading and comment states
 

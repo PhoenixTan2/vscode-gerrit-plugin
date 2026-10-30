@@ -67,21 +67,29 @@ class GerritApi {
     try { return await send(); }
     catch (error) {
       if (!session || signal?.aborted) throw error;
-      let expired = error.statusCode === 401;
-      if (!expired && error.statusCode === 403 && path !== '/accounts/self') {
-        try {
-          const identity = await this.exchange(new URL(`${this.url}/accounts/self`), 'GET', undefined, false, false, {signal});
-          expired = !Number.isInteger(identity?._account_id);
-        }
-        catch (probe) { expired = probe.statusCode === 401; }
-      }
-      signal?.throwIfAborted();
-      if (!expired) throw error;
+      // Gerrit/proxies may use 403 for expired sessions or stale CSRF even
+      // when /accounts/self still succeeds. Re-authenticate once before
+      // classifying the rejection as a genuine permission failure.
+      if (![401, 403].includes(error.statusCode) && error.code !== 'GERRIT_SESSION_TOKEN_INVALID') throw error;
+      if (epoch === this.sessionEpoch) this.log('info', tr('正在自动重新登录 Gerrit'));
       this.resetSession(epoch);
-      await this.ensureSession();
-      // Retry only a rejected authentication request, once. Never replay on a
-      // timeout, dropped connection, 5xx or an authenticated permission denial.
-      return send();
+      try { await this.ensureSession(); }
+      catch (loginError) {
+        loginError.message = tr('自动重新登录失败，请检查保存的账号凭据和服务器登录配置');
+        throw loginError;
+      }
+      // One retry for an explicit authentication/forbidden response or a local
+      // token failure. Never replay on a timeout, dropped connection or 5xx.
+      try {
+        const result = await send();
+        this.log('info', tr('Gerrit 自动重新登录后，原请求已完成'));
+        return result;
+      }
+      catch (retryError) {
+        if (retryError.statusCode === 403) retryError.message = tr('已自动重新登录，但服务器仍拒绝此操作（HTTP 403），请确认当前账号具有此操作的权限');
+        else if (retryError.statusCode === 401) retryError.message = tr('已自动重新登录，但服务器仍未接受登录身份（HTTP 401），请检查账号凭据和服务器登录配置');
+        throw retryError;
+      }
     }
   }
   exchange(url, method, body, raw, login = false, { signal } = {}) {
@@ -93,8 +101,8 @@ class GerritApi {
       if (this.cookies.size) headers.Cookie = [...this.cookies].map(([k, v]) => `${k}=${v}`).join('; ');
       if (!['GET', 'HEAD'].includes(method)) {
         const token = this.cookies.get('XSRF_TOKEN');
-        if (!token) return Promise.reject(new Error(tr('登录会话缺少 XSRF_TOKEN，无法安全发布评论或执行写操作，请重新连接')));
-        try { headers['X-Gerrit-Auth'] = decodeURIComponent(token); } catch { return Promise.reject(new Error(tr('登录会话的 XSRF_TOKEN 无效，请重新连接'))); }
+        if (!token) return Promise.reject(Object.assign(new Error(tr('登录会话缺少 XSRF_TOKEN')), {code:'GERRIT_SESSION_TOKEN_INVALID'}));
+        try { headers['X-Gerrit-Auth'] = decodeURIComponent(token); } catch { return Promise.reject(Object.assign(new Error(tr('登录会话的 XSRF_TOKEN 无效')), {code:'GERRIT_SESSION_TOKEN_INVALID'})); }
       }
     }
     return new Promise((resolve, reject) => {
@@ -117,8 +125,8 @@ class GerritApi {
           this.log(res.statusCode >= 400 ? 'error' : 'info', `${method} ${url.pathname} → HTTP ${res.statusCode} (${Date.now() - started} ms)`);
           if (login && res.statusCode >= 200 && res.statusCode < 400) return resolve({ status: res.statusCode, location: res.headers.location });
           if (res.statusCode < 200 || res.statusCode >= 300) {
-            const authHint = this.authMode === 'webPassword' ? tr('网页登录认证失败或会话已过期，请检查网页登录密码并重新连接。') : tr('HTTP Key 认证失败。请检查 Key；如果使用网页登录密码，请在连接设置中选择“网页登录密码（HTTP 反向代理）”。');
-            const hint = { 401: tr`HTTP 401：${authHint}请求地址：${url.origin}${url.pathname}`, 403: tr('没有执行此操作的权限，或登录会话已失效，请检查权限并重新连接'), 409: tr('变更状态冲突，请刷新后重试') }[res.statusCode];
+            const authHint = this.authMode === 'webPassword' ? tr('网页登录认证失败，请检查网页登录密码和服务器登录配置。') : tr('HTTP Key 认证失败。请检查 Key；如果使用网页登录密码，请在连接设置中选择“网页登录密码（HTTP 反向代理）”。');
+            const hint = { 401: tr`HTTP 401：${authHint}请求地址：${url.origin}${url.pathname}`, 403: tr('服务器拒绝此操作（HTTP 403），请检查当前账号权限'), 409: tr('变更状态冲突，请刷新后重试') }[res.statusCode];
             const error = new Error(hint || `Gerrit HTTP ${res.statusCode}: ${text.slice(0, 300)}`);
             error.logMessage = `${method} ${url.pathname} → HTTP ${res.statusCode}`;
             error.statusCode = res.statusCode;

@@ -2,6 +2,10 @@
 
 **中文** | [English](#english)
 
+## 1.1.3
+
+- 修复身份检查返回 403、身份仍有效但 CSRF 失效、令牌缺失 / 损坏时未自动重登的问题。清除旧会话并自动重新登录后重试一次；仍被拒绝才提示具体权限 / 凭据错误，不再用通用提示要求重连。日志增加自动重登过程，保持脱敏。
+
 ## 1.1.2
 
 - 网页登录密码（HTTP 反向代理）模式会用已保存的凭据自动恢复过期会话。打开详情和执行写操作前校验登录身份；认证请求被明确拒绝后最多重新登录并重试一次，并发请求共用一次重登。超时、网络断开和已登录状态下的权限拒绝不会自动重发操作。外部浏览器的登录状态由服务器管理；密码失效时仍需重新连接。
@@ -198,6 +202,10 @@
 ---
 
 ## English
+
+## 1.1.3
+
+- Fix missing automatic re-login when identity checks return 403 or CSRF is rejected, missing or malformed despite a valid identity. Clear the old session, sign in automatically and retry once. Persistent failures report specific permission or credential errors instead of a generic reconnect instruction. Add recovery logging without credentials.
 
 [返回中文 / Back to Chinese](#更新记录)
 

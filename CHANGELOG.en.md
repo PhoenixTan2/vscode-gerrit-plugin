@@ -2,6 +2,10 @@
 
 [中文](CHANGELOG.md) | **English**
 
+## 1.1.3
+
+- Fix missing automatic re-login when identity checks return 403 or CSRF is rejected, missing or malformed despite a valid identity. Clear the old session, sign in automatically and retry once. Persistent failures report specific permission or credential errors instead of a generic reconnect instruction. Add recovery logging without credentials.
+
 ## 1.1.2
 
 - Website-password (HTTP reverse proxy) mode restores expired sessions using the saved credentials. It verifies identity before loading change details and before write operations. An explicit authentication rejection can trigger one re-login and one retry, shared by concurrent requests. Timeouts, dropped connections and authenticated permission denials do not replay operations. External-browser sign-in remains server-managed; reconnect if credentials stop working.

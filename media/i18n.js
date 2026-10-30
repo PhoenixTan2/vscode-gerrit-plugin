@@ -4,6 +4,15 @@
 })(globalThis, function () {
   'use strict';
   const messages = {
+  "正在自动重新登录 Gerrit": "Signing in to Gerrit again automatically",
+  "Gerrit 自动重新登录后，原请求已完成": "The original request completed after automatic Gerrit sign-in",
+  "自动重新登录失败，请检查保存的账号凭据和服务器登录配置": "Automatic sign-in failed; check the saved credentials and server login configuration",
+  "已自动重新登录，但服务器仍拒绝此操作（HTTP 403），请确认当前账号具有此操作的权限": "Signed in again automatically, but the server still denies this operation (HTTP 403); check this account's permissions",
+  "已自动重新登录，但服务器仍未接受登录身份（HTTP 401），请检查账号凭据和服务器登录配置": "Signed in again automatically, but the server still rejects the identity (HTTP 401); check the credentials and server login configuration",
+  "登录会话缺少 XSRF_TOKEN": "The login session is missing XSRF_TOKEN",
+  "登录会话的 XSRF_TOKEN 无效": "The login session has an invalid XSRF_TOKEN",
+  "网页登录认证失败，请检查网页登录密码和服务器登录配置。": "Website sign-in failed; check the website password and server login configuration. ",
+  "服务器拒绝此操作（HTTP 403），请检查当前账号权限": "The server denies this operation (HTTP 403); check this account's permissions",
   "未能确认 Gerrit 登录身份，请重新连接": "Could not verify the Gerrit login identity; reconnect",
   "历史评论加载已取消或失败": "Historical comment loading was cancelled or failed",
   " · 历史评论": " · Historical comment",
