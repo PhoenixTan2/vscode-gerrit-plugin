@@ -31,5 +31,6 @@
   "command.saveEdit": "保存 Edit 草稿",
   "command.publishEdit": "发布 Edit 为新 PS",
   "command.discardEdit": "废弃 Edit 草稿",
-  "color.resolvedCommentMarker": "已解决 Gerrit 评论的代码标记颜色"
+  "color.resolvedCommentMarker": "已解决 Gerrit 评论的代码标记颜色",
+  "command.resolveThread": "Done（已解决）"
 }

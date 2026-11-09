@@ -2,6 +2,10 @@
 
 **中文** | [English](#english)
 
+## 1.1.4
+
+- 修复讨论无法标记已解决的问题：讨论页与原生评论新增 Done，无需输入回复正文；向原评论所在 PS 发布已解决回复，保留位置与回复关系，适用于自己的提交。
+
 ## 1.1.3
 
 - 修复身份检查返回 403、身份仍有效但 CSRF 失效、令牌缺失 / 损坏时未自动重登的问题。清除旧会话并自动重新登录后重试一次；仍被拒绝才提示具体权限 / 凭据错误，不再用通用提示要求重连。日志增加自动重登过程，保持脱敏。
@@ -202,6 +206,10 @@
 ---
 
 ## English
+
+## 1.1.4
+
+- Add Done to discussion and native comment threads, including own changes. Resolve without reply text, preserving the original patch set, location and reply relationship.
 
 ## 1.1.3
 

@@ -2,6 +2,10 @@
 
 [中文](CHANGELOG.md) | **English**
 
+## 1.1.4
+
+- Add Done to discussion and native comment threads, including own changes. Resolve without entering reply text, preserving the original patch set, location and reply relationship.
+
 ## 1.1.3
 
 - Fix missing automatic re-login when identity checks return 403 or CSRF is rejected, missing or malformed despite a valid identity. Clear the old session, sign in automatically and retry once. Persistent failures report specific permission or credential errors instead of a generic reconnect instruction. Add recovery logging without credentials.

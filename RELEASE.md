@@ -5,7 +5,7 @@
 本轮只准备本地 VSIX，没有公开仓库，不向 Marketplace 或 Git 远程上传。保留现有 local-tools 发布者标识，不虚构 repository / homepage / issues 地址。
 
 1. 运行 `python scripts/verify.py`，再运行 `python scripts/package.py`。
-2. 运行 `python scripts/verify_host.py --vsix gerrit-workbench-1.1.3.vsix`，验证隔离的真实 VS Code 激活、页面脚本和交互。
+2. 运行 `python scripts/verify_host.py --vsix gerrit-workbench-1.1.4.vsix`，验证隔离的真实 VS Code 激活、页面脚本和交互。
 3. 运行 `python scripts/check_release.py`，检查语言资源、双语文档、PNG 图标和包文件白名单；日志、凭据、测试与临时文件不进入安装包。
 4. 只保留当前 VSIX，并记录本地 Git commit，不推送。
 
@@ -14,6 +14,13 @@
 插件主要 API 支持 VS Code 1.95 及以上。集成浏览器命令依版本可用性检测；旧版本可能无法提供认证网页浏览，其余原生评审仍可用。英文原生命令标题跟随 VS Code 显示语言，页面和对话框由 Gerrit Language 控制。
 
 公开发布前再确认实际 publisher ID、仓库和支持地址，并在目标 Gerrit 上验收真实评论、打分、上传和状态变更。本轮自动测试使用本地模拟服务器，不代替目标环境的写入验收。
+
+## 1.1.4 本地验证
+
+- Done 与回复独立提交。Done 无需填写正文；回复保留解决状态。讨论页草稿随线程保存，Done 刷新后保留未发布正文。支持自己的提交及历史 PS。
+- 219 项测试通过；真实 VS Code 1.144.1 的包激活、工作台、讨论页 Done 点击、原生评论及 diff 回归通过。隔离测试禁用 Copilot，避免无关组件因页面文件不足导致宿主崩溃。
+- 同窗口实测 1.1.3 → 1.1.4 → 1.1.3，文件指纹与设置正确，运行实例仍为 1.1.3。免重载升级尚未满足，新版运行实例的连接、持久化状态、讨论、原生评论、diff 迁移与回退兼容性未完成验收。安装后需重载一次窗口。
+- 未使用真实凭据，未写入真实 Gerrit 提交；目标服务器写入效果仍需现场验证。
 
 ## 1.1.3 本地验证
 
@@ -53,6 +60,13 @@
 ---
 
 ## English
+
+## 1.1.4 local validation
+
+- Done and reply publish independently. Done needs no reply text; replies preserve resolution state. Discussion drafts survive Done refreshes. Own changes and historical patch sets are covered.
+- 219 tests pass. Packaged activation, workbench, discussion Done clicks, native comments and diff regression passed on VS Code 1.144.1. Isolated tests disable Copilot after unrelated page-file exhaustion crashed the initial host attempt.
+- Same-window 1.1.3 → 1.1.4 → 1.1.3 installation/rollback preserved settings and matched file fingerprints, but the runtime stayed at 1.1.3. No-reload upgrade acceptance is unmet. New-runtime connection, persisted state, discussion, native comment and diff migration/rollback acceptance remains incomplete. Reload once after installation.
+- No real credentials or writes against real Gerrit changes were used. Target-server write acceptance remains unverified.
 
 ## 1.1.0 local validation
 

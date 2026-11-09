@@ -72,7 +72,7 @@ legacy.mkdir(parents=True)
     'contributes': {'viewsContainers': {'activitybar': [{'id': 'gerrit', 'title': 'Legacy Gerrit', 'icon': 'icon.svg'}]}, 'views': {'gerrit': [{'id': 'legacy.gerrit.changes', 'name': 'Legacy Changes'}]}}
 }), encoding='utf-8')
 (legacy / 'icon.svg').write_text('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="#ccc" d="M4 4h16v16H4z"/></svg>', encoding='utf-8')
-args = [str(code), '--new-window', '--disable-workspace-trust', '--skip-welcome', '--skip-release-notes', '--disable-updates', '--user-data-dir=' + str(temporary / 'profile'), '--extensions-dir=' + str(temporary / 'extensions'), '--extensionDevelopmentPath=' + str(development), '--extensionTestsPath=' + str(root / 'scripts/extension-host-smoke.js')]
+args = [str(code), '--new-window','--disable-extension=GitHub.copilot-chat','--disable-extension=GitHub.copilot', '--disable-workspace-trust', '--skip-welcome', '--skip-release-notes', '--disable-updates', '--user-data-dir=' + str(temporary / 'profile'), '--extensions-dir=' + str(temporary / 'extensions'), '--extensionDevelopmentPath=' + str(development), '--extensionTestsPath=' + str(root / 'scripts/extension-host-smoke.js')]
 with (temporary / 'process.log').open('w', encoding='utf-8') as log:
     process = subprocess.Popen(args, env=env, stdout=log, stderr=log)
     deadline = time.monotonic() + 120 + options.hold_excel

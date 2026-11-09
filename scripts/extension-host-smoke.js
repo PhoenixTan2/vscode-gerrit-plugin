@@ -60,10 +60,11 @@ async function run() {
     const panel = vscode.window.createWebviewPanel('gerrit.smoke.review', 'Review UI smoke', vscode.ViewColumn.Active, { enableScripts: true, localResourceRoots: [extension.extensionUri] });
     const nonce = require('node:crypto').randomBytes(16).toString('hex');
     const media = name => panel.webview.asWebviewUri(vscode.Uri.joinPath(extension.extensionUri, 'media', name));
-    const reviewActions=[];let reviewAction, reviewerAddAction, reviewerRemoveAction, fileAction, searchAction, patchAction, cancelAction, compareAction, navigationAction, metadataAction, relatedAction, parentAction, childAction, patchSearchAction, singleAction, openLinkAction, comparisonReturnAction, readAction, ancestorAction, taskCancelAction, taskRetryAction, updatesAction;
+    const reviewActions=[];let resolveAction, reviewAction, reviewerAddAction, reviewerRemoveAction, fileAction, searchAction, patchAction, cancelAction, compareAction, navigationAction, metadataAction, relatedAction, parentAction, childAction, patchSearchAction, singleAction, openLinkAction, comparisonReturnAction, readAction, ancestorAction, taskCancelAction, taskRetryAction, updatesAction;
     const reviewResult = new Promise((resolve, reject) => {
       const timeout = setTimeout(() => reject(new Error('Review Webview fixture did not render')), 15000);
       panel.webview.onDidReceiveMessage(message => {
+        if(message.type==='resolveThread')resolveAction=message;
         if(message.type==='review'){reviewAction=message;reviewActions.push(message);}
         if(message.type==='reviewerAdd')reviewerAddAction=message;
         if(message.type==='reviewerRemove')reviewerRemoveAction=message;
@@ -137,6 +138,9 @@ async function run() {
         if (getComputedStyle(activity.querySelector('summary'),'::before').transform===activityClosed) throw new Error('Activity chevron did not rotate');
         document.querySelector('[data-action="navigate"][data-direction="1"]').click();
         if (parseFloat(getComputedStyle(document.body).paddingTop) > 12) throw new Error('Discussion chrome is not compact');
+        const done = document.querySelector('[data-action="resolveThread"]');
+        if (!done || done.type !== 'button') throw new Error('Done action missing or submits reply form');
+        done.click();
         const replyPreview = thread.querySelector('.markdown-preview'); replyPreview.click();
         const replyInput = thread.querySelector('textarea');
         if (replyInput.hidden) throw new Error('Reply editor did not open');
@@ -281,6 +285,7 @@ async function run() {
     `;
     panel.webview.html = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${panel.webview.cspSource}; script-src 'nonce-${nonce}'"><link rel="stylesheet" href="${media('style.css')}"></head><body><header><div id="account"></div></header><div id="notice"></div><main id="app"></main><script nonce="${nonce}" src="${media('vendor/markdown-it.min.js')}"></script><script nonce="${nonce}" src="${media('i18n.js')}"></script><script nonce="${nonce}" src="${media('main.js')}"></script><script nonce="${nonce}">${fixtureScript}</script></body></html>`;
     await reviewResult;
+    assert.equal(resolveAction?.comment,'root');assert.equal(resolveAction?.path,'Boot/Device.c');assert.equal(resolveAction?.id,'fixture');assert.equal(resolveAction?.rev,'a'.repeat(40));
     assert.equal(reviewActions[0]?.labels?.['Code-Review'],1);assert.ok(!Object.hasOwn(reviewActions[1]?.labels||{},'Code-Review'));assert.equal(reviewerAddAction?.index,0);assert.equal(reviewerRemoveAction?.accountId,'8');
     assert.equal(openLinkAction?.url,'https://docs.example/guide');
     assert.equal(navigationAction?.direction, '-1'); assert.equal(navigationAction?.id, 'fixture');

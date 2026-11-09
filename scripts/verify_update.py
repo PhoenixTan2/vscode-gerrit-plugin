@@ -33,7 +33,7 @@ with zipfile.ZipFile(a.vsix.resolve()) as archive:
 with zipfile.ZipFile(a.previous.resolve()) as archive:
  previous_sha=hashlib.sha256(b''.join(archive.read('extension/'+name) for name in ['src/api.js','src/extension.js'])).hexdigest()
 env.update(GERRIT_UPDATE_EXTENSIONS=str(extensions),GERRIT_UPDATE_PREVIOUS_VERSION=package['version'],GERRIT_UPDATE_VERSION=next_version,GERRIT_UPDATE_NEXT_SHA=next_sha,GERRIT_UPDATE_PREVIOUS_SHA=previous_sha,GERRIT_UPDATE_RESULT=str(result),GERRIT_UPDATE_NEXT=str(a.vsix.resolve()),GERRIT_UPDATE_PREVIOUS=str(a.previous.resolve()))
-args=[str(code),'--new-window','--disable-workspace-trust','--skip-welcome','--skip-release-notes','--disable-updates','--user-data-dir='+str(temporary/'profile'),'--extensions-dir='+str(extensions),'--extensionDevelopmentPath='+str(controller),'--extensionTestsPath='+str(root/'scripts/update-host-smoke.js')]
+args=[str(code),'--new-window','--disable-extension=GitHub.copilot-chat','--disable-extension=GitHub.copilot','--disable-workspace-trust','--skip-welcome','--skip-release-notes','--disable-updates','--user-data-dir='+str(temporary/'profile'),'--extensions-dir='+str(extensions),'--extensionDevelopmentPath='+str(controller),'--extensionTestsPath='+str(root/'scripts/update-host-smoke.js')]
 with (temporary/'process.log').open('w',encoding='utf-8') as log:
  process=subprocess.Popen(args,env=env,stdout=log,stderr=log)
  deadline=time.monotonic()+100

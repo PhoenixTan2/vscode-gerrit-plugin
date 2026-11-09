@@ -31,5 +31,6 @@
   "command.saveEdit": "Save Gerrit edit",
   "command.publishEdit": "Publish edit as new PS",
   "command.discardEdit": "Discard Gerrit edit",
-  "color.resolvedCommentMarker": "Code marker color for resolved Gerrit comments"
+  "color.resolvedCommentMarker": "Code marker color for resolved Gerrit comments",
+  "command.resolveThread": "Done (resolved)"
 }

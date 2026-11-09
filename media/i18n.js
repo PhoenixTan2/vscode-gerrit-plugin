@@ -4,6 +4,7 @@
 })(globalThis, function () {
   'use strict';
   const messages = {
+  "Done（已解决）": "Done (resolved)",
   "正在自动重新登录 Gerrit": "Signing in to Gerrit again automatically",
   "Gerrit 自动重新登录后，原请求已完成": "The original request completed after automatic Gerrit sign-in",
   "自动重新登录失败，请检查保存的账号凭据和服务器登录配置": "Automatic sign-in failed; check the saved credentials and server login configuration",

@@ -5,7 +5,7 @@
 This delivery is a local VSIX only. No public repository, Marketplace upload or Git push is configured. Keep the current local-tools publisher identity; do not invent repository, homepage or issue URLs.
 
 1. Run `python scripts/verify.py`, followed by `python scripts/package.py`.
-2. Run `python scripts/verify_host.py --vsix gerrit-workbench-1.1.3.vsix` to exercise an isolated real VS Code host and Webview workflows.
+2. Run `python scripts/verify_host.py --vsix gerrit-workbench-1.1.4.vsix` to exercise an isolated real VS Code host and Webview workflows.
 3. Run `python scripts/check_release.py` to check localization, bilingual documents, PNG icon and archive allowlisting. Exclude logs, credentials, tests and temporary files.
 4. Retain only the current VSIX and record one local Git commit. Do not push.
 
@@ -14,6 +14,13 @@ The comment shortcut binds bare C only in read-only Gerrit diffs. Ctrl+C does no
 Core APIs target VS Code 1.95 or later. Integrated-browser commands are detected at runtime; older versions may not support authenticated web browsing, while native review workflows remain available. Native contribution titles follow the VS Code display language; Gerrit Language controls views/dialogs.
 
 Before any future public release, confirm the real publisher ID, repository and support URLs, and acceptance-test real comments, votes, uploads and state changes against the target Gerrit. Current automated checks use local fixtures and do not replace write-operation acceptance testing.
+
+## 1.1.4 local validation
+
+- Done and reply publish independently. Done needs no reply text; replies preserve resolution state. Discussion drafts survive Done refreshes. Own changes and historical patch sets are covered.
+- 219 tests pass. Packaged activation, workbench, discussion Done clicks, native comments and diff regression passed on VS Code 1.144.1. Isolated tests disable Copilot after unrelated page-file exhaustion crashed the initial host attempt.
+- Same-window 1.1.3 → 1.1.4 → 1.1.3 installation/rollback preserved settings and matched file fingerprints, but the runtime stayed at 1.1.3. No-reload upgrade acceptance is unmet. New-runtime connection, persisted state, discussion, native comment and diff migration/rollback acceptance remains incomplete. Reload once after installation.
+- No real credentials or writes against real Gerrit changes were used. Target-server write acceptance remains unverified.
 
 ## 1.1.3 local validation
 

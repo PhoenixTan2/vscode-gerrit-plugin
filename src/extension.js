@@ -40,6 +40,7 @@ function activate(context) {
     vscode.commands.registerCommand('gerrit.refresh', () => app.run(() => app.refreshCurrent())),
     vscode.commands.registerCommand('gerrit.push', () => app.run(() => app.push())),
     vscode.commands.registerCommand('gerrit.comment', () => app.run(() => app.addComment())),
+    vscode.commands.registerCommand('gerrit.resolveThread', value => app.run(() => app.resolveThread(value?.thread || value))),
     vscode.commands.registerCommand('gerrit.reply', reply => app.run(() => app.reply(reply))),
     ...['postCommentZh','postCommentEn','replyZh','replyEn'].map(id => vscode.commands.registerCommand('gerrit.' + id, reply => app.run(() => app.reply(reply)))),
     vscode.commands.registerCommand('gerrit.tasks', () => app.openTasks()),
@@ -957,12 +958,14 @@ class Workbench {
       await this.api.review(s.id, s.rev, { message, labels });
       this.send({ type: 'reviewSent' }); await this.load(s.id); return;
     }
-    if (m.type === 'reply') {
+    if (m.type === 'reply' || m.type === 'resolveThread') {
       const parent = s.comments[m.path]?.find(c => c.id === m.comment);
       if (!parent) throw new Error(tr('评论不存在，请刷新'));
-      const text = String(m.message || '').trim(); if (!text) throw new Error(tr('请输入回复内容'));
+      const resolving = m.type === 'resolveThread';
+      if (resolving && !parent.unresolved) return;
+      const text = resolving ? 'Done' : String(m.message || '').trim(); if (!text) throw new Error(tr('请输入回复内容'));
       const rev = Object.keys(s.change.revisions).find(key => s.change.revisions[key]._number === parent.patch_set) || s.rev;
-      await this.postComment({ ...parent, rev, path: m.path }, text, parent.id); this.send({ type: 'replySent', comment: parent.id }); await this.load(s.id); return;
+      await this.postComment({ ...parent, rev, path: m.path, ...(resolving ? { unresolved: false } : {}) }, text, parent.id); if (!resolving) this.send({ type: 'replySent', comment: parent.id }); await this.load(s.id); return;
     }
     if (m.type === 'action') {
       const action = String(m.action); const titles = { ready: tr('发布为待评审'), abandon: tr('废弃变更'), submit: tr('合入目标分支'), rebase: 'Rebase' };
@@ -1202,6 +1205,13 @@ class Workbench {
     thread.collapsibleState = vscode.CommentThreadCollapsibleState.Expanded;
     this.threads.set(thread, { ...info });
   }
+  async resolveThread(thread) {
+    const info = this.threads.get(thread);
+    if (!this.validInfo(info) || !info?.parent || info.empty) throw new Error(tr('此评论属于旧变更，请重新打开'));
+    if (!info.unresolved) return;
+    await this.postComment({ ...info, ...info.parent, path: info.path, side: info.side, unresolved: false }, 'Done', info.parent.id);
+    await this.load(info.id);
+  }
   async reply(reply) {
     if (!reply?.thread || !reply.text?.trim()) return;
     const thread = reply.thread;
@@ -1218,6 +1228,7 @@ class Workbench {
     const c = { message, side: info.side || 'REVISION', unresolved: true };
     if (info.line) c.line = info.line;
     if (info.range) c.range = info.range;
+    if (info.parent && Number.isInteger(info.parent)) c.parent = info.parent;
     if (parent) { c.in_reply_to = parent; c.unresolved = info.unresolved ?? true; }
     const revision = info.rev || s.rev;
     if (!this.validInfo({ ...info, id: s.id, rev: revision })) throw new Error(tr('评论版本已失效，请重新打开文件'));
