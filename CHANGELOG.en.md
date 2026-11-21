@@ -4,7 +4,7 @@
 
 ## 1.1.4
 
-- Publish change-level comments for the viewed patch set. New comments are unresolved by default and can be marked resolved before posting.
+- Publish change-level comments for the viewed patch set. Change-level comments default to resolved and can be posted as unresolved by clearing the checkbox. New code comments default to unresolved.
 - Only the thread author can use Done in the discussion view and native comments, regardless of change ownership. Done preserves the original patch set, location and reply relationship and requires no reply text.
 
 ## 1.1.3

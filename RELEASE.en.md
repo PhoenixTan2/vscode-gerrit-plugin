@@ -18,7 +18,7 @@ Before any future public release, confirm the real publisher ID, repository and 
 ## 1.1.4 local validation
 
 - Done and reply publish independently. Done needs no reply text; replies preserve resolution state. Discussion drafts survive Done refreshes. Only the thread author can mark it resolved, including on historical patch sets.
-- 222 tests pass. Packaged activation, workbench, discussion Done clicks, global comment posting options, native comments and diff regression passed on VS Code 1.146.0 with English and Simplified Chinese display languages.
+- 223 tests pass. Packaged activation, workbench, discussion Done clicks, global comment posting options, native comments and diff regression passed on VS Code 1.146.0 with English and Simplified Chinese display languages.
 - Same-window 1.1.3 → 1.1.4 → 1.1.3 installation/rollback preserved settings and matched file fingerprints, but the runtime stayed at 1.1.3. No-reload upgrade acceptance is unmet. New-runtime connection, persisted state, discussion, native comment and diff migration/rollback acceptance remains incomplete. Reload once after installation.
 - No real credentials or writes against real Gerrit changes were used. Target-server write acceptance remains unverified.
 

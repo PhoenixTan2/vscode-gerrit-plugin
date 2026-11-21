@@ -127,7 +127,7 @@ async function run() {
         if (!global || !global.open || global.querySelector('[data-action="locate"]')) throw new Error('Global comment exposes code navigation');
         const globalComposer = document.getElementById('global-comment');
         const globalResolved = globalComposer.querySelector('input[type="checkbox"]');
-        if (globalResolved.checked) throw new Error('Global comment defaults to resolved');
+        if (!globalResolved.checked) throw new Error('Global comment should default to resolved');
         globalComposer.querySelector('textarea').value = 'Patch-set feedback';
         globalComposer.querySelector('button[type="submit"]').click();
         globalResolved.click();
@@ -296,7 +296,7 @@ async function run() {
     panel.webview.html = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${panel.webview.cspSource}; script-src 'nonce-${nonce}'"><link rel="stylesheet" href="${media('style.css')}"></head><body><header><div id="account"></div></header><div id="notice"></div><main id="app"></main><script nonce="${nonce}" src="${media('vendor/markdown-it.min.js')}"></script><script nonce="${nonce}" src="${media('i18n.js')}"></script><script nonce="${nonce}" src="${media('main.js')}"></script><script nonce="${nonce}">${fixtureScript}</script></body></html>`;
     await reviewResult;
     assert.deepEqual(globalCommentActions.map(({message,resolved,patchRev})=>[message,resolved,patchRev]), [
-      ['Patch-set feedback',false,'a'.repeat(40)], ['Patch-set feedback',true,'a'.repeat(40)],
+      ['Patch-set feedback',true,'a'.repeat(40)], ['Patch-set feedback',false,'a'.repeat(40)],
     ]);
     assert.equal(resolveAction?.comment,'root');assert.equal(resolveAction?.path,'Boot/Device.c');assert.equal(resolveAction?.id,'fixture');assert.equal(resolveAction?.rev,'a'.repeat(40));
     assert.equal(reviewActions[0]?.labels?.['Code-Review'],1);assert.ok(!Object.hasOwn(reviewActions[1]?.labels||{},'Code-Review'));assert.equal(reviewerAddAction?.index,0);assert.equal(reviewerRemoveAction?.accountId,'8');

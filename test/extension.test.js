@@ -71,6 +71,7 @@ test('native new comment translates zero-based multiline ranges', async () => {
   app.documents.set(uri.toString(), { id: 'p~main~I1', rev: 'abc', path: 'a.js', side: 'REVISION' });
   await app.reply({ thread: { uri, range: new Range(1, 2, 4, 5), dispose() { disposed = true; } }, text: 'test' });
   const c = sent[0][2].comments['a.js'][0];
+  assert.equal(c.unresolved, true);
   assert.equal(c.range.start_line, 2); assert.equal(c.range.end_line, 5); assert.equal(c.range.end_character, 5); assert.equal(c.line, 5); assert.equal(disposed, true);
 });
 test('commenting provider rejects old snapshots and unknown documents', () => {
@@ -957,8 +958,8 @@ test('global comments publish on the viewed patch set with the requested initial
   await assert.rejects(app.handle({...action,message:'  '}),/请输入评论内容/);
   assert.equal(sent.length,0);
   await app.handle(action);
-  await app.handle({...action,resolved:true});
-  for (const [index, unresolved] of [true,false].entries()) {
+  await app.handle({...action,resolved:false});
+  for (const [index, unresolved] of [false,true].entries()) {
     assert.deepEqual(JSON.parse(JSON.stringify(sent[index])),[app.selected.id,'old',{comments:{'/PATCHSET_LEVEL':[
       {message:'Comment on the whole patch',unresolved},
     ]}}]);

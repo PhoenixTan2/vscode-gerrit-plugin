@@ -114,7 +114,7 @@ Set **Gerrit → Language** to `zh-CN` (default) or `en`. Views, dialogs and ext
 
 File reads are local progress markers, separate from Gerrit's reviewed-by-me state. That state means you commented or voted after the author's last update. Opening a file does not publish a Gerrit review.
 
-Overall reviews and votes target the latest PS. Historical PS pages require explicitly opening the latest PS before overall review or change-management actions. Inline replies retain the original revision. Use the discussion form to post a change-level comment on the patch set shown. It starts unresolved unless you select **Mark as resolved**. Only the person who started a thread can mark it resolved with **Done**. Reviews publish immediately; drafts are never automatically published.
+Overall reviews and votes target the latest PS. Historical PS pages require explicitly opening the latest PS before overall review or change-management actions. Inline replies retain the original revision. Use the discussion form to post a change-level comment on the patch set shown. By default, **Mark as resolved** is selected for change-level comments. Clear it to post an unresolved comment. New code comments start unresolved. Only the person who started a thread can mark it resolved with **Done**. Reviews publish immediately; drafts are never automatically published.
 
 ## SSH downloads and uploads
 

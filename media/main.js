@@ -245,7 +245,7 @@ function globalCommentForm(d) {
   return tr`<form id="global-comment" class="card">
     <label for="global-comment-message">全局评论 · PS ${e(patch)}</label>
     <textarea id="global-comment-message" required>${e(draft.message)}</textarea>
-    <div class="row"><label class="row"><input id="global-comment-resolved" type="checkbox" ${draft.resolved ? 'checked' : ''}>标记为已解决</label><button type="submit">发布全局评论</button></div>
+    <div class="row"><label class="row"><input id="global-comment-resolved" type="checkbox" ${draft.resolved === false ? '' : 'checked'}>标记为已解决</label><button type="submit">发布全局评论</button></div>
   </form>`;
 }
 function discussion(d) {

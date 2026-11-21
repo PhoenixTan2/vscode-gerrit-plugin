@@ -124,7 +124,7 @@ Gerrit 的评审人员属于整笔变更，不按 Code-Review、Verified 独立�
 | 发布 / 废弃 / 合入 | 自己的 WIP 可发布为待评审；可废弃自己的提交；有 submit 权限且服务器允许时可合入目标分支 |
 | 设置 / 调试输出 | 仅保留 Gerrit 侧边栏右上角的齿轮和输出小按钮，不在页面正文重复显示 |
 
-行评论与回复绑定实际所在的 PS / Base。整体评审与评分针对页面注明的最新 PS。评论、回复、评分立即发布；整体评审和线程回复保留本地输入草稿，不自动发布服务器已有的其他草稿。可在讨论页为当前查看的 PS 发布全局评论，默认未解决，发布前可勾选「标记为已解决」。只有发起讨论的账号能用 Done 将线程标记为已解决。
+行评论与回复绑定实际所在的 PS / Base。整体评审与评分针对页面注明的最新 PS。评论、回复、评分立即发布；整体评审和线程回复保留本地输入草稿，不自动发布服务器已有的其他草稿。可在讨论页为当前查看的 PS 发布全局评论，默认勾选「标记为已解决」，发布前可取消勾选。普通代码评论默认未解决。只有发起讨论的账号能用 Done 将线程标记为已解决。
 
 “我已评审”使用 Gerrit 的 `REVIEWED` / `reviewedby:self` 语义：自己在作者最近一次更新之后发布过评论或评分。仅打开代码不会自动标记；作者再次更新后会重新归入未评审。这与他人是否已经评分、文件级“已读”是不同概念。分支筛选可与预设或自定义查询组合；切换 Merged 会清除仅 Open 有效的未评审开关。
 
@@ -313,7 +313,7 @@ Set **Gerrit → Language** to `zh-CN` (default) or `en`. Views, dialogs and ext
 
 File reads are local progress markers, separate from Gerrit's reviewed-by-me state. That state means you commented or voted after the author's last update. Opening a file does not publish a Gerrit review.
 
-Overall reviews and votes target the latest PS. Historical PS pages require explicitly opening the latest PS before overall review or change-management actions. Inline replies retain the original revision. Use the discussion form to post a change-level comment on the patch set shown. It starts unresolved unless you select **Mark as resolved**. Only the person who started a thread can mark it resolved with **Done**. Reviews publish immediately; drafts are never automatically published.
+Overall reviews and votes target the latest PS. Historical PS pages require explicitly opening the latest PS before overall review or change-management actions. Inline replies retain the original revision. Use the discussion form to post a change-level comment on the patch set shown. By default, **Mark as resolved** is selected for change-level comments. Clear it to post an unresolved comment. New code comments start unresolved. Only the person who started a thread can mark it resolved with **Done**. Reviews publish immediately; drafts are never automatically published.
 
 ## SSH downloads and uploads
 

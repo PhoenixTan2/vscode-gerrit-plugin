@@ -972,7 +972,7 @@ class Workbench {
       if (m.patchRev !== patchRev || !Object.hasOwn(s.change.revisions, patchRev)) throw new Error(tr('页面已更新，请重新选择变更后操作'));
       const message = typeof m.message === 'string' ? m.message.trim() : '';
       if (!message) throw new Error(tr('请输入评论内容'));
-      await this.postComment({ rev: patchRev, path: '/PATCHSET_LEVEL', unresolved: m.resolved !== true }, message);
+      await this.postComment({ rev: patchRev, path: '/PATCHSET_LEVEL', unresolved: m.resolved === false }, message);
       this.send({ type: 'globalCommentSent', id: s.id, rev: s.rev, patchRev });
       if (this.selected === s) await this.load(s.id);
       return;

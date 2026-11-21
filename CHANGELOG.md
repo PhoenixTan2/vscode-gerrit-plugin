@@ -4,7 +4,7 @@
 
 ## 1.1.4
 
-- 讨论页支持为当前查看的 Patch Set 发布全局评论，默认未解决，可在发布时标记为已解决。
+- 讨论页支持为当前查看的 Patch Set 发布全局评论，默认勾选「标记为已解决」，发布前可取消。普通代码评论默认未解决。
 - 讨论页与原生评论仅允许讨论发起者用 Done 将讨论标记为已解决，与代码变更的归属无关。Done 无需填写回复正文，保留原 Patch Set、评论位置与回复关系。
 
 ## 1.1.3
@@ -210,7 +210,7 @@
 
 ## 1.1.4
 
-- Publish change-level comments for the viewed patch set. New comments are unresolved by default and can be marked resolved before posting.
+- Publish change-level comments for the viewed patch set. Change-level comments default to resolved and can be posted as unresolved by clearing the checkbox. New code comments default to unresolved.
 - Only the thread author can use Done in the discussion view and native comments, regardless of change ownership. Done preserves the original patch set, location and reply relationship and requires no reply text.
 
 ## 1.1.3
