@@ -75,7 +75,9 @@ Gerrit 的评审人员属于整笔变更，不按 Code-Review、Verified 独立�
 
 ## 安装与连接
 
-在扩展面板 `…` → **从 VSIX 安装**，选择从 [GitHub Releases](https://github.com/PhoenixTan2/vscode-gerrit-plugin/releases) 下载的 `gerrit-workbench-1.1.4.vsix`。点击左侧 Gerrit Workbench 图标连接服务器。该入口与其他 Gerrit 插件相互独立；若活动栏未显示，可右键活动栏勾选 Gerrit Workbench，或点击状态栏 Gerrit 打开。通常只需服务器根地址，例如 `http://192.168.1.10` 或 `https://review.example.com:8443`，无需手动追加 `/gerrit` 或 `/dashboard/self`。实际部署在子路径的服务器仍支持对应前缀；也兼容粘贴 dashboard 地址。
+在扩展面板 `…` → **从 VSIX 安装**，选择从 [GitHub Releases](https://github.com/PhoenixTan2/vscode-gerrit-plugin/releases) 下载的 `gerrit-workbench-1.1.5.vsix`。点击左侧 Gerrit Workbench 图标连接服务器。该入口与其他 Gerrit 插件相互独立；若活动栏未显示，可右键活动栏勾选 Gerrit Workbench，或点击状态栏 Gerrit 打开。通常只需服务器根地址，例如 `http://192.168.1.10` 或 `https://review.example.com:8443`，无需手动追加 `/gerrit` 或 `/dashboard/self`。实际部署在子路径的服务器仍支持对应前缀；也兼容粘贴 dashboard 地址。
+
+从旧版 `local-tools.gerrit-workbench` 切换时，先禁用或卸载旧扩展，再安装 `phoenixtan2.gerrit-workbench` 并重新连接 Gerrit。
 
 在扩展设置的 **Language / 语言** 中选择 `zh-CN`（默认）或 `en`，插件页面和对话框即时切换。VS Code 命令、设置标题等声明式文字跟随 VS Code 显示语言；评论、代码、姓名和服务器信息保持原文。
 
@@ -274,7 +276,7 @@ Install [Office Viewer](https://marketplace.visualstudio.com/items?itemName=cwei
 
 ## Install and connect
 
-Install `gerrit-workbench-1.1.4.vsix` using Extensions → **Install from VSIX**, then open the Gerrit Workbench activity icon. Enter a server root such as `http://192.168.1.10` or `https://review.example.com:8443`. Do not append `/gerrit` unless your server is actually deployed at that prefix. Dashboard URLs are also accepted.
+Install `gerrit-workbench-1.1.5.vsix` using Extensions → **Install from VSIX**, then open the Gerrit Workbench activity icon. Enter a server root such as `http://192.168.1.10` or `https://review.example.com:8443`. Do not append `/gerrit` unless your server is actually deployed at that prefix. Dashboard URLs are also accepted.
 
 Choose one authentication method per connection:
 
@@ -284,6 +286,8 @@ Choose one authentication method per connection:
 The methods are not combined; a server may support either or both. Existing connections keep the last choice. Passwords are stored in VS Code SecretStorage. Cookies and session tokens stay in memory. Interactive SSO/OAuth is not supported. HTTPS certificate verification remains enabled.
 
 ## Language
+
+If you used `local-tools.gerrit-workbench`, disable or uninstall it before installing `phoenixtan2.gerrit-workbench`, then reconnect to Gerrit.
 
 Set **Gerrit → Language** to `zh-CN` (default) or `en`. Views, dialogs and extension-generated messages change immediately. Native VS Code command and settings titles follow the VS Code display language through packaged NLS resources. User comments, source code, names and server data remain unchanged.
 
@@ -338,6 +342,6 @@ Toolbar settings and output buttons open extension settings and the Gerrit Workb
 
 ## Development and local delivery
 
-Run `python scripts/verify.py`, then `python scripts/package.py`. Optionally run `python scripts/verify_host.py --vsix gerrit-workbench-1.1.4.vsix` for an isolated real VS Code host check. Node.js or VS Code's bundled Node runtime and Python are required. Local Git tests require Git. The packager validates the new archive before removing older project VSIX files and includes only runtime assets and documentation.
+Run `python scripts/verify.py`, then `python scripts/package.py`. Optionally run `python scripts/verify_host.py --vsix gerrit-workbench-1.1.5.vsix` for an isolated real VS Code host check. Node.js or VS Code's bundled Node runtime and Python are required. Local Git tests require Git. The packager validates the new archive before removing older project VSIX files and includes only runtime assets and documentation.
 
 The source is available on [GitHub](https://github.com/PhoenixTan2/vscode-gerrit-plugin). Download the VSIX from [GitHub Releases](https://github.com/PhoenixTan2/vscode-gerrit-plugin/releases). See [release checks](RELEASE.en.md). MIT license; bundled markdown-it license is documented in [third-party notices](THIRD_PARTY_NOTICES.md).

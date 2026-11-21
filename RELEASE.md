@@ -5,7 +5,7 @@
 源码已在 [GitHub](https://github.com/PhoenixTan2/vscode-gerrit-plugin) 公开。已发布的 VSIX 可从 [GitHub Releases](https://github.com/PhoenixTan2/vscode-gerrit-plugin/releases) 下载。Marketplace 安装包使用 `phoenixtan2.gerrit-workbench`。此前以 `local-tools.gerrit-workbench` 安装的用户需安装新扩展并重新连接 Gerrit。
 
 1. 运行 `python scripts/verify.py`，再运行 `python scripts/package.py`。
-2. 运行 `python scripts/verify_host.py --vsix gerrit-workbench-1.1.4.vsix`，验证隔离的真实 VS Code 激活、页面脚本和交互。
+2. 运行 `python scripts/verify_host.py --vsix gerrit-workbench-1.1.5.vsix`，验证隔离的真实 VS Code 激活、页面脚本和交互。
 3. 运行 `python scripts/check_release.py`，检查语言资源、双语文档、PNG 图标和包文件白名单；日志、凭据、测试与临时文件不进入安装包。
 4. 只保留当前 VSIX，并记录本地 Git commit，按用户要求推送。
 
@@ -14,6 +14,11 @@
 插件主要 API 支持 VS Code 1.95 及以上。集成浏览器命令依版本可用性检测；旧版本可能无法提供认证网页浏览，其余原生评审仍可用。英文原生命令标题跟随 VS Code 显示语言，页面和对话框由 Gerrit Language 控制。
 
 公开发布前再确认实际 publisher ID、仓库和支持地址，并在目标 Gerrit 上验收真实评论、打分、上传和状态变更。本轮自动测试使用本地模拟服务器，不代替目标环境的写入验收。
+
+## 1.1.5 首次 Marketplace 发布
+
+- 使用官方 `vsce` 生成分发包，GitHub Release 和 Marketplace 上传同一份 VSIX。
+- 公开的 1.1.4 使用 `local-tools.gerrit-workbench`，1.1.5 使用 `phoenixtan2.gerrit-workbench`。VS Code 分别安装两个 ID，旧版到新版需要手动切换。
 
 ## 1.1.4 重新发布验收
 
@@ -61,6 +66,11 @@
 ---
 
 ## English
+
+## 1.1.5 first Marketplace release
+
+- Package the distributable with official `vsce` and upload the same VSIX to GitHub Releases and Marketplace.
+- The public 1.1.4 uses `local-tools.gerrit-workbench`, while 1.1.5 uses `phoenixtan2.gerrit-workbench`. VS Code installs these IDs separately. Switch extensions manually.
 
 ## 1.1.4 reissue validation
 

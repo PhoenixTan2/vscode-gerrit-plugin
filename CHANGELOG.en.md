@@ -2,6 +2,11 @@
 
 [中文](CHANGELOG.md) | **English**
 
+## 1.1.5
+
+- First Marketplace release under `phoenixtan2.gerrit-workbench`. GitHub Releases and Marketplace use the same VSIX.
+- If the previous `local-tools.gerrit-workbench` extension is installed, disable or uninstall it before installing the new extension, then reconnect to Gerrit.
+
 ## 1.1.4
 
 - Publish change-level comments for the viewed patch set. Change-level comments default to resolved and can be posted as unresolved by clearing the checkbox. New code comments default to unresolved.

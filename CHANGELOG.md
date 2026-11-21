@@ -2,6 +2,11 @@
 
 **中文** | [English](#english)
 
+## 1.1.5
+
+- 首次使用 `phoenixtan2.gerrit-workbench` 发布 Marketplace 版。GitHub Releases 与 Marketplace 使用同一个 VSIX。
+- 已安装 `local-tools.gerrit-workbench` 的用户请先禁用或卸载旧扩展，安装新版后重新连接 Gerrit。
+
 ## 1.1.4
 
 - 讨论页支持为当前查看的 Patch Set 发布全局评论，默认勾选「标记为已解决」，发布前可取消。普通代码评论默认未解决。
@@ -207,6 +212,11 @@
 ---
 
 ## English
+
+## 1.1.5
+
+- First Marketplace release under `phoenixtan2.gerrit-workbench`. GitHub Releases and Marketplace use the same VSIX.
+- If the previous `local-tools.gerrit-workbench` extension is installed, disable or uninstall it before installing the new extension, then reconnect to Gerrit.
 
 ## 1.1.4
 

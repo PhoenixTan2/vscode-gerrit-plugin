@@ -5,7 +5,7 @@
 The source is available on [GitHub](https://github.com/PhoenixTan2/vscode-gerrit-plugin). Published VSIX files are available from [GitHub Releases](https://github.com/PhoenixTan2/vscode-gerrit-plugin/releases). The Marketplace package uses `phoenixtan2.gerrit-workbench`. Users of `local-tools.gerrit-workbench` need to install the new extension and reconnect to Gerrit.
 
 1. Run `python scripts/verify.py`, followed by `python scripts/package.py`.
-2. Run `python scripts/verify_host.py --vsix gerrit-workbench-1.1.4.vsix` to exercise an isolated real VS Code host and Webview workflows.
+2. Run `python scripts/verify_host.py --vsix gerrit-workbench-1.1.5.vsix` to exercise an isolated real VS Code host and Webview workflows.
 3. Run `python scripts/check_release.py` to check localization, bilingual documents, PNG icon and archive allowlisting. Exclude logs, credentials, tests and temporary files.
 4. Retain only the current VSIX and record one local Git commit. Push when requested.
 
@@ -14,6 +14,11 @@ The comment shortcut binds bare C only in read-only Gerrit diffs. Ctrl+C does no
 Core APIs target VS Code 1.95 or later. Integrated-browser commands are detected at runtime; older versions may not support authenticated web browsing, while native review workflows remain available. Native contribution titles follow the VS Code display language; Gerrit Language controls views/dialogs.
 
 Before any future public release, confirm the real publisher ID, repository and support URLs, and acceptance-test real comments, votes, uploads and state changes against the target Gerrit. Current automated checks use local fixtures and do not replace write-operation acceptance testing.
+
+## 1.1.5 first Marketplace release
+
+- Package the distributable with official `vsce` and upload the same VSIX to GitHub Releases and Marketplace.
+- The public 1.1.4 uses `local-tools.gerrit-workbench`, while 1.1.5 uses `phoenixtan2.gerrit-workbench`. VS Code installs these IDs separately. Switch extensions manually.
 
 ## 1.1.4 reissue validation
 
