@@ -2,7 +2,7 @@
 
 **中文** | [English](#english)
 
-源码已在 GitHub 私有仓库托管。VSIX 在本地构建，Marketplace 尚未发布。本地包使用 `local-tools` 发布者标识。
+源码已在 [GitHub](https://github.com/PhoenixTan2/vscode-gerrit-plugin) 公开。已发布的 VSIX 可从 [GitHub Releases](https://github.com/PhoenixTan2/vscode-gerrit-plugin/releases) 下载。安装包使用 `local-tools` 发布者标识。
 
 1. 运行 `python scripts/verify.py`，再运行 `python scripts/package.py`。
 2. 运行 `python scripts/verify_host.py --vsix gerrit-workbench-1.1.4.vsix`，验证隔离的真实 VS Code 激活、页面脚本和交互。
@@ -87,7 +87,7 @@ The version is unchanged for this batch. Native Edit integration covers immutabl
 
 [返回中文 / Back to Chinese](#本地发布检查)
 
-The source is hosted in a private GitHub repository. VSIX files are built locally. Marketplace publication is pending, and the local package uses the `local-tools` publisher ID.
+The source is available on [GitHub](https://github.com/PhoenixTan2/vscode-gerrit-plugin). Published VSIX files are available from [GitHub Releases](https://github.com/PhoenixTan2/vscode-gerrit-plugin/releases). The package uses the `local-tools` publisher ID.
 
 1. Run `python scripts/verify.py`, followed by `python scripts/package.py`.
 2. Run `python scripts/verify_host.py --vsix gerrit-workbench-1.1.1.vsix` to exercise an isolated real VS Code host and Webview workflows.

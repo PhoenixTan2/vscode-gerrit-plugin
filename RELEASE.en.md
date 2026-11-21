@@ -2,7 +2,7 @@
 
 [中文](RELEASE.md) | **English**
 
-The source is hosted in a private GitHub repository. VSIX files are built locally. Marketplace publication is pending, and the local package uses the `local-tools` publisher ID.
+The source is available on [GitHub](https://github.com/PhoenixTan2/vscode-gerrit-plugin). Published VSIX files are available from [GitHub Releases](https://github.com/PhoenixTan2/vscode-gerrit-plugin/releases). The package uses the `local-tools` publisher ID.
 
 1. Run `python scripts/verify.py`, followed by `python scripts/package.py`.
 2. Run `python scripts/verify_host.py --vsix gerrit-workbench-1.1.4.vsix` to exercise an isolated real VS Code host and Webview workflows.

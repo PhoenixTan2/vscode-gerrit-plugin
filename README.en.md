@@ -141,4 +141,4 @@ Toolbar settings and output buttons open extension settings and the Gerrit Workb
 
 Run `python scripts/verify.py`, then `python scripts/package.py`. Optionally run `python scripts/verify_host.py --vsix gerrit-workbench-1.1.4.vsix` for an isolated real VS Code host check. Node.js or VS Code's bundled Node runtime and Python are required. Local Git tests require Git. The packager validates the new archive before removing older project VSIX files and includes only runtime assets and documentation.
 
-The source is hosted in a private GitHub repository. Install the local VSIX while Marketplace publication is pending. See [release checks](RELEASE.en.md). MIT license; bundled markdown-it license is documented in [third-party notices](THIRD_PARTY_NOTICES.md).
+The source is available on [GitHub](https://github.com/PhoenixTan2/vscode-gerrit-plugin). Download the VSIX from [GitHub Releases](https://github.com/PhoenixTan2/vscode-gerrit-plugin/releases). See [release checks](RELEASE.en.md). MIT license; bundled markdown-it license is documented in [third-party notices](THIRD_PARTY_NOTICES.md).
