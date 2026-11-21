@@ -960,9 +960,26 @@ test('global comments publish on the viewed patch set with the requested initial
   await app.handle({...action,resolved:true});
   for (const [index, unresolved] of [true,false].entries()) {
     assert.deepEqual(JSON.parse(JSON.stringify(sent[index])),[app.selected.id,'old',{comments:{'/PATCHSET_LEVEL':[
-      {message:'Comment on the whole patch',side:'REVISION',unresolved},
+      {message:'Comment on the whole patch',unresolved},
     ]}}]);
   }
+});
+
+test('global replies and Done omit all file coordinates while keeping their original patch set', async () => {
+  const {app,sent}=fixture(); app.load=async()=>{};
+  app.user={_account_id:7};
+  app.selected.change.revisions={old:{_number:1},abc:{_number:2}};
+  const path='/PATCHSET_LEVEL';
+  app.selected.comments={[path]:[
+    {id:'global',patch_set:1,unresolved:true,side:'REVISION',line:5,range:{start_line:5},parent:1,author:{_account_id:7}},
+  ]};
+  const action={id:app.selected.id,rev:'abc',path,comment:'global'};
+  await app.handle({...action,type:'reply',message:'Follow-up'});
+  await app.handle({...action,type:'resolveThread'});
+  assert.deepEqual(JSON.parse(JSON.stringify(sent)),[
+    [app.selected.id,'old',{comments:{[path]:[{message:'Follow-up',unresolved:true,in_reply_to:'global'}]}}],
+    [app.selected.id,'old',{comments:{[path]:[{message:'Done',unresolved:false,in_reply_to:'global'}]}}],
+  ]);
 });
 
 test('discussion Done rejects a request from the change owner who only replied', async () => {

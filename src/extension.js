@@ -1261,10 +1261,13 @@ class Workbench {
   }
   async postComment(info, message, parent) {
     const s = this.selected;
-    const c = { message, side: info.side || 'REVISION', unresolved: info.unresolved ?? true };
-    if (info.line) c.line = info.line;
-    if (info.range) c.range = info.range;
-    if (info.parent && Number.isInteger(info.parent)) c.parent = info.parent;
+    const c = { message, unresolved: info.unresolved ?? true };
+    if (info.path !== '/PATCHSET_LEVEL') {
+      c.side = info.side || 'REVISION';
+      if (info.line) c.line = info.line;
+      if (info.range) c.range = info.range;
+      if (info.parent && Number.isInteger(info.parent)) c.parent = info.parent;
+    }
     if (parent) c.in_reply_to = parent;
     const revision = info.rev || s.rev;
     if (!this.validInfo({ ...info, id: s.id, rev: revision })) throw new Error(tr('评论版本已失效，请重新打开文件'));
