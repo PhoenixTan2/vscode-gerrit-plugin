@@ -15,8 +15,9 @@
 
 公开发布前再确认实际 publisher ID、仓库和支持地址，并在目标 Gerrit 上验收真实评论、打分、上传和状态变更。本轮自动测试使用本地模拟服务器，不代替目标环境的写入验收。
 
-## 1.1.4 本地验证
+## 1.1.4 重新发布验收
 
+- 修复 Patch Set 级评论的 HTTP 400。新建全局评论默认勾选「标记为已解决」，新建普通代码评论默认未解决。已安装原 1.1.4 的用户需重新安装本次 VSIX 后重载窗口。
 - Done 与回复独立提交。Done 无需填写正文；回复保留解决状态。讨论页草稿随线程保存，Done 刷新后保留未发布正文。只有讨论发起者可以标记为已解决，支持历史 PS。
 - 223 项测试通过；真实 VS Code 1.146.0 的中英文宿主、包激活、工作台、讨论页 Done 点击、全局评论发表选项、原生评论及 diff 回归通过。
 - 同窗口实测 1.1.3 → 1.1.4 → 1.1.3，文件指纹与设置正确，运行实例仍为 1.1.3。免重载升级尚未满足，新版运行实例的连接、持久化状态、讨论、原生评论、diff 迁移与回退兼容性未完成验收。安装后需重载一次窗口。
@@ -61,8 +62,9 @@
 
 ## English
 
-## 1.1.4 local validation
+## 1.1.4 reissue validation
 
+- This reissue fixes HTTP 400 when posting patch-set-level comments. New change-level comments default to resolved, while new code comments default to unresolved. Reinstall this VSIX and reload VS Code if the original 1.1.4 is already installed.
 - Done and reply publish independently. Done needs no reply text; replies preserve resolution state. Discussion drafts survive Done refreshes. Only the thread author can mark it resolved, including on historical patch sets.
 - 223 tests pass. Packaged activation, workbench, discussion Done clicks, global comment posting options, native comments and diff regression passed on VS Code 1.146.0 with English and Simplified Chinese display languages.
 - Same-window 1.1.3 → 1.1.4 → 1.1.3 installation/rollback preserved settings and matched file fingerprints, but the runtime stayed at 1.1.3. No-reload upgrade acceptance is unmet. New-runtime connection, persisted state, discussion, native comment and diff migration/rollback acceptance remains incomplete. Reload once after installation.

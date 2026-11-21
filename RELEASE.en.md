@@ -15,8 +15,9 @@ Core APIs target VS Code 1.95 or later. Integrated-browser commands are detected
 
 Before any future public release, confirm the real publisher ID, repository and support URLs, and acceptance-test real comments, votes, uploads and state changes against the target Gerrit. Current automated checks use local fixtures and do not replace write-operation acceptance testing.
 
-## 1.1.4 local validation
+## 1.1.4 reissue validation
 
+- This reissue fixes HTTP 400 when posting patch-set-level comments. New change-level comments default to resolved, while new code comments default to unresolved. Reinstall this VSIX and reload VS Code if the original 1.1.4 is already installed.
 - Done and reply publish independently. Done needs no reply text; replies preserve resolution state. Discussion drafts survive Done refreshes. Only the thread author can mark it resolved, including on historical patch sets.
 - 223 tests pass. Packaged activation, workbench, discussion Done clicks, global comment posting options, native comments and diff regression passed on VS Code 1.146.0 with English and Simplified Chinese display languages.
 - Same-window 1.1.3 → 1.1.4 → 1.1.3 installation/rollback preserved settings and matched file fingerprints, but the runtime stayed at 1.1.3. No-reload upgrade acceptance is unmet. New-runtime connection, persisted state, discussion, native comment and diff migration/rollback acceptance remains incomplete. Reload once after installation.
