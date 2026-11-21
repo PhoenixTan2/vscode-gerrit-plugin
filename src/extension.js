@@ -118,7 +118,10 @@ class Workbench {
     this.logger.protect(password); this.logger.protect(Buffer.from(`${username}:${password}`).toString('base64'));
     return new GerritApi(url, username, password, { authMode, pageSize: this.model.pageSize, timeout: this.setting('requestTimeout', 30000), log: (level, message) => this.logger.write(level, message) });
   }
-  openSettings() { return vscode.commands.executeCommand('workbench.action.openSettings', '@ext:local-tools.gerrit-workbench'); }
+  openSettings() {
+    const { publisher, name } = require('../package.json');
+    return vscode.commands.executeCommand('workbench.action.openSettings', `@ext:${publisher}.${name}`);
+  }
   validInfo(info) { return !!(info && this.selected && info.id === this.selected.id && (this.selected.change.revisions ? this.selected.change.revisions[info.rev] : info.rev === this.selected.rev)); }
   dispose() {
     if (this.disposal) return this.disposal;

@@ -2,7 +2,7 @@
 
 [中文](RELEASE.md) | **English**
 
-The source is available on [GitHub](https://github.com/PhoenixTan2/vscode-gerrit-plugin). Published VSIX files are available from [GitHub Releases](https://github.com/PhoenixTan2/vscode-gerrit-plugin/releases). The package uses the `local-tools` publisher ID.
+The source is available on [GitHub](https://github.com/PhoenixTan2/vscode-gerrit-plugin). Published VSIX files are available from [GitHub Releases](https://github.com/PhoenixTan2/vscode-gerrit-plugin/releases). The Marketplace package uses `phoenixtan2.gerrit-workbench`. Users of `local-tools.gerrit-workbench` need to install the new extension and reconnect to Gerrit.
 
 1. Run `python scripts/verify.py`, followed by `python scripts/package.py`.
 2. Run `python scripts/verify_host.py --vsix gerrit-workbench-1.1.4.vsix` to exercise an isolated real VS Code host and Webview workflows.

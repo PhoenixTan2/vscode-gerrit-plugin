@@ -60,6 +60,8 @@ if options.viewer_vsix:
 
 env = {name: value for name, value in os.environ.items() if name != 'ELECTRON_RUN_AS_NODE' and not name.startswith('VSCODE_')}
 env['GERRIT_HOST_SMOKE_RESULT'] = str(result)
+manifest = json.loads((development / 'package.json').read_text(encoding='utf-8'))
+env['GERRIT_HOST_SMOKE_EXTENSION'] = f"{manifest['publisher']}.{manifest['name']}"
 profile = temporary / 'profile'
 if options.locale != 'en':
     # Keep argv.json and the language pack registry separate from the user's VS Code profile.

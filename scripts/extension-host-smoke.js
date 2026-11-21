@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const vscode = require('vscode');
 async function run() {
   try {
-    const extension = vscode.extensions.getExtension('local-tools.gerrit-workbench');
+    const extension = vscode.extensions.getExtension(process.env.GERRIT_HOST_SMOKE_EXTENSION);
     assert.ok(extension, 'Development extension must be discovered');
     const icon = fs.readFileSync(require('node:path').join(extension.extensionPath, extension.packageJSON.icon));
     assert.equal(icon.subarray(1,4).toString(), 'PNG'); assert.equal(icon.readUInt32BE(16),256); assert.equal(icon.readUInt32BE(20),256);

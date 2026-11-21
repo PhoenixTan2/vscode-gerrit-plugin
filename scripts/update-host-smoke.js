@@ -11,7 +11,7 @@ async function run(){
  const report={vscode:vscode.version,phases:[],noWindowReload:false};
  const config=vscode.workspace.getConfiguration('gerrit');
  try{
-  const extension=vscode.extensions.getExtension('local-tools.gerrit-workbench');
+  const extension=vscode.extensions.getExtension(process.env.GERRIT_UPDATE_ID);
   if(!extension)throw Error('Previous installed extension missing');
   await extension.activate();
   await config.update('language','en',vscode.ConfigurationTarget.Global);

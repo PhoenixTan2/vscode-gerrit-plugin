@@ -10,13 +10,20 @@ p.add_argument('--previous',required=True,type=Path)
 p.add_argument('--vsix',required=True,type=Path)
 p.add_argument('--report',type=Path)
 a=p.parse_args()
+with zipfile.ZipFile(a.previous.resolve()) as archive:
+ package=json.loads(archive.read('extension/package.json'))
+with zipfile.ZipFile(a.vsix.resolve()) as archive:
+ next_package=json.loads(archive.read('extension/package.json'))
+identity=f"{package['publisher']}.{package['name']}"
+next_identity=f"{next_package['publisher']}.{next_package['name']}"
+if identity.lower()!=next_identity.lower():
+ raise SystemExit(f'Different extension IDs: {identity} and {next_identity}. VS Code installs them separately.')
 code=next((x for x in [Path(os.environ.get('ProgramFiles','C:/Program Files'))/'Microsoft VS Code/Code.exe',Path(os.environ.get('LOCALAPPDATA',''))/'Programs/Microsoft VS Code/Code.exe'] if x.is_file()),None)
 if not code:raise SystemExit('VS Code desktop required')
 temporary=Path(tempfile.mkdtemp(prefix='gerrit-update-smoke-'))
 extensions=temporary/'extensions'
 with zipfile.ZipFile(a.previous.resolve()) as archive:
- package=json.loads(archive.read('extension/package.json'))
- destination=extensions/(package['publisher']+'.'+package['name']+'-'+package['version'])
+ destination=extensions/(identity+'-'+package['version'])
  for item in archive.infolist():
   if not item.filename.startswith('extension/') or item.is_dir():continue
   target=(destination/item.filename[len('extension/'):]).resolve()
@@ -28,11 +35,12 @@ controller=temporary/'controller';controller.mkdir()
 result=temporary/'result.json'
 env=os.environ.copy();env.pop('ELECTRON_RUN_AS_NODE',None)
 with zipfile.ZipFile(a.vsix.resolve()) as archive:
- next_version=json.loads(archive.read('extension/package.json'))['version']
+ next_version=next_package['version']
  next_sha=hashlib.sha256(b''.join(archive.read('extension/'+name) for name in ['src/api.js','src/extension.js'])).hexdigest()
 with zipfile.ZipFile(a.previous.resolve()) as archive:
  previous_sha=hashlib.sha256(b''.join(archive.read('extension/'+name) for name in ['src/api.js','src/extension.js'])).hexdigest()
 env.update(GERRIT_UPDATE_EXTENSIONS=str(extensions),GERRIT_UPDATE_PREVIOUS_VERSION=package['version'],GERRIT_UPDATE_VERSION=next_version,GERRIT_UPDATE_NEXT_SHA=next_sha,GERRIT_UPDATE_PREVIOUS_SHA=previous_sha,GERRIT_UPDATE_RESULT=str(result),GERRIT_UPDATE_NEXT=str(a.vsix.resolve()),GERRIT_UPDATE_PREVIOUS=str(a.previous.resolve()))
+env['GERRIT_UPDATE_ID']=identity
 args=[str(code),'--new-window','--disable-extension=GitHub.copilot-chat','--disable-extension=GitHub.copilot','--disable-workspace-trust','--skip-welcome','--skip-release-notes','--disable-updates','--user-data-dir='+str(temporary/'profile'),'--extensions-dir='+str(extensions),'--extensionDevelopmentPath='+str(controller),'--extensionTestsPath='+str(root/'scripts/update-host-smoke.js')]
 with (temporary/'process.log').open('w',encoding='utf-8') as log:
  process=subprocess.Popen(args,env=env,stdout=log,stderr=log)
