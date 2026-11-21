@@ -54,7 +54,7 @@ async function run() {
         comparison: { left: 'base', right: 'a'.repeat(40), revision: 'a'.repeat(40) },
         related: { rev: 'a'.repeat(40), changes: [{ _change_number: 141, _revision_number: 1, _current_revision_number: 2, status: 'NEW', commit: { commit: 'b'.repeat(40), subject: 'Dependency', parents: [] } }] },
         patchView: { rev: 'a'.repeat(40), files: ['Boot/Device.c'] }, files: { 'Boot/Device.c': { lines_inserted: 12, lines_deleted: 3 }, 'Library/Init.c': { lines_inserted: 3 }, 'Large/Image.bin': { size: 30 * 1024 * 1024, blockedReason: '文件内容编码后的响应超过 32MB 限制' } },
-        comments: { '/PATCHSET_LEVEL': [{id:'global',patch_set:3,author:{name:'Sam'},message:'Whole change comment'}], 'Boot/Device.c': [{ id: 'root', patch_set: 3, line: 42, updated: '2026-10-21 06:30:01', unresolved: true, author: { name: 'Sam' }, message: '**Could we check** the device state before initializing?\nSecond line of discussion' }] }, messages: [{ author: { name: 'Sam' }, _revision_number: 3, message: 'Activity first line\nActivity second line' }]
+        comments: { '/PATCHSET_LEVEL': [{id:'global',patch_set:3,author:{name:'Sam'},message:'Whole change comment'}], 'Boot/Device.c': [{ id: 'root', patch_set: 3, line: 42, updated: '2026-10-21 06:30:01', unresolved: true, author: { name: 'Sam', _account_id: 7 }, message: '**Could we check** the device state before initializing?\nSecond line of discussion' }] }, messages: [{ author: { name: 'Sam' }, _revision_number: 3, message: 'Activity first line\nActivity second line' }]
       }
     };
     const panel = vscode.window.createWebviewPanel('gerrit.smoke.review', 'Review UI smoke', vscode.ViewColumn.Active, { enableScripts: true, localResourceRoots: [extension.extensionUri] });

@@ -478,30 +478,33 @@ test('current-user scores are preselected and all issue statuses color both deta
 
 
 test('Done is offered on own unresolved discussions and sends a pinned action without reply text',()=>{
- const f=surfaceFixture();const detail={id:'own',owner:{_account_id:7},current_revision:'rev',revisions:{rev:{_number:1}},comments:{'a.c':[{id:'root',unresolved:true,message:'Please fix',author:{_account_id:7}}]},files:{}};
+ const f=surfaceFixture();const detail={id:'own',owner:{_account_id:8},current_revision:'rev',revisions:{rev:{_number:1}},comments:{'a.c':[{id:'root',unresolved:true,message:'Please fix',author:{_account_id:7}}]},files:{}};
  f.update({connected:true,surface:'discussion',accountId:7,detail});
  assert.ok(f.app.innerHTML.includes('data-action="resolveThread"'));assert.ok(f.app.innerHTML.includes('Done（已解决）'));
  f.events.click({target:{closest:selector=>selector==='a[href]'||selector==='.markdown-preview'?null:{dataset:{action:'resolveThread',path:'a.c',comment:'root'}}}});
  const action=f.messages.at(-1);assert.equal(action.type,'resolveThread');assert.equal(action.id,'own');assert.equal(action.rev,'rev');assert.equal(action.comment,'root');
+ f.update({connected:true,surface:'discussion',accountId:8,detail});
+ assert.ok(!f.app.innerHTML.includes('data-action="resolveThread"'));
  detail.comments['a.c'][0].unresolved=false;f.update({connected:true,surface:'discussion',accountId:7,detail});
  assert.ok(!f.app.innerHTML.includes('data-action="resolveThread"'));
 });
 
 
 test('Done and reply submit separately and a Done refresh preserves an unpublished reply',()=>{
- const f=surfaceFixture();const comments=[{id:'root',unresolved:true,updated:'1',message:'Fix this'},{id:'reply',in_reply_to:'root',unresolved:true,updated:'2',message:'Question'}];
+ const f=surfaceFixture();const comments=[{id:'root',unresolved:true,updated:'1',message:'Fix this',author:{_account_id:7}},{id:'reply',in_reply_to:'root',unresolved:true,updated:'2',message:'Question',author:{_account_id:8}}];
  const detail={id:'own',current_revision:'rev',revisions:{rev:{_number:1}},comments:{'a.c':comments},files:{}};
- f.update({connected:true,surface:'discussion',detail});
+ f.update({connected:true,surface:'discussion',accountId:7,detail});
+ assert.ok(f.app.innerHTML.includes('data-action="resolveThread"'));
  // Use the key rendered by the editor so persistence follows the thread root.
  const key=f.app.innerHTML.match(/data-reply-key="([^"]+)"/)[1];
  f.events.input({target:{dataset:{replyKey:key},value:'Unpublished answer'}});
  f.events.click({target:{closest:selector=>selector==='a[href]'||selector==='.markdown-preview'?null:{dataset:{action:'resolveThread',path:'a.c',comment:'reply'}}}});
  assert.equal(f.messages.at(-1).type,'resolveThread');assert.equal(f.messages.at(-1).message,undefined);
  comments.push({id:'done',in_reply_to:'reply',unresolved:false,updated:'3',message:'Done'});
- f.update({connected:true,surface:'discussion',detail});
+ f.update({connected:true,surface:'discussion',accountId:7,detail});
  assert.ok(f.app.innerHTML.includes('Unpublished answer'));
  f.events.submit({preventDefault(){},target:{dataset:{form:'reply',path:'a.c',comment:'done'},querySelector:()=>({value:'Answer separately'})}});
  assert.equal(f.messages.at(-1).type,'reply');assert.equal(f.messages.at(-1).message,'Answer separately');
- f.message({type:'replySent',comment:'done'});f.update({connected:true,surface:'discussion',detail});
+ f.message({type:'replySent',comment:'done'});f.update({connected:true,surface:'discussion',accountId:7,detail});
  assert.ok(!f.app.innerHTML.includes('Unpublished answer'));
 });

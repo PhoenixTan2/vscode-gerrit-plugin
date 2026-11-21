@@ -927,9 +927,9 @@ test('both PS sides display their own comments once and only newer side gets oth
 });
 
 
-test('Done resolves own change discussions on their original PS without review labels', async () => {
+test('Done resolves a discussion I started on another author’s change and preserves its original PS', async () => {
   const {app,sent}=fixture(); app.load=async()=>{};
-  app.selected.change.owner={_account_id:7}; app.model.accountId=7;
+  app.selected.change.owner={_account_id:8}; app.user={_account_id:7};
   app.selected.change.revisions={old:{_number:1},abc:{_number:2}};
   const range={start_line:2,start_character:0,end_line:4,end_character:3};
   app.selected.comments={'a.c':[{id:'root',patch_set:1,side:'PARENT',parent:2,line:4,range,unresolved:true,author:{_account_id:7}}]};
@@ -945,22 +945,47 @@ test('Done resolves own change discussions on their original PS without review l
   assert.equal(sent.length,1);
 });
 
-test('native Done resolves the latest reply and rejects stale threads',async()=>{
-  const {app,sent,commands}=fixture();app.load=async()=>{};
+test('discussion Done rejects a request from the change owner who only replied', async () => {
+  const {app,sent}=fixture();
+  app.selected.change.owner={_account_id:7}; app.user={_account_id:7};
+  app.selected.comments={'a.c':[
+    {id:'root',unresolved:true,author:{_account_id:8}},
+    {id:'reply',in_reply_to:'root',unresolved:true,author:{_account_id:7}},
+  ]};
+  const resolve={type:'resolveThread',id:app.selected.id,rev:'abc',path:'a.c',comment:'reply'};
+  await assert.rejects(app.handle(resolve),/只有讨论发起者/);
+  app.selected.comments['a.c'].shift();
+  await assert.rejects(app.handle(resolve),/只有讨论发起者/);
+  assert.equal(sent.length,0);
+});
+
+test('native Done belongs to the thread author and resolves the latest reply',async()=>{
+  const {app,sent,commands,created}=fixture();app.load=async()=>{};
   assert.ok(commands.has('gerrit.resolveThread'));
-  const thread={};const info={id:app.selected.id,rev:'abc',path:'a.c',side:'REVISION',unresolved:true,parent:{id:'reply',line:8,unresolved:true}};
-  app.threads.set(thread,info);await app.resolveThread(thread);
+  const uri={toString:()=> 'gerrit:discussion'};
+  const info={id:app.selected.id,rev:'abc',path:'a.c',side:'REVISION'};
+  const root={id:'root',line:8,updated:'1',author:{_account_id:7},unresolved:true};
+  const reply={id:'reply',in_reply_to:'root',line:8,updated:'2',author:{_account_id:8},unresolved:true};
+  app.selected.comments={'a.c':[root,reply]};
+  app.user={_account_id:8}; app.addCommentThreads(uri,info,[root,reply]);
+  assert.equal(created[0].contextValue,'gerritReply');
+  await assert.rejects(app.resolveThread(created[0]),/只有讨论发起者/);
+  assert.equal(sent.length,0);
+  app.user={_account_id:7}; app.addCommentThreads(uri,info,[root,reply]);
+  const thread=created[1]; assert.equal(thread.contextValue,'gerritResolvableReply');
+  await app.resolveThread(thread);
   const comment=sent[0][2].comments['a.c'][0];
   assert.equal(comment.in_reply_to,'reply');assert.equal(comment.unresolved,false);assert.equal(comment.line,8);
-  info.unresolved=false;await app.resolveThread(thread);assert.equal(sent.length,1);
+  app.threads.get(thread).unresolved=false;await app.resolveThread(thread);assert.equal(sent.length,1);
   app.selected.rev='new';await assert.rejects(app.resolveThread(thread),/旧变更/);
   await assert.rejects(app.resolveThread({}),/旧变更/);
 });
 
 test('failed Done keeps existing native thread state and does not refresh',async()=>{
   const {app}=fixture();let refreshed=false;app.load=async()=>{refreshed=true;};
+  app.user={_account_id:7};
   app.api.review=async()=>{throw Error('denied');};
-  const thread={};const info={id:app.selected.id,rev:'abc',path:'a.c',side:'REVISION',unresolved:true,parent:{id:'root',unresolved:true}};
+  const thread={};const info={id:app.selected.id,rev:'abc',path:'a.c',side:'REVISION',unresolved:true,rootAuthorId:7,parent:{id:'root',unresolved:true}};
   app.threads.set(thread,info);await assert.rejects(app.resolveThread(thread),/denied/);
   assert.equal(info.unresolved,true);assert.equal(refreshed,false);
 });

@@ -20,6 +20,15 @@ const { Logger } = require('./log');
 const { BrowserGateway } = require('./browser');
 const { sshUrl, projectPath, downloadBranch } = require('./download');
 
+function threadRoot(comment, commentsById) {
+  const seen = new Set();
+  while (comment?.in_reply_to && !seen.has(comment.id)) {
+    seen.add(comment.id);
+    comment = commentsById.get(comment.in_reply_to);
+  }
+  return comment?.in_reply_to ? undefined : comment;
+}
+
 let activeWorkbench;
 function activate(context) {
   const app = new Workbench(context); activeWorkbench = app;
@@ -959,10 +968,15 @@ class Workbench {
       this.send({ type: 'reviewSent' }); await this.load(s.id); return;
     }
     if (m.type === 'reply' || m.type === 'resolveThread') {
-      const parent = s.comments[m.path]?.find(c => c.id === m.comment);
+      const comments = s.comments[m.path] || [];
+      const parent = comments.find(c => c.id === m.comment);
       if (!parent) throw new Error(tr('评论不存在，请刷新'));
       const resolving = m.type === 'resolveThread';
-      if (resolving && !parent.unresolved) return;
+      if (resolving) {
+        if (!parent.unresolved) return;
+        const root = threadRoot(parent, new Map(comments.map(comment => [comment.id, comment])));
+        this.requireThreadAuthor(root?.author?._account_id);
+      }
       const text = resolving ? 'Done' : String(m.message || '').trim(); if (!text) throw new Error(tr('请输入回复内容'));
       const rev = Object.keys(s.change.revisions).find(key => s.change.revisions[key]._number === parent.patch_set) || s.rev;
       await this.postComment({ ...parent, rev, path: m.path, ...(resolving ? { unresolved: false } : {}) }, text, parent.id); if (!resolving) this.send({ type: 'replySent', comment: parent.id }); await this.load(s.id); return;
@@ -1129,14 +1143,18 @@ class Workbench {
     this.historicalJobs.set(uri.toString(),job);
   }
   addCommentThreads(uri,info,comments) {
+    if (!comments.length) return;
     const ids=new Map(comments.map(comment=>[comment.id,comment])),groups=new Map();
     for(const comment of comments){let root=comment;const seen=new Set();while(root.in_reply_to&&ids.has(root.in_reply_to)&&!seen.has(root.id)){seen.add(root.id);root=ids.get(root.in_reply_to);}const group=groups.get(root.id)||[];group.push(comment);groups.set(root.id,group);}
+    const allComments = new Map(Object.values(this.selected.comments || {}).flat().map(comment => [comment.id, comment]));
     for(const group of groups.values()){
       group.sort((a,b)=>String(a.updated).localeCompare(String(b.updated)));const first=group[0],last=group.at(-1),origin=last._origin;
       const range=first.range?new vscode.Range(first.range.start_line-1,first.range.start_character,first.range.end_line-1,first.range.end_character):first.line?new vscode.Range(first.line-1,0,first.line-1,0):undefined;
       const thread=this.controller.createCommentThread(uri,range,group.map(comment=>({body:comment.message,label:`PS ${comment._origin?.patch||comment.patch_set||this.selected.change.revisions?.[info.rev]?._number||'?'}`,mode:vscode.CommentMode.Preview,author:{name:comment.author?.name||comment.author?.username||tr('Gerrit 用户')}})));
       const meta={...info,...(origin?{rev:origin.rev,path:origin.path,side:origin.side,historical:true,unmapped:group.some(comment=>comment._origin?.unmapped),originLine:first._origin?.comment.range?.start_line||first._origin?.comment.line}:{}),parent:origin?.comment||last,unresolved:!!last.unresolved,rootId:first.id,commentIds:group.map(comment=>comment.id)};
-      thread.contextValue='gerritReply';thread.label=this.commentThreadLabel(meta);thread.collapsibleState=last.unresolved?vscode.CommentThreadCollapsibleState.Expanded:vscode.CommentThreadCollapsibleState.Collapsed;thread.state=last.unresolved?vscode.CommentThreadState.Unresolved:vscode.CommentThreadState.Resolved;this.threads.set(thread,meta);
+      meta.rootAuthorId = threadRoot(last, allComments)?.author?._account_id;
+      thread.contextValue = meta.unresolved && this.isThreadAuthor(meta.rootAuthorId) ? 'gerritResolvableReply' : 'gerritReply';
+      thread.label=this.commentThreadLabel(meta);thread.collapsibleState=last.unresolved?vscode.CommentThreadCollapsibleState.Expanded:vscode.CommentThreadCollapsibleState.Collapsed;thread.state=last.unresolved?vscode.CommentThreadState.Unresolved:vscode.CommentThreadState.Resolved;this.threads.set(thread,meta);
     }
   }
   commentPoints(info) {
@@ -1205,10 +1223,17 @@ class Workbench {
     thread.collapsibleState = vscode.CommentThreadCollapsibleState.Expanded;
     this.threads.set(thread, { ...info });
   }
+  isThreadAuthor(authorId) {
+    return Number.isInteger(authorId) && this.user?._account_id === authorId;
+  }
+  requireThreadAuthor(authorId) {
+    if (!this.isThreadAuthor(authorId)) throw new Error(tr('只有讨论发起者可以标记为已解决'));
+  }
   async resolveThread(thread) {
     const info = this.threads.get(thread);
     if (!this.validInfo(info) || !info?.parent || info.empty) throw new Error(tr('此评论属于旧变更，请重新打开'));
     if (!info.unresolved) return;
+    this.requireThreadAuthor(info.rootAuthorId);
     await this.postComment({ ...info, ...info.parent, path: info.path, side: info.side, unresolved: false }, 'Done', info.parent.id);
     await this.load(info.id);
   }

@@ -4,7 +4,7 @@
 
 ## 1.1.4
 
-- Add Done to discussion and native comment threads, including own changes. Resolve without entering reply text, preserving the original patch set, location and reply relationship.
+- Only the thread author can use Done in the discussion view and native comments, regardless of change ownership. Done preserves the original patch set, location and reply relationship and requires no reply text.
 
 ## 1.1.3
 

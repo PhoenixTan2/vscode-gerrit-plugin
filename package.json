@@ -305,12 +305,12 @@
         },
         {
           "command": "gerrit.replyZh",
-          "when": "commentController == gerrit && gerritCommentLanguage == zh && commentThread == gerritReply",
+          "when": "commentController == gerrit && gerritCommentLanguage == zh && commentThread =~ /^(gerritReply|gerritResolvableReply)$/",
           "group": "inline"
         },
         {
           "command": "gerrit.replyEn",
-          "when": "commentController == gerrit && gerritCommentLanguage == en && commentThread == gerritReply",
+          "when": "commentController == gerrit && gerritCommentLanguage == en && commentThread =~ /^(gerritReply|gerritResolvableReply)$/",
           "group": "inline"
         }
       ],
@@ -339,7 +339,7 @@
       "comments/commentThread/title": [
         {
           "command": "gerrit.resolveThread",
-          "when": "commentController == gerrit && commentThread == gerritReply",
+          "when": "commentController == gerrit && commentThread == gerritResolvableReply",
           "group": "navigation"
         }
       ]

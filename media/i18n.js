@@ -591,6 +591,7 @@
   "评审评论": "Review comment",
   "评论": "Comment",
   "评论不存在": "Comment not found",
+  "只有讨论发起者可以标记为已解决": "Only the discussion author can mark it as resolved",
   "评论已不存在": "Comment no longer exists",
   "评论所选代码行": "Comment on selected lines",
   "评论搜索请求失败": "Comment search request failed",

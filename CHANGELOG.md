@@ -4,7 +4,7 @@
 
 ## 1.1.4
 
-- 修复讨论无法标记已解决的问题：讨论页与原生评论新增 Done，无需输入回复正文；向原评论所在 PS 发布已解决回复，保留位置与回复关系，适用于自己的提交。
+- 讨论页与原生评论仅允许讨论发起者用 Done 将讨论标记为已解决，与代码变更的归属无关。Done 无需填写回复正文，保留原 Patch Set、评论位置与回复关系。
 
 ## 1.1.3
 
@@ -209,7 +209,7 @@
 
 ## 1.1.4
 
-- Add Done to discussion and native comment threads, including own changes. Resolve without reply text, preserving the original patch set, location and reply relationship.
+- Only the thread author can use Done in the discussion view and native comments, regardless of change ownership. Done preserves the original patch set, location and reply relationship and requires no reply text.
 
 ## 1.1.3
 
