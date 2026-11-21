@@ -490,6 +490,26 @@ test('Done is offered on own unresolved discussions and sends a pinned action wi
 });
 
 
+test('global comment defaults to unresolved, retains draft on refresh and resets after publish',()=>{
+ const f=surfaceFixture();
+ const detail={id:'change',viewRevision:'old',current_revision:'rev',revisions:{old:{_number:1},rev:{_number:2}},files:{}};
+ const model={connected:true,surface:'discussion',accountId:7,detail};
+ f.update(model);
+ assert.match(f.app.innerHTML,/全局评论 · PS 1/);
+ assert.doesNotMatch(f.app.innerHTML,/id="global-comment-resolved"[^>]*checked/);
+ f.events.input({target:{id:'global-comment-message',value:'Global draft'}});
+ f.events.input({target:{id:'global-comment-resolved',checked:true}});
+ f.update(model);
+ assert.match(f.app.innerHTML,/Global draft/);
+ assert.match(f.app.innerHTML,/id="global-comment-resolved"[^>]*checked/);
+ f.events.submit({preventDefault(){},target:{id:'global-comment',querySelector:selector=>selector==='textarea'?{value:'Global draft'}:{checked:true}}});
+ const action=f.messages.at(-1);
+ assert.equal(action.type,'globalComment');assert.equal(action.id,'change');assert.equal(action.rev,'rev');assert.equal(action.patchRev,'old');
+ assert.equal(action.message,'Global draft');assert.equal(action.resolved,true);
+ f.message({type:'globalCommentSent',id:'change',rev:'rev',patchRev:'old'});
+ assert.doesNotMatch(f.app.innerHTML,/Global draft|id="global-comment-resolved"[^>]*checked/);
+});
+
 test('Done and reply submit separately and a Done refresh preserves an unpublished reply',()=>{
  const f=surfaceFixture();const comments=[{id:'root',unresolved:true,updated:'1',message:'Fix this',author:{_account_id:7}},{id:'reply',in_reply_to:'root',unresolved:true,updated:'2',message:'Question',author:{_account_id:8}}];
  const detail={id:'own',current_revision:'rev',revisions:{rev:{_number:1}},comments:{'a.c':comments},files:{}};

@@ -18,7 +18,7 @@
 ## 1.1.4 本地验证
 
 - Done 与回复独立提交。Done 无需填写正文；回复保留解决状态。讨论页草稿随线程保存，Done 刷新后保留未发布正文。只有讨论发起者可以标记为已解决，支持历史 PS。
-- 220 项测试通过；真实 VS Code 1.146.0 的包激活、工作台、讨论页 Done 点击、原生评论及 diff 回归通过。
+- 222 项测试通过；真实 VS Code 1.146.0 的包激活、工作台、讨论页 Done 点击、全局评论发表选项、原生评论及 diff 回归通过。
 - 同窗口实测 1.1.3 → 1.1.4 → 1.1.3，文件指纹与设置正确，运行实例仍为 1.1.3。免重载升级尚未满足，新版运行实例的连接、持久化状态、讨论、原生评论、diff 迁移与回退兼容性未完成验收。安装后需重载一次窗口。
 - 未使用真实凭据，未写入真实 Gerrit 提交；目标服务器写入效果仍需现场验证。
 
@@ -64,7 +64,7 @@
 ## 1.1.4 local validation
 
 - Done and reply publish independently. Done needs no reply text; replies preserve resolution state. Discussion drafts survive Done refreshes. Only the thread author can mark it resolved, including on historical patch sets.
-- 220 tests pass. Packaged activation, workbench, discussion Done clicks, native comments and diff regression passed on VS Code 1.146.0.
+- 222 tests pass. Packaged activation, workbench, discussion Done clicks, global comment posting options, native comments and diff regression passed on VS Code 1.146.0.
 - Same-window 1.1.3 → 1.1.4 → 1.1.3 installation/rollback preserved settings and matched file fingerprints, but the runtime stayed at 1.1.3. No-reload upgrade acceptance is unmet. New-runtime connection, persisted state, discussion, native comment and diff migration/rollback acceptance remains incomplete. Reload once after installation.
 - No real credentials or writes against real Gerrit changes were used. Target-server write acceptance remains unverified.
 

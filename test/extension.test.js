@@ -945,6 +945,24 @@ test('Done resolves a discussion I started on another author’s change and pres
   assert.equal(sent.length,1);
 });
 
+test('global comments publish on the viewed patch set with the requested initial resolution', async () => {
+  const {app,sent}=fixture();
+  app.load=async()=>{};
+  app.selected.change.revisions={old:{_number:1},abc:{_number:2}};
+  app.model.detail={viewRevision:'old'};
+  const action={type:'globalComment',id:app.selected.id,rev:'abc',patchRev:'old',message:' Comment on the whole patch '};
+  await assert.rejects(app.handle({...action,patchRev:'abc'}),/页面已更新/);
+  await assert.rejects(app.handle({...action,message:'  '}),/请输入评论内容/);
+  assert.equal(sent.length,0);
+  await app.handle(action);
+  await app.handle({...action,resolved:true});
+  for (const [index, unresolved] of [true,false].entries()) {
+    assert.deepEqual(JSON.parse(JSON.stringify(sent[index])),[app.selected.id,'old',{comments:{'/PATCHSET_LEVEL':[
+      {message:'Comment on the whole patch',side:'REVISION',unresolved},
+    ]}}]);
+  }
+});
+
 test('discussion Done rejects a request from the change owner who only replied', async () => {
   const {app,sent}=fixture();
   app.selected.change.owner={_account_id:7}; app.user={_account_id:7};

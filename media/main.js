@@ -14,6 +14,8 @@ const who = account => account?.name || account?.username || account?.email || t
 const key = () => `${model.server || ''}::${model.accountId ?? model.username ?? ''}::${model.detail?.id}::${model.detail?.current_revision}`;
 const save = () => vscode.setState(state);
 const draft = () => state.drafts?.[key()] || {};
+const globalCommentPatch = () => model.detail?.viewRevision || model.detail?.current_revision;
+const globalCommentKey = () => `${key()}::${globalCommentPatch()}`;
 
 const markdown = markdownit({ html: false, linkify: true, breaks: true });
 markdown.validateLink = url => /^https?:/i.test(url) || /^\/(?!\/)/.test(url);
@@ -229,6 +231,16 @@ function commentStats(d,path) {
   const groups=path ? commentThreads(d.comments?.[path]||[]) : Object.entries(d.comments||{}).filter(([file])=>!file.startsWith('/')).flatMap(([,comments])=>commentThreads(comments));
   const unresolved=groups.filter(list=>list.at(-1)?.unresolved).length;return `${unresolved}(${groups.length-unresolved})`;
 }
+function globalCommentForm(d) {
+  const patch = d.revisions?.[globalCommentPatch()]?._number;
+  if (!patch) return '';
+  const draft = state.globalComments?.[globalCommentKey()] || {};
+  return tr`<form id="global-comment" class="card">
+    <label for="global-comment-message">全局评论 · PS ${e(patch)}</label>
+    <textarea id="global-comment-message" required>${e(draft.message)}</textarea>
+    <div class="row"><label class="row"><input id="global-comment-resolved" type="checkbox" ${draft.resolved ? 'checked' : ''}>标记为已解决</label><button type="submit">发布全局评论</button></div>
+  </form>`;
+}
 function discussion(d) {
   const groups = [];
   for (const [path, comments] of Object.entries(d.comments || {})) {
@@ -239,7 +251,7 @@ function discussion(d) {
     }
   }
   const codeTab = state.tabs?.[d.id] === 'code';
-  const discussionBody = tr`<h2>代码讨论 <span class="muted">所有 Patch set · ${groups.length} 个线程</span></h2><div class="filters"><label class="row"><input id="unresolved-only" type="checkbox" ${state.unresolvedOnly ? 'checked' : ''}>仅显示未解决的讨论</label><label class="row"><input id="participated-only" type="checkbox" ${state.participatedOnly ? 'checked' : ''}>有我参与的讨论</label></div>${groups.map(({ path, list }) => {
+  const discussionBody = tr`<h2>代码讨论 <span class="muted">所有 Patch set · ${groups.length} 个线程</span></h2>${globalCommentForm(d)}<div class="filters"><label class="row"><input id="unresolved-only" type="checkbox" ${state.unresolvedOnly ? 'checked' : ''}>仅显示未解决的讨论</label><label class="row"><input id="participated-only" type="checkbox" ${state.participatedOnly ? 'checked' : ''}>有我参与的讨论</label></div>${groups.map(({ path, list }) => {
     const root = list[0]; const last = list.at(-1);
     const author = list.find(comment => !comment.in_reply_to)?.author;
     const canResolve = last.unresolved && Number.isInteger(model.accountId) && author?._account_id === model.accountId;
@@ -248,7 +260,7 @@ function discussion(d) {
     if (replyKey !== legacyReplyKey && state.replies?.[legacyReplyKey] !== undefined && state.replies?.[replyKey] === undefined) { state.replies[replyKey] = state.replies[legacyReplyKey]; delete state.replies[legacyReplyKey]; save(); }
     const threadKey=`${key()}::${root.id}`,kind=path==='/PATCHSET_LEVEL'?'global':last.unresolved?'unresolved':'resolved';
     const collapsed=state.threadStates?.[threadKey]===kind ? (state.threadCollapsed?.[threadKey] ?? kind==='resolved') : kind==='resolved';
-    return tr`<details class="card thread thread-${last.unresolved ? 'unresolved' : 'resolved'}" data-thread-key="${e(threadKey)}" data-thread-state="${kind}" ${collapsed ? '' : 'open'}><summary class="thread-summary"><b title="${e(path)}">${path === '/PATCHSET_LEVEL' ? tr('全局评论') : e(path)}${root.line ? `:${e(root.line)}` : tr(' · 文件评论')}</b><span class="thread-snippet" title="${e(firstLine(root.message))}">${markdown.renderInline(firstLine(root.message))}</span><span class="badge">${last.unresolved ? tr('未解决') : tr('已解决')}</span></summary><p class="muted">PS ${e(root.patch_set || '?')} · ${root.side === 'PARENT' ? 'Base' : 'Patch'} ${root.range ? tr`· 行 ${root.range.start_line}–${root.range.end_line}` : ''}</p>${list.map(c => `<div class="thread-message"><div class="message-byline"><span class="avatar">${e(who(c.author).slice(0, 1))}</span><b>${e(who(c.author))}</b><time>${e(time(c.updated))}</time></div><div class="message markdown-body">${md(c.message)}</div></div>`).join('')}<div class="row">${!path.startsWith('/') ? button(tr('定位到差异代码'), 'locate', 'secondary', `data-path="${e(path)}" data-comment="${e(root.id)}"`) : ''}</div><form data-form="reply" data-path="${e(path)}" data-comment="${e(last.id)}">${markdownEditor(state.replies?.[replyKey] || '', { replyKey, label: tr`回复 ${path} 的讨论`, placeholder: tr('回复这条讨论…') })}<div class="row"><button type="submit">发布回复</button>${canResolve ? button(tr('Done（已解决）'), 'resolveThread', 'secondary', `data-path="${e(path)}" data-comment="${e(last.id)}"`) : ''}</div></form></details>`;
+    return tr`<details class="card thread thread-${last.unresolved ? 'unresolved' : 'resolved'}" data-thread-key="${e(threadKey)}" data-thread-state="${kind}" ${collapsed ? '' : 'open'}><summary class="thread-summary"><b title="${e(path)}">${path === '/PATCHSET_LEVEL' ? tr('全局评论') : e(path)}${path === '/PATCHSET_LEVEL' ? '' : root.line ? `:${e(root.line)}` : tr(' · 文件评论')}</b><span class="thread-snippet" title="${e(firstLine(root.message))}">${markdown.renderInline(firstLine(root.message))}</span><span class="badge">${last.unresolved ? tr('未解决') : tr('已解决')}</span></summary><p class="muted">PS ${e(root.patch_set || '?')} · ${root.side === 'PARENT' ? 'Base' : 'Patch'} ${root.range ? tr`· 行 ${root.range.start_line}–${root.range.end_line}` : ''}</p>${list.map(c => `<div class="thread-message"><div class="message-byline"><span class="avatar">${e(who(c.author).slice(0, 1))}</span><b>${e(who(c.author))}</b><time>${e(time(c.updated))}</time></div><div class="message markdown-body">${md(c.message)}</div></div>`).join('')}<div class="row">${!path.startsWith('/') ? button(tr('定位到差异代码'), 'locate', 'secondary', `data-path="${e(path)}" data-comment="${e(root.id)}"`) : ''}</div><form data-form="reply" data-path="${e(path)}" data-comment="${e(last.id)}">${markdownEditor(state.replies?.[replyKey] || '', { replyKey, label: tr`回复 ${path} 的讨论`, placeholder: tr('回复这条讨论…') })}<div class="row"><button type="submit">发布回复</button>${canResolve ? button(tr('Done（已解决）'), 'resolveThread', 'secondary', `data-path="${e(path)}" data-comment="${e(last.id)}"`) : ''}</div></form></details>`;
   }).join('') || tr('<div class="empty">暂无符合筛选的代码讨论</div>')}<h2>活动记录</h2>${(d.messages || []).slice().reverse().map(m => `<details class="card activity"><summary><b>${e(who(m.author))}</b><span class="badge">PS ${e(m._revision_number)}</span><span class="activity-snippet" title="${e(firstLine(m.message))}">${markdown.renderInline(firstLine(m.message))}</span><time>${e(time(m.date))}</time></summary><div class="message markdown-body">${md(m.message)}</div></details>`).join('') || tr('<p class="muted">暂无活动</p>')}`;
   return tr`<div class="review-shell"><div class="hero"><div class="hero-top"><span class="eyebrow">CHANGE #${e(d._number)}</span><span id="change-status" class="badge status status-${statusTone(d)}">${e(changeStatus(d))}</span>${negativeStatus(d)}<div class="hero-actions"><span id="task-entry">${taskButton()}</span>${button(tr('刷新此变更'), 'refresh')}${button(tr('内置浏览器'), 'browser')}</div></div><div id="result-navigation" class="result-navigation" aria-label="检索结果导航">${resultNavigation()}${pendingSearch()}</div><h1>${e(displaySubject(d))}</h1><p class="muted">${metadataLink(d.project, 'repo')} <span class="separator">/</span> ${metadataLink(d.branch, 'branch')} <span class="separator">·</span> ${metadataLink(who(d.owner), 'owner')} <span class="badge">最新 PS ${e(d.revisions?.[d.current_revision]?._number)}</span></p>${timestamps(d)}<div id="change-actions">${changeActions(d)}</div>${conflictInfo(d)}</div>${commitInfo(d)}${relationChain(d)}<div class="discussion-layout"><section><nav class="tabs" aria-label="评审视图">${button(tr('讨论'), 'tabDiscussion', codeTab ? 'tab' : 'tab active')}${button(tr('代码与下载'), 'tabCode', codeTab ? 'tab active' : 'tab')}</nav>${codeTab ? `<div class="card code-panel" id="patch-browser">${patchBrowser(d)}</div>` : discussionBody}</section></div><aside class="review-float${state.reviewWindowCollapsed ? ' review-window-collapsed' : ''}" aria-label="发布评审和当前评分"><div class="review-window-heading"><strong>评审与评分</strong>${button(state.reviewWindowCollapsed ? tr('展开') : tr('收起'),'toggleReviewWindow','secondary',`aria-expanded="${!state.reviewWindowCollapsed}"`)}</div><div class="review-window-body" ${state.reviewWindowCollapsed ? 'hidden' : ''}><div class="card composer">${reviewForm(d)}</div><div class="ratings"><h2>当前评分 <span class="muted">最新 PS</span></h2>${reviewerManager(d)}<div id="rating-list">${votes(d.labels) || tr('<p class="muted">暂无评分标签</p>')}</div></div></div></aside></div>`;
 }
@@ -338,7 +350,7 @@ function render() {
   setBusy();
   post('rendered', { surface: model.surface || 'sidebar' });
 }
-function setBusy() { app.querySelectorAll('button,select,input[data-read-file]').forEach(el => { el.disabled = el.dataset?.unavailable === 'true' || (busy && !['cancelSearch','tasks','taskCancel','taskRetry','toggleReviewWindow'].includes(el.dataset?.action)) || (el.dataset?.action === 'download' && (model.downloads || []).some(job => job.changeId === model.detail?.id && (job.status === 'running' || job.settled === false))); }); app.setAttribute('aria-busy', String(busy)); }
+function setBusy() { app.querySelectorAll('button,select,input[data-read-file],#global-comment-message,#global-comment-resolved').forEach(el => { el.disabled = el.dataset?.unavailable === 'true' || (busy && !['cancelSearch','tasks','taskCancel','taskRetry','toggleReviewWindow'].includes(el.dataset?.action)) || (el.dataset?.action === 'download' && (model.downloads || []).some(job => job.changeId === model.detail?.id && (job.status === 'running' || job.settled === false))); }); app.setAttribute('aria-busy', String(busy)); }
 function payload() { return { id: model.detail?.id, rev: model.detail?.current_revision, compareLeft: model.detail?.comparison?.left, compareRight: model.detail?.comparison?.right }; }
 app.addEventListener('click', event => {
   const link = event.target.closest('a[href]');
@@ -392,6 +404,13 @@ app.addEventListener('input', event => {
     document.getElementById('file-results').innerHTML = fileResults(model.detail, event.target.value); setBusy();
   }
   if (event.target.id === 'review-message') saveReview();
+  if (event.target.id === 'global-comment-message' || event.target.id === 'global-comment-resolved') {
+    state.globalComments ||= {};
+    const draft = state.globalComments[globalCommentKey()] ||= {};
+    if (event.target.id === 'global-comment-message') draft.message = event.target.value;
+    else draft.resolved = event.target.checked;
+    save();
+  }
   if (event.target.dataset?.replyKey) { state.replies ||= {}; state.replies[event.target.dataset.replyKey] = event.target.value; save(); }
 });
 app.addEventListener('change', event => {
@@ -408,6 +427,11 @@ app.addEventListener('submit', event => {
   if (event.target.id === 'search') submitSearch();
   if (event.target.id === 'patch-search') post('patchSearch', { ...payload(), patchRev: model.detail.patchView.rev, query: document.getElementById('patch-search-text').value });
   if (event.target.id === 'review') { saveReview(); post('review', { ...payload(), ...draft() }); }
+  if (event.target.id === 'global-comment') {
+    const message = event.target.querySelector('textarea').value;
+    const resolved = event.target.querySelector('input[type="checkbox"]').checked;
+    post('globalComment', { ...payload(), patchRev: globalCommentPatch(), message, resolved });
+  }
   if (event.target.dataset?.form === 'reply') post('reply', { ...payload(), path: event.target.dataset.path, comment: event.target.dataset.comment, message: event.target.querySelector('textarea').value });
 });
 app.addEventListener('focusout', event => {
@@ -526,6 +550,10 @@ window.addEventListener('message', ({ data }) => {
     }
   }
   if (data.type === 'reviewSent') { if (state.drafts) delete state.drafts[key()]; save(); }
+  if (data.type === 'globalCommentSent' && data.id === model.detail?.id && data.rev === model.detail?.current_revision && data.patchRev === globalCommentPatch()) {
+    if (state.globalComments) delete state.globalComments[globalCommentKey()];
+    save(); render();
+  }
   if (data.type === 'replySent') {
     const list = Object.values(model.detail?.comments || {}).flatMap(comments => commentThreads(comments)).find(group => group.some(comment => comment.id === data.comment));
     if (state.replies) { delete state.replies[`${key()}::${list?.[0]?.id || data.comment}`]; delete state.replies[`${key()}::${data.comment}`]; } save();

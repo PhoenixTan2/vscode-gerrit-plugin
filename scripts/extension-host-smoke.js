@@ -60,6 +60,7 @@ async function run() {
     const panel = vscode.window.createWebviewPanel('gerrit.smoke.review', 'Review UI smoke', vscode.ViewColumn.Active, { enableScripts: true, localResourceRoots: [extension.extensionUri] });
     const nonce = require('node:crypto').randomBytes(16).toString('hex');
     const media = name => panel.webview.asWebviewUri(vscode.Uri.joinPath(extension.extensionUri, 'media', name));
+    const globalCommentActions=[];
     const reviewActions=[];let resolveAction, reviewAction, reviewerAddAction, reviewerRemoveAction, fileAction, searchAction, patchAction, cancelAction, compareAction, navigationAction, metadataAction, relatedAction, parentAction, childAction, patchSearchAction, singleAction, openLinkAction, comparisonReturnAction, readAction, ancestorAction, taskCancelAction, taskRetryAction, updatesAction;
     const reviewResult = new Promise((resolve, reject) => {
       const timeout = setTimeout(() => reject(new Error('Review Webview fixture did not render')), 15000);
@@ -76,6 +77,7 @@ async function run() {
         if (message.type === 'taskCancel') taskCancelAction = message;
         if (message.type === 'taskRetry') taskRetryAction = message;
         if (message.type === 'applySearchUpdates') updatesAction = message;
+        if (message.type === 'globalComment') globalCommentActions.push(message);
         if (message.type === 'file') fileAction = message;
         if (message.type === 'search') searchAction = message;
         if (message.type === 'patch') patchAction = message;
@@ -122,6 +124,13 @@ async function run() {
         const thread = document.querySelector('.thread:has([data-action="locate"])');
         const global=[...document.querySelectorAll('.thread')].find(item=>item.textContent.includes('Whole change comment'));
         if (!global || !global.open || global.querySelector('[data-action="locate"]')) throw new Error('Global comment exposes code navigation');
+        const globalComposer = document.getElementById('global-comment');
+        const globalResolved = globalComposer.querySelector('input[type="checkbox"]');
+        if (globalResolved.checked) throw new Error('Global comment defaults to resolved');
+        globalComposer.querySelector('textarea').value = 'Patch-set feedback';
+        globalComposer.querySelector('button[type="submit"]').click();
+        globalResolved.click();
+        globalComposer.querySelector('button[type="submit"]').click();
         if (!thread.querySelector('.markdown-body strong')) throw new Error('Markdown not rendered');
         thread.open = false;
         if (!thread.querySelector('.thread-snippet').textContent.includes('Could we check') || thread.getBoundingClientRect().height > 55) throw new Error('Collapsed discussion is not one line');
@@ -285,6 +294,9 @@ async function run() {
     `;
     panel.webview.html = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${panel.webview.cspSource}; script-src 'nonce-${nonce}'"><link rel="stylesheet" href="${media('style.css')}"></head><body><header><div id="account"></div></header><div id="notice"></div><main id="app"></main><script nonce="${nonce}" src="${media('vendor/markdown-it.min.js')}"></script><script nonce="${nonce}" src="${media('i18n.js')}"></script><script nonce="${nonce}" src="${media('main.js')}"></script><script nonce="${nonce}">${fixtureScript}</script></body></html>`;
     await reviewResult;
+    assert.deepEqual(globalCommentActions.map(({message,resolved,patchRev})=>[message,resolved,patchRev]), [
+      ['Patch-set feedback',false,'a'.repeat(40)], ['Patch-set feedback',true,'a'.repeat(40)],
+    ]);
     assert.equal(resolveAction?.comment,'root');assert.equal(resolveAction?.path,'Boot/Device.c');assert.equal(resolveAction?.id,'fixture');assert.equal(resolveAction?.rev,'a'.repeat(40));
     assert.equal(reviewActions[0]?.labels?.['Code-Review'],1);assert.ok(!Object.hasOwn(reviewActions[1]?.labels||{},'Code-Review'));assert.equal(reviewerAddAction?.index,0);assert.equal(reviewerRemoveAction?.accountId,'8');
     assert.equal(openLinkAction?.url,'https://docs.example/guide');

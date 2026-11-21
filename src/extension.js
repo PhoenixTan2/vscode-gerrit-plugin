@@ -967,6 +967,16 @@ class Workbench {
       await this.api.review(s.id, s.rev, { message, labels });
       this.send({ type: 'reviewSent' }); await this.load(s.id); return;
     }
+    if (m.type === 'globalComment') {
+      const patchRev = this.model.detail?.viewRevision || s.rev;
+      if (m.patchRev !== patchRev || !Object.hasOwn(s.change.revisions, patchRev)) throw new Error(tr('页面已更新，请重新选择变更后操作'));
+      const message = typeof m.message === 'string' ? m.message.trim() : '';
+      if (!message) throw new Error(tr('请输入评论内容'));
+      await this.postComment({ rev: patchRev, path: '/PATCHSET_LEVEL', unresolved: m.resolved !== true }, message);
+      this.send({ type: 'globalCommentSent', id: s.id, rev: s.rev, patchRev });
+      if (this.selected === s) await this.load(s.id);
+      return;
+    }
     if (m.type === 'reply' || m.type === 'resolveThread') {
       const comments = s.comments[m.path] || [];
       const parent = comments.find(c => c.id === m.comment);
@@ -1250,11 +1260,11 @@ class Workbench {
   }
   async postComment(info, message, parent) {
     const s = this.selected;
-    const c = { message, side: info.side || 'REVISION', unresolved: true };
+    const c = { message, side: info.side || 'REVISION', unresolved: info.unresolved ?? true };
     if (info.line) c.line = info.line;
     if (info.range) c.range = info.range;
     if (info.parent && Number.isInteger(info.parent)) c.parent = info.parent;
-    if (parent) { c.in_reply_to = parent; c.unresolved = info.unresolved ?? true; }
+    if (parent) c.in_reply_to = parent;
     const revision = info.rev || s.rev;
     if (!this.validInfo({ ...info, id: s.id, rev: revision })) throw new Error(tr('评论版本已失效，请重新打开文件'));
     await this.api.review(s.id, revision, { comments: { [info.path]: [c] } });
