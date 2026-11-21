@@ -75,7 +75,7 @@ Install [Office Viewer](https://marketplace.visualstudio.com/items?itemName=cwei
 
 ## Install and connect
 
-Install `gerrit-workbench-1.1.0.vsix` using Extensions → **Install from VSIX**, then open the Gerrit Workbench activity icon. Enter a server root such as `http://192.168.1.10` or `https://review.example.com:8443`. Do not append `/gerrit` unless your server is actually deployed at that prefix. Dashboard URLs are also accepted.
+Install `gerrit-workbench-1.1.4.vsix` using Extensions → **Install from VSIX**, then open the Gerrit Workbench activity icon. Enter a server root such as `http://192.168.1.10` or `https://review.example.com:8443`. Do not append `/gerrit` unless your server is actually deployed at that prefix. Dashboard URLs are also accepted.
 
 Choose one authentication method per connection:
 
@@ -114,7 +114,7 @@ Set **Gerrit → Language** to `zh-CN` (default) or `en`. Views, dialogs and ext
 
 File reads are local progress markers, separate from Gerrit's reviewed-by-me state. That state means you commented or voted after the author's last update. Opening a file does not publish a Gerrit review.
 
-Overall reviews and votes target the latest PS. Historical PS pages require explicitly opening the latest PS before overall review or change-management actions. Inline replies retain the original revision. Reviews publish immediately; drafts are never automatically published.
+Overall reviews and votes target the latest PS. Historical PS pages require explicitly opening the latest PS before overall review or change-management actions. Inline replies retain the original revision. Use the discussion form to post a change-level comment on the patch set shown. It starts unresolved unless you select **Mark as resolved**. Only the person who started a thread can mark it resolved with **Done**. Reviews publish immediately; drafts are never automatically published.
 
 ## SSH downloads and uploads
 
@@ -139,6 +139,6 @@ Toolbar settings and output buttons open extension settings and the Gerrit Workb
 
 ## Development and local delivery
 
-Run `python scripts/verify.py`, then `python scripts/package.py`. Optionally run `python scripts/verify_host.py --vsix gerrit-workbench-1.1.0.vsix` for an isolated real VS Code host check. Node.js or VS Code's bundled Node runtime and Python are required. Local Git tests require Git. The packager validates the new archive before removing older project VSIX files and includes only runtime assets and documentation.
+Run `python scripts/verify.py`, then `python scripts/package.py`. Optionally run `python scripts/verify_host.py --vsix gerrit-workbench-1.1.4.vsix` for an isolated real VS Code host check. Node.js or VS Code's bundled Node runtime and Python are required. Local Git tests require Git. The packager validates the new archive before removing older project VSIX files and includes only runtime assets and documentation.
 
-This is a local delivery; no remote repository or Marketplace publication is configured. See [release checks](RELEASE.en.md). MIT license; bundled markdown-it license is documented in [third-party notices](THIRD_PARTY_NOTICES.md).
+The source is hosted in a private GitHub repository. Install the local VSIX while Marketplace publication is pending. See [release checks](RELEASE.en.md). MIT license; bundled markdown-it license is documented in [third-party notices](THIRD_PARTY_NOTICES.md).

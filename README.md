@@ -75,7 +75,7 @@ Gerrit 的评审人员属于整笔变更，不按 Code-Review、Verified 独立�
 
 ## 安装与连接
 
-在扩展面板 `…` → **从 VSIX 安装**，选择 `gerrit-workbench-1.1.0.vsix`。点击左侧 Gerrit Workbench 图标连接服务器。该入口与其他 Gerrit 插件相互独立；若活动栏未显示，可右键活动栏勾选 Gerrit Workbench，或点击状态栏 Gerrit 打开。通常只需服务器根地址，例如 `http://192.168.1.10` 或 `https://review.example.com:8443`，无需手动追加 `/gerrit` 或 `/dashboard/self`。实际部署在子路径的服务器仍支持对应前缀；也兼容粘贴 dashboard 地址。
+在扩展面板 `…` → **从 VSIX 安装**，选择 `gerrit-workbench-1.1.4.vsix`。点击左侧 Gerrit Workbench 图标连接服务器。该入口与其他 Gerrit 插件相互独立；若活动栏未显示，可右键活动栏勾选 Gerrit Workbench，或点击状态栏 Gerrit 打开。通常只需服务器根地址，例如 `http://192.168.1.10` 或 `https://review.example.com:8443`，无需手动追加 `/gerrit` 或 `/dashboard/self`。实际部署在子路径的服务器仍支持对应前缀；也兼容粘贴 dashboard 地址。
 
 在扩展设置的 **Language / 语言** 中选择 `zh-CN`（默认）或 `en`，插件页面和对话框即时切换。VS Code 命令、设置标题等声明式文字跟随 VS Code 显示语言；评论、代码、姓名和服务器信息保持原文。
 
@@ -124,7 +124,7 @@ Gerrit 的评审人员属于整笔变更，不按 Code-Review、Verified 独立�
 | 发布 / 废弃 / 合入 | 自己的 WIP 可发布为待评审；可废弃自己的提交；有 submit 权限且服务器允许时可合入目标分支 |
 | 设置 / 调试输出 | 仅保留 Gerrit 侧边栏右上角的齿轮和输出小按钮，不在页面正文重复显示 |
 
-行评论与回复绑定实际所在的 PS / Base。整体评审与评分针对页面注明的最新 PS。评论、回复、评分立即发布；整体评审和线程回复保留本地输入草稿，不自动发布服务器已有的其他草稿。暂不支持编辑评论解决状态。
+行评论与回复绑定实际所在的 PS / Base。整体评审与评分针对页面注明的最新 PS。评论、回复、评分立即发布；整体评审和线程回复保留本地输入草稿，不自动发布服务器已有的其他草稿。可在讨论页为当前查看的 PS 发布全局评论，默认未解决，发布前可勾选「标记为已解决」。只有发起讨论的账号能用 Done 将线程标记为已解决。
 
 “我已评审”使用 Gerrit 的 `REVIEWED` / `reviewedby:self` 语义：自己在作者最近一次更新之后发布过评论或评分。仅打开代码不会自动标记；作者再次更新后会重新归入未评审。这与他人是否已经评分、文件级“已读”是不同概念。分支筛选可与预设或自定义查询组合；切换 Merged 会清除仅 Open 有效的未评审开关。
 
@@ -274,7 +274,7 @@ Install [Office Viewer](https://marketplace.visualstudio.com/items?itemName=cwei
 
 ## Install and connect
 
-Install `gerrit-workbench-1.1.0.vsix` using Extensions → **Install from VSIX**, then open the Gerrit Workbench activity icon. Enter a server root such as `http://192.168.1.10` or `https://review.example.com:8443`. Do not append `/gerrit` unless your server is actually deployed at that prefix. Dashboard URLs are also accepted.
+Install `gerrit-workbench-1.1.4.vsix` using Extensions → **Install from VSIX**, then open the Gerrit Workbench activity icon. Enter a server root such as `http://192.168.1.10` or `https://review.example.com:8443`. Do not append `/gerrit` unless your server is actually deployed at that prefix. Dashboard URLs are also accepted.
 
 Choose one authentication method per connection:
 
@@ -313,7 +313,7 @@ Set **Gerrit → Language** to `zh-CN` (default) or `en`. Views, dialogs and ext
 
 File reads are local progress markers, separate from Gerrit's reviewed-by-me state. That state means you commented or voted after the author's last update. Opening a file does not publish a Gerrit review.
 
-Overall reviews and votes target the latest PS. Historical PS pages require explicitly opening the latest PS before overall review or change-management actions. Inline replies retain the original revision. Reviews publish immediately; drafts are never automatically published.
+Overall reviews and votes target the latest PS. Historical PS pages require explicitly opening the latest PS before overall review or change-management actions. Inline replies retain the original revision. Use the discussion form to post a change-level comment on the patch set shown. It starts unresolved unless you select **Mark as resolved**. Only the person who started a thread can mark it resolved with **Done**. Reviews publish immediately; drafts are never automatically published.
 
 ## SSH downloads and uploads
 
@@ -338,6 +338,6 @@ Toolbar settings and output buttons open extension settings and the Gerrit Workb
 
 ## Development and local delivery
 
-Run `python scripts/verify.py`, then `python scripts/package.py`. Optionally run `python scripts/verify_host.py --vsix gerrit-workbench-1.1.0.vsix` for an isolated real VS Code host check. Node.js or VS Code's bundled Node runtime and Python are required. Local Git tests require Git. The packager validates the new archive before removing older project VSIX files and includes only runtime assets and documentation.
+Run `python scripts/verify.py`, then `python scripts/package.py`. Optionally run `python scripts/verify_host.py --vsix gerrit-workbench-1.1.4.vsix` for an isolated real VS Code host check. Node.js or VS Code's bundled Node runtime and Python are required. Local Git tests require Git. The packager validates the new archive before removing older project VSIX files and includes only runtime assets and documentation.
 
-This is a local delivery; no remote repository or Marketplace publication is configured. See [release checks](RELEASE.en.md). MIT license; bundled markdown-it license is documented in [third-party notices](THIRD_PARTY_NOTICES.md).
+The source is hosted in a private GitHub repository. Install the local VSIX while Marketplace publication is pending. See [release checks](RELEASE.en.md). MIT license; bundled markdown-it license is documented in [third-party notices](THIRD_PARTY_NOTICES.md).

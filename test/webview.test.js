@@ -499,14 +499,17 @@ test('global comment defaults to unresolved, retains draft on refresh and resets
  assert.doesNotMatch(f.app.innerHTML,/id="global-comment-resolved"[^>]*checked/);
  f.events.input({target:{id:'global-comment-message',value:'Global draft'}});
  f.events.input({target:{id:'global-comment-resolved',checked:true}});
+ model.language='en'; detail.current_revision='new'; detail.revisions.new={_number:3};
  f.update(model);
+ assert.match(f.app.innerHTML,/Change-level comment · PS 1/);
+ assert.match(f.app.innerHTML,/Mark as resolved/);
  assert.match(f.app.innerHTML,/Global draft/);
  assert.match(f.app.innerHTML,/id="global-comment-resolved"[^>]*checked/);
  f.events.submit({preventDefault(){},target:{id:'global-comment',querySelector:selector=>selector==='textarea'?{value:'Global draft'}:{checked:true}}});
  const action=f.messages.at(-1);
- assert.equal(action.type,'globalComment');assert.equal(action.id,'change');assert.equal(action.rev,'rev');assert.equal(action.patchRev,'old');
+ assert.equal(action.type,'globalComment');assert.equal(action.id,'change');assert.equal(action.rev,'new');assert.equal(action.patchRev,'old');
  assert.equal(action.message,'Global draft');assert.equal(action.resolved,true);
- f.message({type:'globalCommentSent',id:'change',rev:'rev',patchRev:'old'});
+ f.message({type:'globalCommentSent',id:'change',rev:'new',patchRev:'old'});
  assert.doesNotMatch(f.app.innerHTML,/Global draft|id="global-comment-resolved"[^>]*checked/);
 });
 

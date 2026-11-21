@@ -16,7 +16,8 @@ async function run() {
     assert.ok(commands.includes('workbench.view.extension.gerritWorkbench'), 'Our container must remain separate');
     assert.ok(!extension.packageJSON.contributes.configuration.properties['gerrit.comments.expandThreads']);
     for (const key of ['commitInfo.defaultExpanded','relationChain.defaultExpanded']) assert.ok(!extension.packageJSON.contributes.configuration.properties['gerrit.'+key]);
-    assert.ok(['Gerrit 对比差异','Gerrit Comparison'].includes(extension.packageJSON.contributes.viewsContainers.panel[0].title));
+    const chineseLocale = /^zh(?:-|$)/i.test(vscode.env.language);
+    assert.equal(extension.packageJSON.contributes.viewsContainers.panel[0].title, chineseLocale ? 'Gerrit 对比差异' : 'Gerrit Comparison');
     for (const id of ['gerrit.connect', 'gerrit.refresh', 'gerrit.logs', 'gerrit.comment', 'gerrit.fileComments', 'gerrit.tasks', 'gerrit.openLeftFile', 'gerrit.openRightFile', 'gerrit.openThisFile']) assert.ok(commands.includes(id), `${id} must be registered`);
     await vscode.commands.executeCommand('workbench.view.extension.gerritWorkbench');
     await vscode.commands.executeCommand('gerrit.dashboard.focus');
@@ -381,7 +382,7 @@ async function run() {
 
     await require('./edit-host-smoke').run(extension);
     await vscode.commands.executeCommand('gerrit.logs');
-    fs.writeFileSync(process.env.GERRIT_HOST_SMOKE_RESULT, JSON.stringify({ ok: true, vscode: vscode.version, extension: extension.packageJSON.version, excel: process.env.GERRIT_EXCEL_VIEWER ? 'valid old/new XLSX opened in custom editors in two preview groups' : undefined }));
+    fs.writeFileSync(process.env.GERRIT_HOST_SMOKE_RESULT, JSON.stringify({ ok: true, vscode: vscode.version, locale: vscode.env.language, extension: extension.packageJSON.version, excel: process.env.GERRIT_EXCEL_VIEWER ? 'valid old/new XLSX opened in custom editors in two preview groups' : undefined }));
     console.log('Real Extension Host activation and sidebar smoke test passed');
   } catch (error) {
     fs.writeFileSync(process.env.GERRIT_HOST_SMOKE_RESULT, JSON.stringify({ ok: false, message: error.stack || error.message }));

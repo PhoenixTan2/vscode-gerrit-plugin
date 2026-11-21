@@ -940,6 +940,8 @@ test('Done resolves a discussion I started on another author’s change and pres
   assert.equal(comment.parent,2);assert.equal(comment.line,4);assert.deepEqual(comment.range,range);assert.equal(review.labels,undefined);
   await assert.rejects(app.handle({type:'resolveThread',id:app.selected.id,rev:'old',path:'a.c',comment:'root'}),/页面已更新/);
   await assert.rejects(app.handle({type:'resolveThread',id:app.selected.id,rev:'abc',path:'a.c',comment:'missing'}),/评论不存在/);
+  app.selected.comments['a.c'][0].patch_set=99;
+  await assert.rejects(app.handle({type:'resolveThread',id:app.selected.id,rev:'abc',path:'a.c',comment:'root'}),/Patch set 已不存在/);
   app.selected.comments['a.c'][0].unresolved=false;
   await app.handle({type:'resolveThread',id:app.selected.id,rev:'abc',path:'a.c',comment:'root'});
   assert.equal(sent.length,1);

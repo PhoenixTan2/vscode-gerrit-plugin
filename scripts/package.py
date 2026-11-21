@@ -18,7 +18,7 @@ types = '''<?xml version="1.0" encoding="utf-8"?><Types xmlns="http://schemas.op
 with zipfile.ZipFile(temporary, 'w', zipfile.ZIP_DEFLATED) as z:
     z.writestr('extension.vsixmanifest', manifest)
     z.writestr('[Content_Types].xml', types)
-    for name in ['package.json', 'package.nls.json', 'package.nls.en.json', 'README.md', 'README.en.md', 'CHANGELOG.md', 'CHANGELOG.en.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'RELEASE.md', 'RELEASE.en.md']:
+    for name in ['package.json', 'package.nls.json', 'package.nls.zh-cn.json', 'README.md', 'README.en.md', 'CHANGELOG.md', 'CHANGELOG.en.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'RELEASE.md', 'RELEASE.en.md']:
         z.write(root / name, 'extension/' + name)
     for directory in ['src', 'media']:
         for file in sorted((root / directory).rglob('*')):

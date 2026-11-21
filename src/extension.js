@@ -988,7 +988,8 @@ class Workbench {
         this.requireThreadAuthor(root?.author?._account_id);
       }
       const text = resolving ? 'Done' : String(m.message || '').trim(); if (!text) throw new Error(tr('请输入回复内容'));
-      const rev = Object.keys(s.change.revisions).find(key => s.change.revisions[key]._number === parent.patch_set) || s.rev;
+      const rev = parent.patch_set == null ? s.rev : Object.keys(s.change.revisions).find(key => s.change.revisions[key]._number === parent.patch_set);
+      if (!rev) throw new Error(tr('所需 Patch set 已不存在，请刷新后重试'));
       await this.postComment({ ...parent, rev, path: m.path, ...(resolving ? { unresolved: false } : {}) }, text, parent.id); if (!resolving) this.send({ type: 'replySent', comment: parent.id }); await this.load(s.id); return;
     }
     if (m.type === 'action') {

@@ -2,12 +2,12 @@
 
 **中文** | [English](#english)
 
-本轮只准备本地 VSIX，没有公开仓库，不向 Marketplace 或 Git 远程上传。保留现有 local-tools 发布者标识，不虚构 repository / homepage / issues 地址。
+源码已在 GitHub 私有仓库托管。VSIX 在本地构建，Marketplace 尚未发布。本地包使用 `local-tools` 发布者标识。
 
 1. 运行 `python scripts/verify.py`，再运行 `python scripts/package.py`。
 2. 运行 `python scripts/verify_host.py --vsix gerrit-workbench-1.1.4.vsix`，验证隔离的真实 VS Code 激活、页面脚本和交互。
 3. 运行 `python scripts/check_release.py`，检查语言资源、双语文档、PNG 图标和包文件白名单；日志、凭据、测试与临时文件不进入安装包。
-4. 只保留当前 VSIX，并记录本地 Git commit，不推送。
+4. 只保留当前 VSIX，并记录本地 Git commit，按用户要求推送。
 
 新增评论快捷键仅绑定只读 Gerrit diff 中的裸 C；Ctrl+C 不匹配该绑定。差异默认使用预览标签，用户可双击保留。
 
@@ -18,7 +18,7 @@
 ## 1.1.4 本地验证
 
 - Done 与回复独立提交。Done 无需填写正文；回复保留解决状态。讨论页草稿随线程保存，Done 刷新后保留未发布正文。只有讨论发起者可以标记为已解决，支持历史 PS。
-- 222 项测试通过；真实 VS Code 1.146.0 的包激活、工作台、讨论页 Done 点击、全局评论发表选项、原生评论及 diff 回归通过。
+- 222 项测试通过；真实 VS Code 1.146.0 的中英文宿主、包激活、工作台、讨论页 Done 点击、全局评论发表选项、原生评论及 diff 回归通过。
 - 同窗口实测 1.1.3 → 1.1.4 → 1.1.3，文件指纹与设置正确，运行实例仍为 1.1.3。免重载升级尚未满足，新版运行实例的连接、持久化状态、讨论、原生评论、diff 迁移与回退兼容性未完成验收。安装后需重载一次窗口。
 - 未使用真实凭据，未写入真实 Gerrit 提交；目标服务器写入效果仍需现场验证。
 
@@ -64,7 +64,7 @@
 ## 1.1.4 local validation
 
 - Done and reply publish independently. Done needs no reply text; replies preserve resolution state. Discussion drafts survive Done refreshes. Only the thread author can mark it resolved, including on historical patch sets.
-- 222 tests pass. Packaged activation, workbench, discussion Done clicks, global comment posting options, native comments and diff regression passed on VS Code 1.146.0.
+- 222 tests pass. Packaged activation, workbench, discussion Done clicks, global comment posting options, native comments and diff regression passed on VS Code 1.146.0 with English and Simplified Chinese display languages.
 - Same-window 1.1.3 → 1.1.4 → 1.1.3 installation/rollback preserved settings and matched file fingerprints, but the runtime stayed at 1.1.3. No-reload upgrade acceptance is unmet. New-runtime connection, persisted state, discussion, native comment and diff migration/rollback acceptance remains incomplete. Reload once after installation.
 - No real credentials or writes against real Gerrit changes were used. Target-server write acceptance remains unverified.
 
@@ -85,12 +85,12 @@ The version is unchanged for this batch. Native Edit integration covers immutabl
 
 [返回中文 / Back to Chinese](#本地发布检查)
 
-This delivery is a local VSIX only. No public repository, Marketplace upload or Git push is configured. Keep the current local-tools publisher identity; do not invent repository, homepage or issue URLs.
+The source is hosted in a private GitHub repository. VSIX files are built locally. Marketplace publication is pending, and the local package uses the `local-tools` publisher ID.
 
 1. Run `python scripts/verify.py`, followed by `python scripts/package.py`.
 2. Run `python scripts/verify_host.py --vsix gerrit-workbench-1.1.1.vsix` to exercise an isolated real VS Code host and Webview workflows.
 3. Run `python scripts/check_release.py` to check localization, bilingual documents, PNG icon and archive allowlisting. Exclude logs, credentials, tests and temporary files.
-4. Retain only the current VSIX and record one local Git commit. Do not push.
+4. Retain only the current VSIX and record one local Git commit. Push when requested.
 
 The comment shortcut binds bare C only in read-only Gerrit diffs. Ctrl+C does not match it. Comparisons use preview tabs; users can double-click a tab to keep it.
 
